@@ -10,11 +10,19 @@ generator client {
 // ENUMS
 // ----------------------------------------------------
 
-enum Role {
-  ADMIN
-  MANAGER
+enum SystemRole {
+  SUPER_ADMIN
+  USER
+}
+
+enum SchoolRole {
+  PRINCIPAL
+  VICE_PRINCIPAL
+  HEAD_OF_DEPARTMENT
   TEACHER
   STUDENT
+  PARENT
+  STAFF
 }
 
 enum CustomRequestStatus {
@@ -73,7 +81,14 @@ enum PaymentMethod {
   BANK
 }
 
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+  LIFETIME
+}
+
 enum SubscriptionStatus {
+  TRIALING
   ACTIVE
   EXPIRED
   CANCELED
@@ -86,67 +101,140 @@ enum SchoolStatus {
   SUSPENDED
 }
 
+enum QuestionType {
+  MULTIPLE_CHOICE
+  SINGLE_CHOICE
+  ESSAY
+  TRUE_FALSE
+}
+
+enum StoreItemType {
+  VOUCHER
+  BADGE
+  THEME
+  OTHER
+}
+
+enum SubmissionStatus {
+  IN_PROGRESS
+  SUBMITTED
+  GRADED
+  RETURNED
+}
+
 // ----------------------------------------------------
 // CORE & USER MODELS
 // ----------------------------------------------------
 
 model User {
-  id            String    @id @default(uuid())
-  role          Role      @default(STUDENT)
+  id            String     @id @default(uuid())
+  role          SystemRole @default(USER)
   fullname      String
   avatar_url    String?
-  email         String    @unique
+  email         String     @unique
   phone         String?
   password_hash String
-  status        Boolean   @default(true)
+  status        Boolean    @default(true)
   last_login_at DateTime?
-  created_at    DateTime  @default(now())
-  updated_at    DateTime  @updatedAt
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @updatedAt
 
+  school_memberships      SchoolMember[]
   teacher_profile         TeacherProfile?
   student_profile         StudentProfile?
+  parent_profile          ParentProfile?
   custom_feature_requests CustomFeatureRequest[]
   notifications           Notification[]
-  orders                  Order[]
-  schools                 School[]
+  orders_purchased        Order[]                @relation("OrderBuyer")
+  orders_sold             Order[]                @relation("OrderSeller")
+  schools_owned           School[]               @relation("SchoolOwner")
   created_packages        SubscriptionPackage[]
   question_banks          QuestionBank[]
-  classes                 Class[]
   store_items             StoreItem[]
 
   @@map("users")
 }
 
+model SchoolMember {
+  id        String     @id @default(uuid())
+  user_id   String
+  school_id String
+  role      SchoolRole @default(STUDENT)
+  joined_at DateTime   @default(now())
+
+  user   User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  school School @relation(fields: [school_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, school_id])
+  @@index([user_id])
+  @@index([school_id])
+  @@map("school_members")
+}
+
 model TeacherProfile {
   id               String  @id @default(uuid())
   user_id          String  @unique
+  department_id    String?
   bio              String?
   expertise        String?
   experience_years Int?
 
-  user          User                  @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  courses       Course[]
-  subscriptions TeacherSubscription[]
-  store_items   StoreItem[]
-  class_courses ClassCourse[]
+  user               User                  @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  department         Department?           @relation("DepartmentTeachers", fields: [department_id], references: [id], onDelete: SetNull)
+  departments_headed Department[]          @relation("DepartmentHead")
+  courses            Course[]
+  subscriptions      TeacherSubscription[]
+  store_items        StoreItem[]
+  class_courses      ClassCourse[]
+  classes_managed    Class[]
+  sessions_taught    ClassSession[]
 
   @@map("teacher_profile")
 }
 
 model StudentProfile {
-  id                  String    @id @default(uuid())
-  user_id             String    @unique
-  date_of_birth       DateTime?
-  grade_level         String?
-  parent_phone        String?
-  points              Int       @default(0)
-  parent_access_codes String?
+  id            String    @id @default(uuid())
+  user_id       String    @unique
+  date_of_birth DateTime?
+  grade_level   String?
+  points        Int       @default(0)
 
-  user        User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  enrollments ClassEnrollment[]
-  inventory   StudentInventory[]
+  user            User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  enrollments     ClassEnrollment[]
+  inventory       StudentInventory[]
+  parent_students ParentStudent[]
+  submissions     ExamSubmission[]
+  progress        StudentProgress[]
 
   @@map("student_profile")
+}
+
+model ParentProfile {
+  id        String  @id @default(uuid())
+  user_id   String  @unique
+  job_title String?
+  address   String?
+
+  user            User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  parent_students ParentStudent[]
+
+  @@map("parent_profile")
+}
+
+model ParentStudent {
+  id                String   @id @default(uuid())
+  parent_id         String
+  student_id        String
+  relationship_type String?  @default("PARENT")
+  created_at        DateTime @default(now())
+
+  parent  ParentProfile  @relation(fields: [parent_id], references: [id], onDelete: Cascade)
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([parent_id, student_id])
+  @@index([parent_id])
+  @@index([student_id])
+  @@map("parent_students")
 }
 
 model CustomFeatureRequest {
@@ -160,11 +248,13 @@ model CustomFeatureRequest {
 
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@index([user_id])
+  @@index([status])
   @@map("custom_feature_requests")
 }
 
 // ----------------------------------------------------
-// SCHOOLS & SUBSCRIPTIONS
+// SCHOOLS & SUBSCRIPTIONS (SAAS B2B)
 // ----------------------------------------------------
 
 model School {
@@ -179,31 +269,80 @@ model School {
   created_at DateTime     @default(now())
   updated_at DateTime     @updatedAt
 
-  owner          User?          @relation(fields: [owner_id], references: [id], onDelete: SetNull)
+  owner          User?                @relation("SchoolOwner", fields: [owner_id], references: [id], onDelete: SetNull)
+  members        SchoolMember[]
+  departments    Department[]
+  classes        Class[]
+  courses        Course[]
   question_banks QuestionBank[]
+  subscriptions  SchoolSubscription[]
 
+  @@index([owner_id])
   @@map("schools")
 }
 
+model Department {
+  id              String   @id @default(uuid())
+  school_id       String
+  name            String
+  head_teacher_id String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  school       School           @relation(fields: [school_id], references: [id], onDelete: Cascade)
+  head_teacher TeacherProfile?  @relation("DepartmentHead", fields: [head_teacher_id], references: [id], onDelete: SetNull)
+  teachers     TeacherProfile[] @relation("DepartmentTeachers")
+  courses      Course[]
+
+  @@index([school_id])
+  @@index([head_teacher_id])
+  @@map("departments")
+}
+
 model SubscriptionPackage {
-  id                     String   @id @default(uuid())
+  id                     String       @id @default(uuid())
   creator_id             String?
   name                   String
-  price                  Decimal  @db.Decimal(10, 2)
-  max_classes            Int      @default(0)
-  max_students_per_class Int      @default(0)
-  can_sell_courses       Boolean  @default(false)
-  is_active              Boolean  @default(true)
+  description            String?
+  price                  Decimal      @db.Decimal(10, 2)
+  billing_cycle          BillingCycle @default(MONTHLY)
+  duration_days          Int?
+  max_teachers           Int          @default(0)
+  max_students_total     Int          @default(0)
+  max_classes            Int          @default(0)
+  max_students_per_class Int          @default(0)
+  storage_limit_gb       Int          @default(0)
+  can_sell_courses       Boolean      @default(false)
+  is_active              Boolean      @default(true)
   features               Json?
   custom_features        Json?
-  created_at             DateTime @default(now())
-  updated_at             DateTime @updatedAt
+  created_at             DateTime     @default(now())
+  updated_at             DateTime     @updatedAt
 
   creator               User?                 @relation(fields: [creator_id], references: [id], onDelete: SetNull)
   teacher_subscriptions TeacherSubscription[]
+  school_subscriptions  SchoolSubscription[]
   orders                Order[]
 
   @@map("subscription_packages")
+}
+
+model SchoolSubscription {
+  id                String             @id @default(uuid())
+  school_id         String
+  package_id        String
+  features_snapshot Json?
+  start_date        DateTime
+  end_date          DateTime
+  status            SubscriptionStatus @default(ACTIVE)
+  created_at        DateTime           @default(now())
+
+  school  School              @relation(fields: [school_id], references: [id], onDelete: Cascade)
+  package SubscriptionPackage @relation(fields: [package_id], references: [id], onDelete: Cascade)
+
+  @@index([school_id])
+  @@index([package_id])
+  @@map("school_subscriptions")
 }
 
 model TeacherSubscription {
@@ -219,6 +358,8 @@ model TeacherSubscription {
   teacher TeacherProfile      @relation(fields: [teacher_id], references: [id], onDelete: Cascade)
   package SubscriptionPackage @relation(fields: [package_id], references: [id], onDelete: Cascade)
 
+  @@index([teacher_id])
+  @@index([package_id])
   @@map("teacher_subscriptions")
 }
 
@@ -240,11 +381,14 @@ model Category {
   children Category[] @relation("CategoryHierarchy")
   courses  Course[]
 
+  @@index([parent_id])
   @@map("categories")
 }
 
 model Course {
   id             String       @id @default(uuid())
+  school_id      String?
+  department_id  String?
   subject_id     String?
   owner_id       String
   title          String
@@ -256,12 +400,19 @@ model Course {
   created_at     DateTime     @default(now())
   updated_at     DateTime     @updatedAt
 
-  category      Category?      @relation(fields: [subject_id], references: [id], onDelete: SetNull)
-  teacher       TeacherProfile @relation(fields: [owner_id], references: [id], onDelete: Cascade)
-  lessons       Lesson[]
-  class_courses ClassCourse[]
-  orders        Order[]
+  school           School?           @relation(fields: [school_id], references: [id], onDelete: SetNull)
+  department       Department?       @relation(fields: [department_id], references: [id], onDelete: SetNull)
+  category         Category?         @relation(fields: [subject_id], references: [id], onDelete: SetNull)
+  teacher          TeacherProfile    @relation(fields: [owner_id], references: [id], onDelete: Cascade)
+  lessons          Lesson[]
+  class_courses    ClassCourse[]
+  orders           Order[]
+  student_progress StudentProgress[]
 
+  @@index([school_id])
+  @@index([department_id])
+  @@index([owner_id])
+  @@index([subject_id])
   @@map("courses")
 }
 
@@ -275,10 +426,13 @@ model Lesson {
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
-  course    Course           @relation(fields: [course_id], references: [id], onDelete: Cascade)
-  materials LessonMaterial[]
-  questions Question[]
+  course           Course            @relation(fields: [course_id], references: [id], onDelete: Cascade)
+  materials        LessonMaterial[]
+  questions        Question[]
+  exam_submissions ExamSubmission[]
+  student_progress StudentProgress[]
 
+  @@index([course_id])
   @@map("lessons")
 }
 
@@ -292,26 +446,33 @@ model LessonMaterial {
 
   lesson Lesson @relation(fields: [lesson_id], references: [id], onDelete: Cascade)
 
+  @@index([lesson_id])
   @@map("lesson_materials")
 }
 
 // ----------------------------------------------------
-// CLASSES & ENROLLMENTS
+// CLASSES & ENROLLMENTS & TIMETABLE
 // ----------------------------------------------------
 
 model Class {
   id         String      @id @default(uuid())
-  user_id    String?
+  school_id  String?
+  teacher_id String?
   course_id  String?
   class_name String
   status     ClassStatus @default(DRAFT)
   created_at DateTime    @default(now())
   updated_at DateTime    @updatedAt
 
-  user          User?             @relation(fields: [user_id], references: [id], onDelete: SetNull)
-  enrollments   ClassEnrollment[]
-  class_courses ClassCourse[]
+  school           School?           @relation(fields: [school_id], references: [id], onDelete: SetNull)
+  teacher          TeacherProfile?   @relation(fields: [teacher_id], references: [id], onDelete: SetNull)
+  enrollments      ClassEnrollment[]
+  class_courses    ClassCourse[]
+  exam_submissions ExamSubmission[]
+  sessions         ClassSession[]
 
+  @@index([school_id])
+  @@index([teacher_id])
   @@map("classes")
 }
 
@@ -324,6 +485,8 @@ model ClassEnrollment {
   class   Class          @relation(fields: [class_id], references: [id], onDelete: Cascade)
   student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
 
+  @@index([class_id])
+  @@index([student_id])
   @@map("class_enrollments")
 }
 
@@ -337,7 +500,30 @@ model ClassCourse {
   course  Course          @relation(fields: [course_id], references: [id], onDelete: Cascade)
   class   Class           @relation(fields: [class_id], references: [id], onDelete: Cascade)
 
+  @@index([class_id])
+  @@index([course_id])
   @@map("class_courses")
+}
+
+model ClassSession {
+  id          String   @id @default(uuid())
+  class_id    String
+  teacher_id  String?
+  title       String?
+  start_time  DateTime
+  end_time    DateTime
+  room        String?
+  meeting_url String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  class   Class           @relation(fields: [class_id], references: [id], onDelete: Cascade)
+  teacher TeacherProfile? @relation(fields: [teacher_id], references: [id], onDelete: SetNull)
+
+  @@index([class_id])
+  @@index([teacher_id])
+  @@index([start_time])
+  @@map("class_sessions")
 }
 
 // ----------------------------------------------------
@@ -353,27 +539,33 @@ model QuestionBank {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  owner     User?      @relation(fields: [owner_id], references: [id], onDelete: SetNull)
-  school    School?    @relation(fields: [school_id], references: [id], onDelete: SetNull)
-  questions Question[]
+  owner            User?            @relation(fields: [owner_id], references: [id], onDelete: SetNull)
+  school           School?          @relation(fields: [school_id], references: [id], onDelete: SetNull)
+  questions        Question[]
+  exam_submissions ExamSubmission[]
 
+  @@index([owner_id])
+  @@index([school_id])
   @@map("question_banks")
 }
 
 model Question {
-  id         String   @id @default(uuid())
+  id         String        @id @default(uuid())
   bank_id    String?
   lesson_id  String?
-  type       String?
+  type       QuestionType? @default(MULTIPLE_CHOICE)
   title      String?
   question   String
   answer     String?
-  created_at DateTime @default(now())
+  created_at DateTime      @default(now())
 
-  bank    QuestionBank? @relation(fields: [bank_id], references: [id], onDelete: SetNull)
-  lesson  Lesson?       @relation(fields: [lesson_id], references: [id], onDelete: SetNull)
-  answers Answer[]
+  bank               QuestionBank?      @relation(fields: [bank_id], references: [id], onDelete: SetNull)
+  lesson             Lesson?            @relation(fields: [lesson_id], references: [id], onDelete: SetNull)
+  answers            Answer[]
+  submission_answers SubmissionAnswer[]
 
+  @@index([bank_id])
+  @@index([lesson_id])
   @@map("questions")
 }
 
@@ -385,9 +577,80 @@ model Answer {
   img_url     String?
   is_answer   Boolean @default(false)
 
-  question Question @relation(fields: [question_id], references: [id], onDelete: Cascade)
+  question           Question           @relation(fields: [question_id], references: [id], onDelete: Cascade)
+  submission_answers SubmissionAnswer[]
 
+  @@index([question_id])
   @@map("answers")
+}
+
+// ----------------------------------------------------
+// ACADEMIC TRACKING & EVALUATION
+// ----------------------------------------------------
+
+model ExamSubmission {
+  id            String           @id @default(uuid())
+  student_id    String
+  bank_id       String?
+  lesson_id     String?
+  class_id      String?
+  status        SubmissionStatus @default(IN_PROGRESS)
+  score         Decimal?         @db.Decimal(5, 2)
+  started_at    DateTime         @default(now())
+  submitted_at  DateTime?
+  graded_at     DateTime?
+  teacher_notes String?
+
+  student StudentProfile     @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  bank    QuestionBank?      @relation(fields: [bank_id], references: [id], onDelete: SetNull)
+  lesson  Lesson?            @relation(fields: [lesson_id], references: [id], onDelete: SetNull)
+  class   Class?             @relation(fields: [class_id], references: [id], onDelete: SetNull)
+  answers SubmissionAnswer[]
+
+  @@index([student_id])
+  @@index([bank_id])
+  @@index([lesson_id])
+  @@index([class_id])
+  @@map("exam_submissions")
+}
+
+model SubmissionAnswer {
+  id                 String   @id @default(uuid())
+  submission_id      String
+  question_id        String
+  selected_answer_id String?
+  text_answer        String?
+  is_correct         Boolean?
+  points_earned      Decimal? @db.Decimal(5, 2)
+  teacher_feedback   String?
+
+  submission      ExamSubmission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
+  question        Question       @relation(fields: [question_id], references: [id], onDelete: Cascade)
+  selected_answer Answer?        @relation(fields: [selected_answer_id], references: [id], onDelete: SetNull)
+
+  @@index([submission_id])
+  @@index([question_id])
+  @@index([selected_answer_id])
+  @@map("submission_answers")
+}
+
+model StudentProgress {
+  id             String   @id @default(uuid())
+  student_id     String
+  course_id      String
+  lesson_id      String
+  completion_pct Int      @default(0)
+  last_accessed  DateTime @default(now())
+  is_completed   Boolean  @default(false)
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  course  Course         @relation(fields: [course_id], references: [id], onDelete: Cascade)
+  lesson  Lesson         @relation(fields: [lesson_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, course_id])
+  @@index([student_id])
+  @@index([course_id])
+  @@map("student_progress")
 }
 
 // ----------------------------------------------------
@@ -395,24 +658,26 @@ model Answer {
 // ----------------------------------------------------
 
 model StoreItem {
-  id          String     @id @default(uuid())
+  id          String         @id @default(uuid())
   teacher_id  String?
   user_id     String?
-  type        String?
+  type        StoreItemType? @default(OTHER)
   name        String
   description String?
-  points      Int        @default(0)
-  stock       Int        @default(0)
+  points      Int            @default(0)
+  stock       Int            @default(0)
   image_url   String?
-  status      ItemStatus @default(ACTIVE)
+  status      ItemStatus     @default(ACTIVE)
   expired     DateTime?
-  created_at  DateTime   @default(now())
-  updated_at  DateTime   @updatedAt
+  created_at  DateTime       @default(now())
+  updated_at  DateTime       @updatedAt
 
   teacher   TeacherProfile?    @relation(fields: [teacher_id], references: [id], onDelete: SetNull)
   user      User?              @relation(fields: [user_id], references: [id], onDelete: SetNull)
   inventory StudentInventory[]
 
+  @@index([teacher_id])
+  @@index([user_id])
   @@map("store_items")
 }
 
@@ -428,6 +693,8 @@ model StudentInventory {
   student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
   item    StoreItem      @relation(fields: [item_id], references: [id], onDelete: Cascade)
 
+  @@index([student_id])
+  @@index([item_id])
   @@map("student_inventory")
 }
 
@@ -449,11 +716,14 @@ model Order {
   created_at          DateTime           @default(now())
   updated_at          DateTime           @updatedAt
 
-  user         User                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user         User                 @relation("OrderBuyer", fields: [user_id], references: [id], onDelete: Cascade)
+  seller       User?                @relation("OrderSeller", fields: [seller_id], references: [id], onDelete: SetNull)
   subscription SubscriptionPackage? @relation(fields: [subscription_id], references: [id], onDelete: SetNull)
   course       Course?              @relation(fields: [course_id], references: [id], onDelete: SetNull)
   transactions Transaction[]
 
+  @@index([user_id])
+  @@index([seller_id])
   @@map("orders")
 }
 
@@ -467,6 +737,7 @@ model Transaction {
 
   order Order? @relation(fields: [order_id], references: [id], onDelete: SetNull)
 
+  @@index([order_id])
   @@map("transactions")
 }
 
@@ -484,5 +755,7 @@ model Notification {
 
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@index([user_id])
+  @@index([is_read])
   @@map("notifications")
 }
