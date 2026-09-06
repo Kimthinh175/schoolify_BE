@@ -566,240 +566,2001 @@
     // DATABASE SCHEMA DATA (28 Tables + Full Cardinality)
     // -------------------------------------------------------------
     const TABLES = [
-      // Core & Users
-      { id: 'User', name: 'User', group: 'core', x: 80, y: 100, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'role', type: 'SystemRole' },
-        { name: 'fullname', type: 'String' },
-        { name: 'email', type: 'String', uk: true },
-        { name: 'phone', type: 'String' },
-        { name: 'password_hash', type: 'String' },
-        { name: 'status', type: 'Boolean' },
-        { name: 'last_login_at', type: 'DateTime' }
-      ]},
-      { id: 'SchoolMember', name: 'SchoolMember', group: 'core', x: 450, y: 60, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'user_id', type: 'UUID', fk: true },
-        { name: 'school_id', type: 'UUID', fk: true },
-        { name: 'role', type: 'SchoolRole' },
-        { name: 'joined_at', type: 'DateTime' }
-      ]},
-      { id: 'TeacherProfile', name: 'TeacherProfile', group: 'core', x: 450, y: 310, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'user_id', type: 'UUID', fk: true, uk: true },
-        { name: 'department_id', type: 'UUID', fk: true },
-        { name: 'bio', type: 'String' },
-        { name: 'expertise', type: 'String' },
-        { name: 'experience_years', type: 'Int' }
-      ]},
-      { id: 'StudentProfile', name: 'StudentProfile', group: 'core', x: 450, y: 560, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'user_id', type: 'UUID', fk: true, uk: true },
-        { name: 'date_of_birth', type: 'DateTime' },
-        { name: 'grade_level', type: 'String' },
-        { name: 'points', type: 'Int' }
-      ]},
-      { id: 'ParentProfile', name: 'ParentProfile', group: 'core', x: 80, y: 560, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'user_id', type: 'UUID', fk: true, uk: true },
-        { name: 'job_title', type: 'String' },
-        { name: 'address', type: 'String' }
-      ]},
-      { id: 'ParentStudent', name: 'ParentStudent', group: 'core', x: 260, y: 770, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'parent_id', type: 'UUID', fk: true },
-        { name: 'student_id', type: 'UUID', fk: true },
-        { name: 'relationship_type', type: 'String' }
-      ]},
-      { id: 'Notification', name: 'Notification', group: 'core', x: 80, y: 360, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'user_id', type: 'UUID', fk: true },
-        { name: 'title', type: 'String' },
-        { name: 'message', type: 'String' },
-        { name: 'is_read', type: 'Boolean' }
-      ]},
-
-      // School & Department
-      { id: 'School', name: 'School', group: 'school', x: 820, y: 60, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'owner_id', type: 'UUID', fk: true },
-        { name: 'name', type: 'String' },
-        { name: 'code', type: 'String', uk: true },
-        { name: 'phone', type: 'String' },
-        { name: 'email', type: 'String' },
-        { name: 'status', type: 'SchoolStatus' }
-      ]},
-      { id: 'Department', name: 'Department', group: 'school', x: 820, y: 350, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'school_id', type: 'UUID', fk: true },
-        { name: 'name', type: 'String' },
-        { name: 'head_teacher_id', type: 'UUID', fk: true }
-      ]},
-
-      // SaaS & Subscriptions
-      { id: 'SubscriptionPackage', name: 'SubscriptionPackage', group: 'saas', x: 80, y: 960, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'name', type: 'String' },
-        { name: 'price', type: 'Decimal' },
-        { name: 'billing_cycle', type: 'BillingCycle' },
-        { name: 'max_teachers', type: 'Int' },
-        { name: 'max_students_total', type: 'Int' },
-        { name: 'storage_limit_gb', type: 'Int' },
-        { name: 'can_sell_courses', type: 'Boolean' }
-      ]},
-      { id: 'SchoolSubscription', name: 'SchoolSubscription', group: 'saas', x: 450, y: 960, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'school_id', type: 'UUID', fk: true },
-        { name: 'package_id', type: 'UUID', fk: true },
-        { name: 'start_date', type: 'DateTime' },
-        { name: 'end_date', type: 'DateTime' },
-        { name: 'status', type: 'SubscriptionStatus' }
-      ]},
-      { id: 'TeacherSubscription', name: 'TeacherSubscription', group: 'saas', x: 450, y: 1180, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'teacher_id', type: 'UUID', fk: true },
-        { name: 'package_id', type: 'UUID', fk: true },
-        { name: 'status', type: 'SubscriptionStatus' }
-      ]},
-
-      // Courses & Content
-      { id: 'Category', name: 'Category', group: 'academic', x: 1200, y: 60, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'name', type: 'String' },
-        { name: 'slug', type: 'String', uk: true },
-        { name: 'parent_id', type: 'UUID', fk: true }
-      ]},
-      { id: 'Course', name: 'Course', group: 'academic', x: 1200, y: 280, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'school_id', type: 'UUID', fk: true },
-        { name: 'department_id', type: 'UUID', fk: true },
-        { name: 'owner_id', type: 'UUID', fk: true },
-        { name: 'title', type: 'String' },
-        { name: 'price', type: 'Decimal' },
-        { name: 'is_marketplace', type: 'Boolean' },
-        { name: 'status', type: 'CourseStatus' }
-      ]},
-      { id: 'Lesson', name: 'Lesson', group: 'academic', x: 1200, y: 630, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'course_id', type: 'UUID', fk: true },
-        { name: 'title', type: 'String' },
-        { name: 'video_url', type: 'String' },
-        { name: 'order_index', type: 'Int' }
-      ]},
-      { id: 'LessonMaterial', name: 'LessonMaterial', group: 'academic', x: 1200, y: 880, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'lesson_id', type: 'UUID', fk: true },
-        { name: 'material_type', type: 'MaterialType' },
-        { name: 'url', type: 'String' }
-      ]},
-
-      // Classes & Timetable
-      { id: 'Class', name: 'Class', group: 'academic', x: 820, y: 570, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'school_id', type: 'UUID', fk: true },
-        { name: 'teacher_id', type: 'UUID', fk: true },
-        { name: 'class_name', type: 'String' },
-        { name: 'status', type: 'ClassStatus' }
-      ]},
-      { id: 'ClassEnrollment', name: 'ClassEnrollment', group: 'academic', x: 820, y: 820, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'class_id', type: 'UUID', fk: true },
-        { name: 'student_id', type: 'UUID', fk: true },
-        { name: 'joined_date', type: 'DateTime' }
-      ]},
-      { id: 'ClassSession', name: 'ClassSession', group: 'academic', x: 820, y: 1050, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'class_id', type: 'UUID', fk: true },
-        { name: 'teacher_id', type: 'UUID', fk: true },
-        { name: 'title', type: 'String' },
-        { name: 'start_time', type: 'DateTime' },
-        { name: 'end_time', type: 'DateTime' },
-        { name: 'room', type: 'String' },
-        { name: 'meeting_url', type: 'String' }
-      ]},
-
-      // Question Banks & Exams
-      { id: 'QuestionBank', name: 'QuestionBank', group: 'academic', x: 1580, y: 100, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'title', type: 'String' },
-        { name: 'owner_id', type: 'UUID', fk: true },
-        { name: 'school_id', type: 'UUID', fk: true },
-        { name: 'is_premium', type: 'Boolean' }
-      ]},
-      { id: 'Question', name: 'Question', group: 'academic', x: 1580, y: 340, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'bank_id', type: 'UUID', fk: true },
-        { name: 'lesson_id', type: 'UUID', fk: true },
-        { name: 'type', type: 'QuestionType' },
-        { name: 'title', type: 'String' }
-      ]},
-      { id: 'Answer', name: 'Answer', group: 'academic', x: 1580, y: 580, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'question_id', type: 'UUID', fk: true },
-        { name: 'content', type: 'String' },
-        { name: 'is_answer', type: 'Boolean' }
-      ]},
-      { id: 'ExamSubmission', name: 'ExamSubmission', group: 'academic', x: 1940, y: 340, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'student_id', type: 'UUID', fk: true },
-        { name: 'bank_id', type: 'UUID', fk: true },
-        { name: 'class_id', type: 'UUID', fk: true },
-        { name: 'score', type: 'Decimal' },
-        { name: 'status', type: 'SubmissionStatus' }
-      ]},
-      { id: 'SubmissionAnswer', name: 'SubmissionAnswer', group: 'academic', x: 1940, y: 620, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'submission_id', type: 'UUID', fk: true },
-        { name: 'question_id', type: 'UUID', fk: true },
-        { name: 'selected_answer_id', type: 'UUID', fk: true },
-        { name: 'is_correct', type: 'Boolean' },
-        { name: 'points_earned', type: 'Decimal' },
-        { name: 'teacher_feedback', type: 'String' }
-      ]},
-      { id: 'StudentProgress', name: 'StudentProgress', group: 'academic', x: 1580, y: 820, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'student_id', type: 'UUID', fk: true },
-        { name: 'course_id', type: 'UUID', fk: true },
-        { name: 'completion_pct', type: 'Int' },
-        { name: 'is_completed', type: 'Boolean' }
-      ]},
-
-      // Store & Gamification
-      { id: 'StoreItem', name: 'StoreItem', group: 'store', x: 1580, y: 1070, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'teacher_id', type: 'UUID', fk: true },
-        { name: 'type', type: 'StoreItemType' },
-        { name: 'name', type: 'String' },
-        { name: 'points', type: 'Int' },
-        { name: 'stock', type: 'Int' }
-      ]},
-      { id: 'StudentInventory', name: 'StudentInventory', group: 'store', x: 1940, y: 1070, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'student_id', type: 'UUID', fk: true },
-        { name: 'item_id', type: 'UUID', fk: true },
-        { name: 'points', type: 'Int' },
-        { name: 'active', type: 'Boolean' }
-      ]},
-
-      // Orders & Billing
-      { id: 'Order', name: 'Order', group: 'order', x: 820, y: 1320, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'user_id', type: 'UUID', fk: true },
-        { name: 'reference_type', type: 'OrderReferenceType' },
-        { name: 'subscription_id', type: 'UUID', fk: true },
-        { name: 'course_id', type: 'UUID', fk: true },
-        { name: 'status', type: 'OrderStatus' },
-        { name: 'payment_method', type: 'PaymentMethod' },
-        { name: 'seller_id', type: 'UUID', fk: true }
-      ]},
-      { id: 'Transaction', name: 'Transaction', group: 'order', x: 1200, y: 1320, fields: [
-        { name: 'id', type: 'UUID', pk: true },
-        { name: 'order_id', type: 'UUID', fk: true },
-        { name: 'transaction_type', type: 'TransactionType' },
-        { name: 'amount', type: 'Decimal' },
-        { name: 'recipient_id', type: 'String' }
-      ]}
-    ];
+    {
+        "id": "User",
+        "name": "User",
+        "group": "core",
+        "x": 80,
+        "y": 100,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "role",
+                "type": "SystemRole",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "fullname",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "avatar_url",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "email",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": true
+            },
+            {
+                "name": "phone",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "password_hash",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "status",
+                "type": "Boolean",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "last_login_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "SchoolMember",
+        "name": "SchoolMember",
+        "group": "core",
+        "x": 440,
+        "y": 60,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "user_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "school_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "role",
+                "type": "SchoolRole",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "joined_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "TeacherProfile",
+        "name": "TeacherProfile",
+        "group": "core",
+        "x": 440,
+        "y": 320,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "user_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": true
+            },
+            {
+                "name": "department_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "bio",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "expertise",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "experience_years",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "StudentProfile",
+        "name": "StudentProfile",
+        "group": "core",
+        "x": 440,
+        "y": 580,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "user_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": true
+            },
+            {
+                "name": "date_of_birth",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "grade_level",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "points",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "ParentProfile",
+        "name": "ParentProfile",
+        "group": "core",
+        "x": 80,
+        "y": 560,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "user_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": true
+            },
+            {
+                "name": "job_title",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "address",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "ParentStudent",
+        "name": "ParentStudent",
+        "group": "core",
+        "x": 260,
+        "y": 800,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "parent_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "student_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "relationship_type",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "CustomFeatureRequest",
+        "name": "CustomFeatureRequest",
+        "group": "core",
+        "x": 80,
+        "y": 780,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "user_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "request_content",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "phone",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "contact_info",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "status",
+                "type": "CustomRequestStatus",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "School",
+        "name": "School",
+        "group": "school",
+        "x": 800,
+        "y": 60,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "owner_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "name",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "code",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": true
+            },
+            {
+                "name": "address",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "phone",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "email",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "status",
+                "type": "SchoolStatus",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "Department",
+        "name": "Department",
+        "group": "school",
+        "x": 800,
+        "y": 360,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "school_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "name",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "head_teacher_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "SubscriptionPackage",
+        "name": "SubscriptionPackage",
+        "group": "saas",
+        "x": 80,
+        "y": 1040,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "creator_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "name",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "description",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "price",
+                "type": "Decimal",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "billing_cycle",
+                "type": "BillingCycle",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "duration_days",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "max_teachers",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "max_students_total",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "max_classes",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "max_students_per_class",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "storage_limit_gb",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "can_sell_courses",
+                "type": "Boolean",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "is_active",
+                "type": "Boolean",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "features",
+                "type": "Json",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "custom_features",
+                "type": "Json",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "SchoolSubscription",
+        "name": "SchoolSubscription",
+        "group": "saas",
+        "x": 440,
+        "y": 1040,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "school_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "package_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "features_snapshot",
+                "type": "Json",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "start_date",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "end_date",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "status",
+                "type": "SubscriptionStatus",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "TeacherSubscription",
+        "name": "TeacherSubscription",
+        "group": "saas",
+        "x": 440,
+        "y": 1280,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "teacher_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "package_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "features_snapshot",
+                "type": "Json",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "start_date",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "end_date",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "status",
+                "type": "SubscriptionStatus",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "Category",
+        "name": "Category",
+        "group": "academic",
+        "x": 1160,
+        "y": 60,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "name",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "slug",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": true
+            },
+            {
+                "name": "parent_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "status",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "sort_order",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "Course",
+        "name": "Course",
+        "group": "academic",
+        "x": 1160,
+        "y": 280,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "school_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "department_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "subject_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "owner_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "title",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "description",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "price",
+                "type": "Decimal",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "is_marketplace",
+                "type": "Boolean",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "status",
+                "type": "CourseStatus",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "published_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "Lesson",
+        "name": "Lesson",
+        "group": "academic",
+        "x": 1160,
+        "y": 660,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "course_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "title",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "content",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "video_url",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "order_index",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "LessonMaterial",
+        "name": "LessonMaterial",
+        "group": "academic",
+        "x": 1160,
+        "y": 920,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "lesson_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "material_type",
+                "type": "MaterialType",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "url",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "content_data",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "order_index",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "Class",
+        "name": "Class",
+        "group": "academic",
+        "x": 800,
+        "y": 600,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "school_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "teacher_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "course_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "class_name",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "status",
+                "type": "ClassStatus",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "ClassEnrollment",
+        "name": "ClassEnrollment",
+        "group": "academic",
+        "x": 800,
+        "y": 860,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "class_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "student_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "joined_date",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "ClassCourse",
+        "name": "ClassCourse",
+        "group": "academic",
+        "x": 800,
+        "y": 1060,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "teacher_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "course_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "class_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "ClassSession",
+        "name": "ClassSession",
+        "group": "academic",
+        "x": 800,
+        "y": 1260,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "class_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "teacher_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "title",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "start_time",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "end_time",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "room",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "meeting_url",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "QuestionBank",
+        "name": "QuestionBank",
+        "group": "academic",
+        "x": 1540,
+        "y": 100,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "title",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "owner_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "school_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "is_premium",
+                "type": "Boolean",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "Question",
+        "name": "Question",
+        "group": "academic",
+        "x": 1540,
+        "y": 360,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "bank_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "lesson_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "type",
+                "type": "QuestionType",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "title",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "question",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "answer",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "Answer",
+        "name": "Answer",
+        "group": "academic",
+        "x": 1540,
+        "y": 620,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "question_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "content",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "explain",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "img_url",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "is_answer",
+                "type": "Boolean",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "ExamSubmission",
+        "name": "ExamSubmission",
+        "group": "academic",
+        "x": 1900,
+        "y": 360,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "student_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "bank_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "lesson_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "class_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "status",
+                "type": "SubmissionStatus",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "score",
+                "type": "Decimal",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "started_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "submitted_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "graded_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "teacher_notes",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "SubmissionAnswer",
+        "name": "SubmissionAnswer",
+        "group": "academic",
+        "x": 1900,
+        "y": 660,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "submission_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "question_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "selected_answer_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "text_answer",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "is_correct",
+                "type": "Boolean",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "points_earned",
+                "type": "Decimal",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "teacher_feedback",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "StudentProgress",
+        "name": "StudentProgress",
+        "group": "academic",
+        "x": 1540,
+        "y": 880,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "student_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "course_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "lesson_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "completion_pct",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "last_accessed",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "is_completed",
+                "type": "Boolean",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "StoreItem",
+        "name": "StoreItem",
+        "group": "store",
+        "x": 1540,
+        "y": 1140,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "teacher_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "user_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "type",
+                "type": "StoreItemType",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "name",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "description",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "points",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "stock",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "image_url",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "status",
+                "type": "ItemStatus",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "expired",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "StudentInventory",
+        "name": "StudentInventory",
+        "group": "store",
+        "x": 1900,
+        "y": 1140,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "student_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "item_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "type",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "points",
+                "type": "Int",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "buy_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "active",
+                "type": "Boolean",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "Order",
+        "name": "Order",
+        "group": "order",
+        "x": 800,
+        "y": 1500,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "user_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "reference_type",
+                "type": "OrderReferenceType",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "subscription_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "course_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "item_name_snapshot",
+                "type": "Json",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "item_price_snapshot",
+                "type": "Decimal",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "status",
+                "type": "OrderStatus",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "payment_method",
+                "type": "PaymentMethod",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "seller_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "Transaction",
+        "name": "Transaction",
+        "group": "order",
+        "x": 1160,
+        "y": 1500,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "order_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "transaction_type",
+                "type": "TransactionType",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "amount",
+                "type": "Decimal",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "recipient_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    },
+    {
+        "id": "Notification",
+        "name": "Notification",
+        "group": "core",
+        "x": 80,
+        "y": 360,
+        "fields": [
+            {
+                "name": "id",
+                "type": "String",
+                "pk": true,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "user_id",
+                "type": "String",
+                "pk": false,
+                "fk": true,
+                "uk": false
+            },
+            {
+                "name": "title",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "message",
+                "type": "String",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "is_read",
+                "type": "Boolean",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            },
+            {
+                "name": "created_at",
+                "type": "DateTime",
+                "pk": false,
+                "fk": false,
+                "uk": false
+            }
+        ]
+    }
+];
 
     // RELATIONSHIPS WITH EXPLICIT CARDINALITY
     const RELATIONS = [
