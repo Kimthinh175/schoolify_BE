@@ -3,34 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Schoolify - Entity Relationship Diagram (ERD) Interactive</title>
+  <title>Schoolify - Interactive Draggable ERD</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-primary: #0b0f19;
-      --bg-secondary: #111827;
-      --bg-card: rgba(17, 24, 39, 0.85);
-      --border-color: rgba(255, 255, 255, 0.1);
-      --accent-blue: #3b82f6;
-      --accent-indigo: #6366f1;
-      --accent-purple: #8b5cf6;
-      --text-main: #f3f4f6;
-      --text-muted: #9ca3af;
+      --bg-dark: #090d16;
+      --bg-grid: #131b2e;
+      --panel-bg: rgba(15, 23, 42, 0.88);
+      --border-color: rgba(255, 255, 255, 0.12);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      
+      /* Group Colors */
+      --c-core: #3b82f6;
+      --c-school: #10b981;
+      --c-academic: #f59e0b;
+      --c-saas: #ec4899;
+      --c-store: #8b5cf6;
+      --c-order: #06b6d4;
     }
 
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
+      user-select: none;
     }
 
     body {
       font-family: 'Plus Jakarta Sans', sans-serif;
-      background-color: var(--bg-primary);
+      background-color: var(--bg-dark);
       color: var(--text-main);
       overflow: hidden;
       width: 100vw;
@@ -39,17 +43,17 @@
       flex-direction: column;
     }
 
-    /* Top Navigation Header */
+    /* Header */
     header {
-      background: rgba(17, 24, 39, 0.8);
+      background: var(--panel-bg);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border-color);
-      padding: 12px 24px;
+      padding: 10px 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      z-index: 50;
-      height: 64px;
+      z-index: 100;
+      height: 60px;
     }
 
     .brand-section {
@@ -60,848 +64,949 @@
 
     .brand-badge {
       background: linear-gradient(135deg, #6366f1, #a855f7);
-      width: 38px;
-      height: 38px;
-      border-radius: 10px;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 800;
-      font-size: 20px;
+      font-size: 18px;
       color: white;
-      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
     }
 
     .title-group h1 {
-      font-size: 17px;
+      font-size: 16px;
       font-weight: 700;
-      letter-spacing: -0.3px;
     }
 
     .title-group p {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
     }
 
-    .stats-pills {
-      display: flex;
-      gap: 8px;
-    }
-
-    .pill {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--border-color);
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 500;
+    .header-actions {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 10px;
     }
 
-    .pill span {
-      color: #38bdf8;
-      font-weight: 700;
+    .search-box {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 6px 12px;
+      color: var(--text-main);
+      font-size: 13px;
+      outline: none;
+      width: 200px;
+      transition: all 0.2s;
     }
 
-    /* Main Canvas Area */
-    #container {
+    .search-box:focus {
+      border-color: #6366f1;
+      background: rgba(255, 255, 255, 0.1);
+      width: 240px;
+    }
+
+    /* Canvas Viewport */
+    #viewport {
       flex: 1;
       position: relative;
-      background: radial-gradient(circle at 50% 50%, #172033 0%, #0b0f19 100%);
       overflow: hidden;
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(circle, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+      background-size: 28px 28px;
       cursor: grab;
     }
 
-    #container:active {
+    #viewport.panning {
       cursor: grabbing;
     }
 
-    #mermaid-wrapper {
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    #canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: 0 0;
+      width: 10000px;
+      height: 10000px;
     }
 
-    /* Floating Toolbars */
-    .floating-toolbar {
+    /* SVG Connections Layer */
+    #connections-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .wire {
+      fill: none;
+      stroke: rgba(148, 163, 184, 0.35);
+      stroke-width: 1.8px;
+      transition: stroke 0.2s, stroke-width 0.2s;
+    }
+
+    .wire.active {
+      stroke: #60a5fa;
+      stroke-width: 3.2px;
+      filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.8));
+    }
+
+    /* Table Node Cards */
+    .table-card {
+      position: absolute;
+      width: 270px;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      transition: box-shadow 0.2s, border-color 0.2s, opacity 0.2s;
+    }
+
+    .table-card:hover {
+      box-shadow: 0 20px 35px -5px rgba(0, 0, 0, 0.8), 0 0 15px rgba(99, 102, 241, 0.25);
+      border-color: rgba(148, 163, 184, 0.4);
+      z-index: 30;
+    }
+
+    .table-card.dragging {
+      opacity: 0.92;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9);
+      cursor: grabbing !important;
+      z-index: 50;
+    }
+
+    .table-card.highlighted {
+      border-color: #38bdf8;
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+    }
+
+    .table-header {
+      padding: 10px 14px;
+      border-top-left-radius: 11px;
+      border-top-right-radius: 11px;
+      background: rgba(255, 255, 255, 0.03);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: grab;
+    }
+
+    .table-header:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .table-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+    }
+
+    .fields-list {
+      padding: 8px 12px;
+      max-height: 250px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .fields-list::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .fields-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+
+    .field-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+
+    .field-row:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .field-name {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #e2e8f0;
+    }
+
+    .tag-pk {
+      background: #ef4444;
+      color: white;
+      font-size: 9px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-weight: 700;
+    }
+
+    .tag-fk {
+      background: #3b82f6;
+      color: white;
+      font-size: 9px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-weight: 700;
+    }
+
+    .tag-uk {
+      background: #10b981;
+      color: white;
+      font-size: 9px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-weight: 700;
+    }
+
+    .field-type {
+      color: #64748b;
+      font-size: 10.5px;
+    }
+
+    /* Floating Toolbar */
+    .floating-bar {
       position: absolute;
       bottom: 24px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(17, 24, 39, 0.9);
+      background: var(--panel-bg);
       backdrop-filter: blur(16px);
       border: 1px solid var(--border-color);
-      border-radius: 16px;
-      padding: 8px;
+      border-radius: 14px;
+      padding: 6px 12px;
       display: flex;
       align-items: center;
-      gap: 6px;
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
-      z-index: 40;
+      gap: 8px;
+      z-index: 90;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
     }
 
-    .btn-tool {
+    .tool-btn {
       background: transparent;
       border: none;
       color: var(--text-main);
-      width: 40px;
-      height: 40px;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      padding: 8px 12px;
+      border-radius: 8px;
       cursor: pointer;
-      font-size: 16px;
-      transition: all 0.2s ease;
-    }
-
-    .btn-tool:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: #38bdf8;
-      transform: translateY(-2px);
-    }
-
-    .btn-tool:active {
-      transform: translateY(0);
-    }
-
-    .divider {
-      width: 1px;
-      height: 24px;
-      background: var(--border-color);
-      margin: 0 4px;
-    }
-
-    .zoom-indicator {
-      font-family: 'JetBrains Mono', monospace;
       font-size: 13px;
       font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .tool-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #38bdf8;
+    }
+
+    .v-divider {
+      width: 1px;
+      height: 20px;
+      background: var(--border-color);
+    }
+
+    .zoom-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
       color: var(--text-muted);
-      min-width: 60px;
+      min-width: 50px;
       text-align: center;
     }
 
-    /* Side Legend Panel */
-    .legend-panel {
+    .tips-overlay {
       position: absolute;
-      top: 80px;
-      right: 24px;
-      background: rgba(17, 24, 39, 0.85);
-      backdrop-filter: blur(16px);
-      border: 1px solid var(--border-color);
-      border-radius: 16px;
-      padding: 16px;
-      width: 260px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.4);
-      z-index: 30;
-      transition: all 0.3s ease;
-    }
-
-    .legend-title {
-      font-size: 13px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: var(--text-muted);
-      margin-bottom: 12px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .legend-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .legend-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 12.5px;
-      font-weight: 500;
-      padding: 6px 8px;
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.02);
-    }
-
-    .legend-color {
-      width: 12px;
-      height: 12px;
-      border-radius: 4px;
-    }
-
-    .c-core { background: #3b82f6; }
-    .c-school { background: #10b981; }
-    .c-academic { background: #f59e0b; }
-    .c-saas { background: #ec4899; }
-    .c-gamify { background: #8b5cf6; }
-
-    /* Loading Spinner */
-    #loading {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      background: var(--bg-primary);
-      z-index: 100;
-      gap: 16px;
-    }
-
-    .spinner {
-      width: 48px;
-      height: 48px;
-      border: 4px solid rgba(99, 102, 241, 0.2);
-      border-left-color: #6366f1;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    /* Helper tips */
-    .help-hint {
-      position: absolute;
-      top: 80px;
-      left: 24px;
-      background: rgba(17, 24, 39, 0.7);
+      top: 76px;
+      left: 20px;
+      background: rgba(15, 23, 42, 0.75);
       backdrop-filter: blur(8px);
       border: 1px solid var(--border-color);
-      padding: 10px 16px;
-      border-radius: 12px;
+      padding: 8px 14px;
+      border-radius: 10px;
       font-size: 12px;
       color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      z-index: 30;
       pointer-events: none;
+      z-index: 80;
     }
   </style>
 </head>
 <body>
 
-  <!-- Loading State -->
-  <div id="loading">
-    <div class="spinner"></div>
-    <p style="font-weight: 600; color: #a5b4fc;">Đang render sơ đồ CSDL Schoolify (Prisma ERD)...</p>
-  </div>
-
-  <!-- Header Bar -->
+  <!-- Header -->
   <header>
     <div class="brand-section">
       <div class="brand-badge">S</div>
       <div class="title-group">
-        <h1>Schoolify - Database Architecture (ERD)</h1>
-        <p>PostgreSQL Schema • Multi-Tenant & SaaS B2B2C Ready</p>
+        <h1>Schoolify - Interactive ERD (Kéo Thả Bảng)</h1>
+        <p>Bấm giữ tiêu đề để kéo bảng dời dây đè • Cuộn chuột để Zoom</p>
       </div>
     </div>
 
-    <div class="stats-pills">
-      <div class="pill">Models: <span>28 Bảng</span></div>
-      <div class="pill">Enums: <span>17 Loại</span></div>
-      <div class="pill">Scale: <span>1M req/min</span></div>
+    <div class="header-actions">
+      <input type="text" id="search-input" class="search-box" placeholder="Tìm tên bảng (e.g. Course)..." />
     </div>
   </header>
 
-  <!-- Help Hint -->
-  <div class="help-hint">
-    💡 <b>Mẹo:</b> Dùng chuột cuộn để <b>Phóng to / Thu nhỏ</b>, Giữ chuột trái & kéo để <b>Di chuyển</b>.
+  <div class="tips-overlay">
+    🖐️ <b>Kéo thả:</b> Bấm giữ tiêu đề bảng bất kỳ để di chuyển vị trí • Dây kết nối sẽ tự động uốn cong theo!
   </div>
 
-  <!-- Legend Panel -->
-  <div class="legend-panel">
-    <div class="legend-title">
-      <span>Nhóm Bảng Dữ Liệu</span>
-    </div>
-    <div class="legend-list">
-      <div class="legend-item"><div class="legend-color c-core"></div> Core User & Phụ Huynh</div>
-      <div class="legend-item"><div class="legend-color c-school"></div> Trường học & Bộ môn</div>
-      <div class="legend-item"><div class="legend-color c-academic"></div> Khóa học, Bài thi & Điểm</div>
-      <div class="legend-item"><div class="legend-color c-saas"></div> Gói cước SaaS & Đơn hàng</div>
-      <div class="legend-item"><div class="legend-color c-gamify"></div> Gamification & Phần thưởng</div>
-    </div>
-  </div>
+  <!-- Viewport -->
+  <div id="viewport">
+    <div id="canvas">
+      <!-- Dynamic SVG Connections -->
+      <svg id="connections-layer">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="rgba(148, 163, 184, 0.6)" />
+          </marker>
+          <marker id="arrow-active" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#60a5fa" />
+          </marker>
+        </defs>
+      </svg>
 
-  <!-- Zoom & Pan Canvas Container -->
-  <div id="container">
-    <div id="mermaid-wrapper">
-      <div class="mermaid" id="erd-svg">
-erDiagram
-    %% ==============================================
-    %% 1. USER & MULTI-ROLE CORE
-    %% ==============================================
-    User {
-        string id PK "UUID"
-        SystemRole role "SUPER_ADMIN, USER"
-        string fullname
-        string avatar_url
-        string email UK
-        string phone
-        string password_hash
-        boolean status "Default: true"
-        datetime last_login_at
-        datetime created_at
-        datetime updated_at
-    }
-
-    SchoolMember {
-        string id PK "UUID"
-        string user_id FK
-        string school_id FK
-        SchoolRole role "PRINCIPAL, TEACHER, STUDENT, PARENT..."
-        datetime joined_at
-    }
-
-    TeacherProfile {
-        string id PK "UUID"
-        string user_id FK,UK
-        string department_id FK
-        string bio
-        string expertise
-        int experience_years
-    }
-
-    StudentProfile {
-        string id PK "UUID"
-        string user_id FK,UK
-        datetime date_of_birth
-        string grade_level
-        int points "Default: 0"
-    }
-
-    ParentProfile {
-        string id PK "UUID"
-        string user_id FK,UK
-        string job_title
-        string address
-    }
-
-    ParentStudent {
-        string id PK "UUID"
-        string parent_id FK
-        string student_id FK
-        string relationship_type "PARENT, MOTHER, FATHER..."
-        datetime created_at
-    }
-
-    CustomFeatureRequest {
-        string id PK "UUID"
-        string user_id FK
-        string request_content
-        string phone
-        string contact_info
-        CustomRequestStatus status
-        datetime created_at
-    }
-
-    Notification {
-        string id PK "UUID"
-        string user_id FK
-        string title
-        string message
-        boolean is_read "Default: false"
-        datetime created_at
-    }
-
-    %% ==============================================
-    %% 2. SCHOOL & MULTI-TENANT
-    %% ==============================================
-    School {
-        string id PK "UUID"
-        string owner_id FK
-        string name
-        string code UK
-        string address
-        string phone
-        string email
-        SchoolStatus status "ACTIVE, INACTIVE, SUSPENDED"
-        datetime created_at
-        datetime updated_at
-    }
-
-    Department {
-        string id PK "UUID"
-        string school_id FK
-        string name
-        string head_teacher_id FK
-        datetime created_at
-        datetime updated_at
-    }
-
-    %% ==============================================
-    %% 3. SAAS & SUBSCRIPTIONS (B2B & B2C)
-    %% ==============================================
-    SubscriptionPackage {
-        string id PK "UUID"
-        string creator_id FK
-        string name
-        string description
-        decimal price "10,2"
-        BillingCycle billing_cycle "MONTHLY, YEARLY, LIFETIME"
-        int duration_days
-        int max_teachers
-        int max_students_total
-        int max_classes
-        int max_students_per_class
-        int storage_limit_gb
-        boolean can_sell_courses
-        boolean is_active
-        json features
-        json custom_features
-        datetime created_at
-        datetime updated_at
-    }
-
-    SchoolSubscription {
-        string id PK "UUID"
-        string school_id FK
-        string package_id FK
-        json features_snapshot
-        datetime start_date
-        datetime end_date
-        SubscriptionStatus status "TRIALING, ACTIVE, EXPIRED..."
-        datetime created_at
-    }
-
-    TeacherSubscription {
-        string id PK "UUID"
-        string teacher_id FK
-        string package_id FK
-        json features_snapshot
-        datetime start_date
-        datetime end_date
-        SubscriptionStatus status "TRIALING, ACTIVE, EXPIRED..."
-        datetime created_at
-    }
-
-    %% ==============================================
-    %% 4. COURSES, LESSONS & CATEGORIES
-    %% ==============================================
-    Category {
-        string id PK "UUID"
-        string name
-        string slug UK
-        string parent_id FK
-        string status
-        int sort_order
-        datetime created_at
-        datetime updated_at
-    }
-
-    Course {
-        string id PK "UUID"
-        string school_id FK
-        string department_id FK
-        string subject_id FK
-        string owner_id FK
-        string title
-        string description
-        decimal price "10,2"
-        boolean is_marketplace
-        CourseStatus status "DRAFT, PENDING, PUBLISHED..."
-        datetime published_at
-        datetime created_at
-        datetime updated_at
-    }
-
-    Lesson {
-        string id PK "UUID"
-        string course_id FK
-        string title
-        string content
-        string video_url
-        int order_index
-        datetime created_at
-        datetime updated_at
-    }
-
-    LessonMaterial {
-        string id PK "UUID"
-        string lesson_id FK
-        MaterialType material_type "IMG, DOCX, EXCEL"
-        string url
-        string content_data
-        int order_index
-    }
-
-    %% ==============================================
-    %% 5. CLASSES & SCHEDULING (TIMETABLE)
-    %% ==============================================
-    Class {
-        string id PK "UUID"
-        string school_id FK
-        string teacher_id FK
-        string course_id FK
-        string class_name
-        ClassStatus status "DRAFT, PENDING, PUBLISHED..."
-        datetime created_at
-        datetime updated_at
-    }
-
-    ClassEnrollment {
-        string id PK "UUID"
-        string class_id FK
-        string student_id FK
-        datetime joined_date
-    }
-
-    ClassCourse {
-        string id PK "UUID"
-        string teacher_id FK
-        string course_id FK
-        string class_id FK
-    }
-
-    ClassSession {
-        string id PK "UUID"
-        string class_id FK
-        string teacher_id FK
-        string title
-        datetime start_time
-        datetime end_time
-        string room
-        string meeting_url
-        datetime created_at
-        datetime updated_at
-    }
-
-    %% ==============================================
-    %% 6. QUESTIONS & EXAMS & SUBMISSIONS
-    %% ==============================================
-    QuestionBank {
-        string id PK "UUID"
-        string title
-        string owner_id FK
-        string school_id FK
-        boolean is_premium
-        datetime created_at
-        datetime updated_at
-    }
-
-    Question {
-        string id PK "UUID"
-        string bank_id FK
-        string lesson_id FK
-        QuestionType type "MULTIPLE_CHOICE, ESSAY..."
-        string title
-        string question
-        string answer
-        datetime created_at
-    }
-
-    Answer {
-        string id PK "UUID"
-        string question_id FK
-        string content
-        string explain
-        string img_url
-        boolean is_answer
-    }
-
-    ExamSubmission {
-        string id PK "UUID"
-        string student_id FK
-        string bank_id FK
-        string lesson_id FK
-        string class_id FK
-        SubmissionStatus status "IN_PROGRESS, SUBMITTED, GRADED..."
-        decimal score "5,2"
-        datetime started_at
-        datetime submitted_at
-        datetime graded_at
-        string teacher_notes
-    }
-
-    SubmissionAnswer {
-        string id PK "UUID"
-        string submission_id FK
-        string question_id FK
-        string selected_answer_id FK
-        string text_answer
-        boolean is_correct
-        decimal points_earned "5,2"
-        string teacher_feedback
-    }
-
-    StudentProgress {
-        string id PK "UUID"
-        string student_id FK
-        string course_id FK
-        string lesson_id FK
-        int completion_pct
-        datetime last_accessed
-        boolean is_completed
-    }
-
-    %% ==============================================
-    %% 7. GAMIFICATION & STORE
-    %% ==============================================
-    StoreItem {
-        string id PK "UUID"
-        string teacher_id FK
-        string user_id FK
-        StoreItemType type "VOUCHER, BADGE, THEME..."
-        string name
-        string description
-        int points
-        int stock
-        string image_url
-        ItemStatus status
-        datetime expired
-        datetime created_at
-        datetime updated_at
-    }
-
-    StudentInventory {
-        string id PK "UUID"
-        string student_id FK
-        string item_id FK
-        string type
-        int points
-        datetime buy_at
-        boolean active
-    }
-
-    %% ==============================================
-    %% 8. ORDERS & TRANSACTIONS
-    %% ==============================================
-    Order {
-        string id PK "UUID"
-        string user_id FK
-        OrderReferenceType reference_type "SUBSCRIPTION, COURSE"
-        string subscription_id FK
-        string course_id FK
-        json item_name_snapshot
-        decimal item_price_snapshot "10,2"
-        OrderStatus status "PENDING, PAID, CANCELLED"
-        PaymentMethod payment_method "COD, BANK"
-        string seller_id FK
-        datetime created_at
-        datetime updated_at
-    }
-
-    Transaction {
-        string id PK "UUID"
-        string order_id FK
-        TransactionType transaction_type "PAYMENT_TO_ADMIN, COMMISSION_FEE, TEACHER_INCOME"
-        decimal amount "10,2"
-        string recipient_id
-        datetime created_at
-    }
-
-    %% ==============================================
-    %% RELATIONSHIPS
-    %% ==============================================
-    User ||--o{ SchoolMember : "memberships"
-    School ||--o{ SchoolMember : "members"
-    User ||--o| TeacherProfile : "profile"
-    User ||--o| StudentProfile : "profile"
-    User ||--o| ParentProfile : "profile"
-    ParentProfile ||--o{ ParentStudent : "parent_of"
-    StudentProfile ||--o{ ParentStudent : "children_of"
-    User ||--o{ School : "owns"
-    User ||--o{ Notification : "receives"
-    User ||--o{ CustomFeatureRequest : "requests"
-    
-    School ||--o{ Department : "departments"
-    Department ||--o{ TeacherProfile : "teachers"
-    TeacherProfile ||--o| Department : "heads"
-    
-    School ||--o{ SchoolSubscription : "subscriptions"
-    SubscriptionPackage ||--o{ SchoolSubscription : "plans"
-    TeacherProfile ||--o{ TeacherSubscription : "subscriptions"
-    SubscriptionPackage ||--o{ TeacherSubscription : "plans"
-    
-    Category ||--o{ Category : "sub_categories"
-    Category ||--o{ Course : "courses"
-    School ||--o{ Course : "courses"
-    Department ||--o{ Course : "courses"
-    TeacherProfile ||--o{ Course : "courses"
-    Course ||--o{ Lesson : "lessons"
-    Lesson ||--o{ LessonMaterial : "materials"
-    
-    School ||--o{ Class : "classes"
-    TeacherProfile ||--o{ Class : "manages"
-    Class ||--o{ ClassEnrollment : "enrollments"
-    StudentProfile ||--o{ ClassEnrollment : "enrolled_in"
-    Class ||--o{ ClassCourse : "courses"
-    Course ||--o{ ClassCourse : "classes"
-    TeacherProfile ||--o{ ClassCourse : "teaches"
-    Class ||--o{ ClassSession : "sessions"
-    TeacherProfile ||--o{ ClassSession : "instructs"
-    
-    User ||--o{ QuestionBank : "banks"
-    School ||--o{ QuestionBank : "banks"
-    QuestionBank ||--o{ Question : "questions"
-    Lesson ||--o{ Question : "questions"
-    Question ||--o{ Answer : "answers"
-    
-    StudentProfile ||--o{ ExamSubmission : "submissions"
-    QuestionBank ||--o{ ExamSubmission : "submissions"
-    Lesson ||--o{ ExamSubmission : "submissions"
-    Class ||--o{ ExamSubmission : "submissions"
-    ExamSubmission ||--o{ SubmissionAnswer : "answers"
-    Question ||--o{ SubmissionAnswer : "answers"
-    Answer ||--o| SubmissionAnswer : "selected"
-    
-    StudentProfile ||--o{ StudentProgress : "progress"
-    Course ||--o{ StudentProgress : "progress"
-    Lesson ||--o{ StudentProgress : "progress"
-    
-    TeacherProfile ||--o{ StoreItem : "store_items"
-    User ||--o{ StoreItem : "store_items"
-    StoreItem ||--o{ StudentInventory : "inventory"
-    StudentProfile ||--o{ StudentInventory : "inventory"
-    
-    User ||--o{ Order : "orders_purchased"
-    User ||--o{ Order : "orders_sold"
-    SubscriptionPackage ||--o{ Order : "orders"
-    Course ||--o{ Order : "orders"
-    Order ||--o{ Transaction : "transactions"
-      </div>
+      <!-- Tables Container -->
+      <div id="tables-container"></div>
     </div>
   </div>
 
-  <!-- Floating Control Bar -->
-  <div class="floating-toolbar">
-    <button class="btn-tool" id="btn-zoom-in" title="Phóng to (+)">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
-    </button>
-    
-    <span class="zoom-indicator" id="zoom-value">100%</span>
-    
-    <button class="btn-tool" id="btn-zoom-out" title="Thu nhỏ (-)">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
-    </button>
-    
-    <div class="divider"></div>
-    
-    <button class="btn-tool" id="btn-reset" title="Mặc định (100%)">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
-    </button>
-
-    <button class="btn-tool" id="btn-fit" title="Vừa màn hình (Fit Screen)">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
-    </button>
-
-    <div class="divider"></div>
-
-    <button class="btn-tool" id="btn-fullscreen" title="Toàn màn hình">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
-    </button>
+  <!-- Floating Controls -->
+  <div class="floating-bar">
+    <button class="tool-btn" id="btn-zoom-in">➕ Phóng to</button>
+    <span class="zoom-text" id="zoom-label">100%</span>
+    <button class="tool-btn" id="btn-zoom-out">➖ Thu nhỏ</button>
+    <div class="v-divider"></div>
+    <button class="tool-btn" id="btn-fit">🎯 Vừa màn hình</button>
+    <button class="tool-btn" id="btn-reset-pos">🔄 Đặt lại vị trí ban đầu</button>
   </div>
 
   <script>
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: 'dark',
-      er: {
-        useMaxWidth: false,
-        diagramPadding: 40,
-        layoutDirection: 'TB',
-        minEntityWidth: 140,
-        minEntityHeight: 80,
-        entityPadding: 20,
-        stroke: '#4b5563',
-        fill: '#1e293b',
-        fontSize: 13
+    // -------------------------------------------------------------
+    // DATABASE SCHEMA DATA (28 Tables + Relationships)
+    // -------------------------------------------------------------
+    const TABLES = [
+      // Core & Users
+      { id: 'User', name: 'User', group: 'core', x: 100, y: 120, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'role', type: 'SystemRole' },
+        { name: 'fullname', type: 'String' },
+        { name: 'email', type: 'String', uk: true },
+        { name: 'phone', type: 'String' },
+        { name: 'password_hash', type: 'String' },
+        { name: 'status', type: 'Boolean' },
+        { name: 'last_login_at', type: 'DateTime' }
+      ]},
+      { id: 'SchoolMember', name: 'SchoolMember', group: 'core', x: 450, y: 80, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'user_id', type: 'UUID', fk: true },
+        { name: 'school_id', type: 'UUID', fk: true },
+        { name: 'role', type: 'SchoolRole' },
+        { name: 'joined_at', type: 'DateTime' }
+      ]},
+      { id: 'TeacherProfile', name: 'TeacherProfile', group: 'core', x: 450, y: 310, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'user_id', type: 'UUID', fk: true, uk: true },
+        { name: 'department_id', type: 'UUID', fk: true },
+        { name: 'bio', type: 'String' },
+        { name: 'expertise', type: 'String' },
+        { name: 'experience_years', type: 'Int' }
+      ]},
+      { id: 'StudentProfile', name: 'StudentProfile', group: 'core', x: 450, y: 550, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'user_id', type: 'UUID', fk: true, uk: true },
+        { name: 'date_of_birth', type: 'DateTime' },
+        { name: 'grade_level', type: 'String' },
+        { name: 'points', type: 'Int' }
+      ]},
+      { id: 'ParentProfile', name: 'ParentProfile', group: 'core', x: 100, y: 550, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'user_id', type: 'UUID', fk: true, uk: true },
+        { name: 'job_title', type: 'String' },
+        { name: 'address', type: 'String' }
+      ]},
+      { id: 'ParentStudent', name: 'ParentStudent', group: 'core', x: 280, y: 720, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'parent_id', type: 'UUID', fk: true },
+        { name: 'student_id', type: 'UUID', fk: true },
+        { name: 'relationship_type', type: 'String' }
+      ]},
+      { id: 'Notification', name: 'Notification', group: 'core', x: 100, y: 360, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'user_id', type: 'UUID', fk: true },
+        { name: 'title', type: 'String' },
+        { name: 'message', type: 'String' },
+        { name: 'is_read', type: 'Boolean' }
+      ]},
+
+      // School & Department
+      { id: 'School', name: 'School', group: 'school', x: 800, y: 80, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'owner_id', type: 'UUID', fk: true },
+        { name: 'name', type: 'String' },
+        { name: 'code', type: 'String', uk: true },
+        { name: 'phone', type: 'String' },
+        { name: 'email', type: 'String' },
+        { name: 'status', type: 'SchoolStatus' }
+      ]},
+      { id: 'Department', name: 'Department', group: 'school', x: 800, y: 350, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'school_id', type: 'UUID', fk: true },
+        { name: 'name', type: 'String' },
+        { name: 'head_teacher_id', type: 'UUID', fk: true }
+      ]},
+
+      // SaaS & Subscriptions
+      { id: 'SubscriptionPackage', name: 'SubscriptionPackage', group: 'saas', x: 100, y: 920, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'name', type: 'String' },
+        { name: 'price', type: 'Decimal' },
+        { name: 'billing_cycle', type: 'BillingCycle' },
+        { name: 'max_teachers', type: 'Int' },
+        { name: 'max_students_total', type: 'Int' },
+        { name: 'storage_limit_gb', type: 'Int' },
+        { name: 'can_sell_courses', type: 'Boolean' }
+      ]},
+      { id: 'SchoolSubscription', name: 'SchoolSubscription', group: 'saas', x: 450, y: 920, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'school_id', type: 'UUID', fk: true },
+        { name: 'package_id', type: 'UUID', fk: true },
+        { name: 'start_date', type: 'DateTime' },
+        { name: 'end_date', type: 'DateTime' },
+        { name: 'status', type: 'SubscriptionStatus' }
+      ]},
+      { id: 'TeacherSubscription', name: 'TeacherSubscription', group: 'saas', x: 450, y: 1120, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'teacher_id', type: 'UUID', fk: true },
+        { name: 'package_id', type: 'UUID', fk: true },
+        { name: 'status', type: 'SubscriptionStatus' }
+      ]},
+
+      // Courses & Content
+      { id: 'Category', name: 'Category', group: 'academic', x: 1150, y: 80, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'name', type: 'String' },
+        { name: 'slug', type: 'String', uk: true },
+        { name: 'parent_id', type: 'UUID', fk: true }
+      ]},
+      { id: 'Course', name: 'Course', group: 'academic', x: 1150, y: 280, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'school_id', type: 'UUID', fk: true },
+        { name: 'department_id', type: 'UUID', fk: true },
+        { name: 'owner_id', type: 'UUID', fk: true },
+        { name: 'title', type: 'String' },
+        { name: 'price', type: 'Decimal' },
+        { name: 'is_marketplace', type: 'Boolean' },
+        { name: 'status', type: 'CourseStatus' }
+      ]},
+      { id: 'Lesson', name: 'Lesson', group: 'academic', x: 1150, y: 620, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'course_id', type: 'UUID', fk: true },
+        { name: 'title', type: 'String' },
+        { name: 'video_url', type: 'String' },
+        { name: 'order_index', type: 'Int' }
+      ]},
+      { id: 'LessonMaterial', name: 'LessonMaterial', group: 'academic', x: 1150, y: 860, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'lesson_id', type: 'UUID', fk: true },
+        { name: 'material_type', type: 'MaterialType' },
+        { name: 'url', type: 'String' }
+      ]},
+
+      // Classes & Timetable
+      { id: 'Class', name: 'Class', group: 'academic', x: 800, y: 570, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'school_id', type: 'UUID', fk: true },
+        { name: 'teacher_id', type: 'UUID', fk: true },
+        { name: 'class_name', type: 'String' },
+        { name: 'status', type: 'ClassStatus' }
+      ]},
+      { id: 'ClassEnrollment', name: 'ClassEnrollment', group: 'academic', x: 800, y: 820, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'class_id', type: 'UUID', fk: true },
+        { name: 'student_id', type: 'UUID', fk: true },
+        { name: 'joined_date', type: 'DateTime' }
+      ]},
+      { id: 'ClassSession', name: 'ClassSession', group: 'academic', x: 800, y: 1040, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'class_id', type: 'UUID', fk: true },
+        { name: 'teacher_id', type: 'UUID', fk: true },
+        { name: 'title', type: 'String' },
+        { name: 'start_time', type: 'DateTime' },
+        { name: 'end_time', type: 'DateTime' },
+        { name: 'room', type: 'String' },
+        { name: 'meeting_url', type: 'String' }
+      ]},
+
+      // Question Banks & Exams
+      { id: 'QuestionBank', name: 'QuestionBank', group: 'academic', x: 1520, y: 120, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'title', type: 'String' },
+        { name: 'owner_id', type: 'UUID', fk: true },
+        { name: 'school_id', type: 'UUID', fk: true },
+        { name: 'is_premium', type: 'Boolean' }
+      ]},
+      { id: 'Question', name: 'Question', group: 'academic', x: 1520, y: 350, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'bank_id', type: 'UUID', fk: true },
+        { name: 'lesson_id', type: 'UUID', fk: true },
+        { name: 'type', type: 'QuestionType' },
+        { name: 'title', type: 'String' }
+      ]},
+      { id: 'Answer', name: 'Answer', group: 'academic', x: 1520, y: 580, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'question_id', type: 'UUID', fk: true },
+        { name: 'content', type: 'String' },
+        { name: 'is_answer', type: 'Boolean' }
+      ]},
+      { id: 'ExamSubmission', name: 'ExamSubmission', group: 'academic', x: 1850, y: 350, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'student_id', type: 'UUID', fk: true },
+        { name: 'bank_id', type: 'UUID', fk: true },
+        { name: 'class_id', type: 'UUID', fk: true },
+        { name: 'score', type: 'Decimal' },
+        { name: 'status', type: 'SubmissionStatus' }
+      ]},
+      { id: 'SubmissionAnswer', name: 'SubmissionAnswer', group: 'academic', x: 1850, y: 620, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'submission_id', type: 'UUID', fk: true },
+        { name: 'question_id', type: 'UUID', fk: true },
+        { name: 'selected_answer_id', type: 'UUID', fk: true },
+        { name: 'is_correct', type: 'Boolean' },
+        { name: 'points_earned', type: 'Decimal' },
+        { name: 'teacher_feedback', type: 'String' }
+      ]},
+      { id: 'StudentProgress', name: 'StudentProgress', group: 'academic', x: 1520, y: 820, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'student_id', type: 'UUID', fk: true },
+        { name: 'course_id', type: 'UUID', fk: true },
+        { name: 'completion_pct', type: 'Int' },
+        { name: 'is_completed', type: 'Boolean' }
+      ]},
+
+      // Store & Gamification
+      { id: 'StoreItem', name: 'StoreItem', group: 'store', x: 1520, y: 1060, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'teacher_id', type: 'UUID', fk: true },
+        { name: 'type', type: 'StoreItemType' },
+        { name: 'name', type: 'String' },
+        { name: 'points', type: 'Int' },
+        { name: 'stock', type: 'Int' }
+      ]},
+      { id: 'StudentInventory', name: 'StudentInventory', group: 'store', x: 1850, y: 1060, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'student_id', type: 'UUID', fk: true },
+        { name: 'item_id', type: 'UUID', fk: true },
+        { name: 'points', type: 'Int' },
+        { name: 'active', type: 'Boolean' }
+      ]},
+
+      // Orders & Billing
+      { id: 'Order', name: 'Order', group: 'order', x: 800, y: 1300, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'user_id', type: 'UUID', fk: true },
+        { name: 'reference_type', type: 'OrderReferenceType' },
+        { name: 'subscription_id', type: 'UUID', fk: true },
+        { name: 'course_id', type: 'UUID', fk: true },
+        { name: 'status', type: 'OrderStatus' },
+        { name: 'payment_method', type: 'PaymentMethod' },
+        { name: 'seller_id', type: 'UUID', fk: true }
+      ]},
+      { id: 'Transaction', name: 'Transaction', group: 'order', x: 1150, y: 1300, fields: [
+        { name: 'id', type: 'UUID', pk: true },
+        { name: 'order_id', type: 'UUID', fk: true },
+        { name: 'transaction_type', type: 'TransactionType' },
+        { name: 'amount', type: 'Decimal' },
+        { name: 'recipient_id', type: 'String' }
+      ]}
+    ];
+
+    const RELATIONS = [
+      { from: 'User', to: 'SchoolMember' },
+      { from: 'School', to: 'SchoolMember' },
+      { from: 'User', to: 'TeacherProfile' },
+      { from: 'User', to: 'StudentProfile' },
+      { from: 'User', to: 'ParentProfile' },
+      { from: 'ParentProfile', to: 'ParentStudent' },
+      { from: 'StudentProfile', to: 'ParentStudent' },
+      { from: 'User', to: 'School' },
+      { from: 'User', to: 'Notification' },
+      { from: 'School', to: 'Department' },
+      { from: 'Department', to: 'TeacherProfile' },
+      { from: 'School', to: 'SchoolSubscription' },
+      { from: 'SubscriptionPackage', to: 'SchoolSubscription' },
+      { from: 'TeacherProfile', to: 'TeacherSubscription' },
+      { from: 'SubscriptionPackage', to: 'TeacherSubscription' },
+      { from: 'Category', to: 'Course' },
+      { from: 'School', to: 'Course' },
+      { from: 'Department', to: 'Course' },
+      { from: 'TeacherProfile', to: 'Course' },
+      { from: 'Course', to: 'Lesson' },
+      { from: 'Lesson', to: 'LessonMaterial' },
+      { from: 'School', to: 'Class' },
+      { from: 'TeacherProfile', to: 'Class' },
+      { from: 'Class', to: 'ClassEnrollment' },
+      { from: 'StudentProfile', to: 'ClassEnrollment' },
+      { from: 'Class', to: 'ClassSession' },
+      { from: 'TeacherProfile', to: 'ClassSession' },
+      { from: 'User', to: 'QuestionBank' },
+      { from: 'School', to: 'QuestionBank' },
+      { from: 'QuestionBank', to: 'Question' },
+      { from: 'Question', to: 'Answer' },
+      { from: 'StudentProfile', to: 'ExamSubmission' },
+      { from: 'QuestionBank', to: 'ExamSubmission' },
+      { from: 'ExamSubmission', to: 'SubmissionAnswer' },
+      { from: 'Question', to: 'SubmissionAnswer' },
+      { from: 'StudentProfile', to: 'StudentProgress' },
+      { from: 'Course', to: 'StudentProgress' },
+      { from: 'TeacherProfile', to: 'StoreItem' },
+      { from: 'StoreItem', to: 'StudentInventory' },
+      { from: 'StudentProfile', to: 'StudentInventory' },
+      { from: 'User', to: 'Order' },
+      { from: 'Order', to: 'Transaction' }
+    ];
+
+    // -------------------------------------------------------------
+    // RENDER TABLES & WIRES
+    // -------------------------------------------------------------
+    const container = document.getElementById('tables-container');
+    const svgLayer = document.getElementById('connections-layer');
+    const viewport = document.getElementById('viewport');
+    const canvas = document.getElementById('canvas');
+
+    const groupColors = {
+      core: 'var(--c-core)',
+      school: 'var(--c-school)',
+      academic: 'var(--c-academic)',
+      saas: 'var(--c-saas)',
+      store: 'var(--c-store)',
+      order: 'var(--c-order)'
+    };
+
+    // Render HTML Cards
+    TABLES.forEach(table => {
+      const card = document.createElement('div');
+      card.id = `card-${table.id}`;
+      card.className = 'table-card';
+      card.style.left = `${table.x}px`;
+      card.style.top = `${table.y}px`;
+
+      const color = groupColors[table.group] || '#94a3b8';
+
+      let fieldsHtml = '';
+      table.fields.forEach(f => {
+        let tag = '';
+        if (f.pk) tag = '<span class="tag-pk">PK</span>';
+        else if (f.fk) tag = '<span class="tag-fk">FK</span>';
+        else if (f.uk) tag = '<span class="tag-uk">UK</span>';
+
+        fieldsHtml += `
+          <div class="field-row">
+            <div class="field-name">${tag} <span>${f.name}</span></div>
+            <div class="field-type">${f.type}</div>
+          </div>
+        `;
+      });
+
+      card.innerHTML = `
+        <div class="table-header" style="border-top: 3px solid ${color};">
+          <div class="table-title">
+            <span class="badge-dot" style="background: ${color};"></span>
+            <span>${table.name}</span>
+          </div>
+          <span style="font-size: 11px; color: var(--text-muted);">::</span>
+        </div>
+        <div class="fields-list">
+          ${fieldsHtml}
+        </div>
+      `;
+
+      container.appendChild(card);
+    });
+
+    // Render SVG Paths
+    function drawConnections() {
+      // Clear existing paths (except defs)
+      const paths = svgLayer.querySelectorAll('path.wire');
+      paths.forEach(p => p.remove());
+
+      RELATIONS.forEach((rel, index) => {
+        const fromCard = document.getElementById(`card-${rel.from}`);
+        const toCard = document.getElementById(`card-${rel.to}`);
+        if (!fromCard || !toCard) return;
+
+        const fromRect = {
+          x: parseFloat(fromCard.style.left),
+          y: parseFloat(fromCard.style.top),
+          w: fromCard.offsetWidth,
+          h: fromCard.offsetHeight
+        };
+
+        const toRect = {
+          x: parseFloat(toCard.style.left),
+          y: parseFloat(toCard.style.top),
+          w: toCard.offsetWidth,
+          h: toCard.offsetHeight
+        };
+
+        // Determine best connector sides (left or right)
+        let startX, startY, endX, endY;
+
+        if (fromRect.x + fromRect.w < toRect.x) {
+          // From is strictly on the left of To
+          startX = fromRect.x + fromRect.w;
+          startY = fromRect.y + fromRect.h / 2;
+          endX = toRect.x;
+          endY = toRect.y + toRect.h / 2;
+        } else if (toRect.x + toRect.w < fromRect.x) {
+          // From is strictly on the right of To
+          startX = fromRect.x;
+          startY = fromRect.y + fromRect.h / 2;
+          endX = toRect.x + toRect.w;
+          endY = toRect.y + toRect.h / 2;
+        } else {
+          // Stacked vertically
+          startX = fromRect.x + fromRect.w / 2;
+          startY = fromRect.y > toRect.y ? fromRect.y : fromRect.y + fromRect.h;
+          endX = toRect.x + toRect.w / 2;
+          endY = fromRect.y > toRect.y ? toRect.y + toRect.h : toRect.y;
+        }
+
+        // Calculate smooth cubic bezier control points
+        const dx = Math.abs(endX - startX) * 0.5;
+        const dy = Math.abs(endY - startY) * 0.5;
+        const cx1 = startX < endX ? startX + dx : startX - dx;
+        const cy1 = startY;
+        const cx2 = startX < endX ? endX - dx : endX + dx;
+        const cy2 = endY;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M ${startX} ${startY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${endX} ${endY}`);
+        path.setAttribute('class', 'wire');
+        path.setAttribute('id', `wire-${rel.from}-${rel.to}`);
+        path.setAttribute('marker-end', 'url(#arrow)');
+
+        svgLayer.appendChild(path);
+      });
+    }
+
+    drawConnections();
+
+    // -------------------------------------------------------------
+    // DRAG TABLE CARDS (Tách bảng, tránh đè dây)
+    // -------------------------------------------------------------
+    let activeCard = null;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let cardInitX = 0;
+    let cardInitY = 0;
+
+    document.querySelectorAll('.table-card').forEach(card => {
+      const header = card.querySelector('.table-header');
+
+      header.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        activeCard = card;
+        card.classList.add('dragging');
+
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        cardInitX = parseFloat(card.style.left) || 0;
+        cardInitY = parseFloat(card.style.top) || 0;
+
+        // Highlight connected wires
+        highlightTable(card.id.replace('card-', ''));
+      });
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (activeCard) {
+        const dx = (e.clientX - dragStartX) / zoomScale;
+        const dy = (e.clientY - dragStartY) / zoomScale;
+
+        activeCard.style.left = `${cardInitX + dx}px`;
+        activeCard.style.top = `${cardInitY + dy}px`;
+
+        drawConnections();
+      } else if (isPanning) {
+        panX = e.clientX - panStartX;
+        panY = e.clientY - panStartY;
+        applyTransform();
       }
     });
 
-    let panZoomInstance = null;
-
-    async function initERD() {
-      try {
-        await mermaid.run({
-          querySelector: '.mermaid'
-        });
-
-        const svgElement = document.querySelector('#mermaid-wrapper svg');
-        if (svgElement) {
-          svgElement.style.width = '100%';
-          svgElement.style.height = '100%';
-          svgElement.style.maxWidth = 'none';
-
-          panZoomInstance = svgPanZoom(svgElement, {
-            zoomEnabled: true,
-            controlIconsEnabled: false,
-            fit: true,
-            center: true,
-            minZoom: 0.1,
-            maxZoom: 15,
-            zoomScaleSensitivity: 0.25,
-            onZoom: function(scale) {
-              updateZoomIndicator(scale);
-            }
-          });
-
-          // Fit and center initially
-          panZoomInstance.fit();
-          panZoomInstance.center();
-          updateZoomIndicator(panZoomInstance.getZoom());
-        }
-
-        // Hide loading
-        document.getElementById('loading').style.display = 'none';
-      } catch (err) {
-        console.error('Lỗi khi render Mermaid ERD:', err);
-        document.getElementById('loading').innerHTML = `
-          <p style="color: #ef4444; font-weight: bold;">Lỗi khi render sơ đồ ERD!</p>
-          <pre style="color: #9ca3af; max-width: 600px; overflow: auto;">${err.message}</pre>
-        `;
+    window.addEventListener('mouseup', () => {
+      if (activeCard) {
+        activeCard.classList.remove('dragging');
+        activeCard = null;
       }
+      if (isPanning) {
+        isPanning = false;
+        viewport.classList.remove('panning');
+      }
+    });
+
+    // -------------------------------------------------------------
+    // PAN & ZOOM CANVAS
+    // -------------------------------------------------------------
+    let zoomScale = 0.85;
+    let panX = 120;
+    let panY = 60;
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+
+    function applyTransform() {
+      canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+      document.getElementById('zoom-label').innerText = Math.round(zoomScale * 100) + '%';
     }
 
-    function updateZoomIndicator(scale) {
-      const zoomText = Math.round(scale * 100) + '%';
-      document.getElementById('zoom-value').innerText = zoomText;
-    }
+    applyTransform();
 
-    // Event Listeners for Toolbar Buttons
+    viewport.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.table-card')) return;
+      isPanning = true;
+      viewport.classList.add('panning');
+      panStartX = e.clientX - panX;
+      panStartY = e.clientY - panY;
+    });
+
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+      const newScale = Math.min(Math.max(zoomScale * zoomFactor, 0.15), 3.0);
+
+      // Zoom towards mouse pointer
+      const rect = viewport.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      panX = mouseX - (mouseX - panX) * (newScale / zoomScale);
+      panY = mouseY - (mouseY - panY) * (newScale / zoomScale);
+      zoomScale = newScale;
+
+      applyTransform();
+    }, { passive: false });
+
+    // Toolbar actions
     document.getElementById('btn-zoom-in').addEventListener('click', () => {
-      if (panZoomInstance) panZoomInstance.zoomIn();
+      zoomScale = Math.min(zoomScale * 1.2, 3.0);
+      applyTransform();
     });
 
     document.getElementById('btn-zoom-out').addEventListener('click', () => {
-      if (panZoomInstance) panZoomInstance.zoomOut();
-    });
-
-    document.getElementById('btn-reset').addEventListener('click', () => {
-      if (panZoomInstance) {
-        panZoomInstance.resetZoom();
-        panZoomInstance.center();
-      }
+      zoomScale = Math.max(zoomScale * 0.8, 0.15);
+      applyTransform();
     });
 
     document.getElementById('btn-fit').addEventListener('click', () => {
-      if (panZoomInstance) {
-        panZoomInstance.fit();
-        panZoomInstance.center();
-      }
+      zoomScale = 0.55;
+      panX = 60;
+      panY = 40;
+      applyTransform();
     });
 
-    document.getElementById('btn-fullscreen').addEventListener('click', () => {
-      if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen();
-      } else {
-        if (document.exitFullscreen) {
-          document.exitFullscreen();
+    document.getElementById('btn-reset-pos').addEventListener('click', () => {
+      TABLES.forEach(table => {
+        const c = document.getElementById(`card-${table.id}`);
+        if (c) {
+          c.style.left = `${table.x}px`;
+          c.style.top = `${table.y}px`;
         }
-      }
+      });
+      drawConnections();
+      zoomScale = 0.85;
+      panX = 120;
+      panY = 60;
+      applyTransform();
     });
 
-    // Run on load
-    window.addEventListener('DOMContentLoaded', initERD);
+    // -------------------------------------------------------------
+    // SEARCH & HIGHLIGHT
+    // -------------------------------------------------------------
+    function highlightTable(tableId) {
+      document.querySelectorAll('.table-card').forEach(c => c.classList.remove('highlighted'));
+      document.querySelectorAll('.wire').forEach(w => w.classList.remove('active'));
+
+      const targetCard = document.getElementById(`card-${tableId}`);
+      if (targetCard) {
+        targetCard.classList.add('highlighted');
+      }
+
+      // Highlight wires connected to this table
+      RELATIONS.forEach(rel => {
+        if (rel.from === tableId || rel.to === tableId) {
+          const wire = document.getElementById(`wire-${rel.from}-${rel.to}`);
+          if (wire) {
+            wire.classList.add('active');
+            wire.setAttribute('marker-end', 'url(#arrow-active)');
+          }
+        }
+      });
+    }
+
+    document.getElementById('search-input').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      if (!q) {
+        document.querySelectorAll('.table-card').forEach(c => {
+          c.style.opacity = '1';
+          c.classList.remove('highlighted');
+        });
+        document.querySelectorAll('.wire').forEach(w => w.classList.remove('active'));
+        return;
+      }
+
+      let firstMatch = null;
+
+      TABLES.forEach(table => {
+        const card = document.getElementById(`card-${table.id}`);
+        const match = table.name.toLowerCase().includes(q) || table.fields.some(f => f.name.toLowerCase().includes(q));
+        if (match) {
+          card.style.opacity = '1';
+          card.classList.add('highlighted');
+          if (!firstMatch) firstMatch = table;
+        } else {
+          card.style.opacity = '0.2';
+          card.classList.remove('highlighted');
+        }
+      });
+
+      if (firstMatch) {
+        highlightTable(firstMatch.id);
+      }
+    });
   </script>
 </body>
 </html>
