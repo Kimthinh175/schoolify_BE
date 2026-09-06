@@ -144,19 +144,25 @@
       top: 0;
       left: 0;
       transform-origin: 0 0;
-      width: 12000px;
-      height: 12000px;
+      width: 100%;
+      height: 100%;
+      overflow: visible !important;
     }
 
-    /* SVG Connections Layer */
+    /* SVG Connections Layer - Never clip wires */
     #connections-layer {
       position: absolute;
       top: 0;
       left: 0;
       width: 100%;
       height: 100%;
+      overflow: visible !important;
       pointer-events: none;
       z-index: 10;
+    }
+
+    #connections-layer * {
+      overflow: visible !important;
     }
 
     .wire-group {
@@ -518,32 +524,32 @@
   <!-- Viewport -->
   <div id="viewport">
     <div id="canvas">
-      <!-- Dynamic SVG Connections -->
-      <svg id="connections-layer">
+      <!-- Dynamic SVG Connections (Infinite, Unclipped) -->
+      <svg id="connections-layer" style="overflow: visible !important;">
         <defs>
           <!-- Crow's Foot: ONE (Double vertical bar ||) -->
-          <marker id="mark-one" viewBox="0 0 16 16" refX="12" refY="8" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+          <marker id="mark-one" viewBox="0 0 16 16" refX="12" refY="8" markerWidth="12" markerHeight="12" orient="auto-start-reverse" overflow="visible">
             <line x1="6" y1="2" x2="6" y2="14" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"/>
             <line x1="11" y1="2" x2="11" y2="14" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"/>
           </marker>
-          <marker id="mark-one-active" viewBox="0 0 16 16" refX="12" refY="8" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+          <marker id="mark-one-active" viewBox="0 0 16 16" refX="12" refY="8" markerWidth="12" markerHeight="12" orient="auto-start-reverse" overflow="visible">
             <line x1="6" y1="2" x2="6" y2="14" stroke="#60a5fa" stroke-width="3" stroke-linecap="round"/>
             <line x1="11" y1="2" x2="11" y2="14" stroke="#60a5fa" stroke-width="3" stroke-linecap="round"/>
           </marker>
 
           <!-- Crow's Foot: MANY (Three-prong fork <) -->
-          <marker id="mark-many" viewBox="0 0 20 20" refX="16" refY="10" markerWidth="14" markerHeight="14" orient="auto-start-reverse">
+          <marker id="mark-many" viewBox="0 0 20 20" refX="16" refY="10" markerWidth="14" markerHeight="14" orient="auto-start-reverse" overflow="visible">
             <line x1="4" y1="10" x2="18" y2="2" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
             <line x1="4" y1="10" x2="18" y2="10" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
             <line x1="4" y1="10" x2="18" y2="18" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
           </marker>
-          <marker id="mark-many-active" viewBox="0 0 20 20" refX="16" refY="10" markerWidth="15" markerHeight="15" orient="auto-start-reverse">
+          <marker id="mark-many-active" viewBox="0 0 20 20" refX="16" refY="10" markerWidth="15" markerHeight="15" orient="auto-start-reverse" overflow="visible">
             <line x1="4" y1="10" x2="18" y2="2" stroke="#60a5fa" stroke-width="2.8" stroke-linecap="round"/>
             <line x1="4" y1="10" x2="18" y2="10" stroke="#60a5fa" stroke-width="2.8" stroke-linecap="round"/>
             <line x1="4" y1="10" x2="18" y2="18" stroke="#60a5fa" stroke-width="2.8" stroke-linecap="round"/>
           </marker>
         </defs>
-        <g id="wires-container"></g>
+        <g id="wires-container" style="overflow: visible !important;"></g>
       </svg>
 
       <!-- Tables Container -->
@@ -2846,6 +2852,10 @@
     function applyTransform() {
       canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
       document.getElementById('zoom-label').innerText = Math.round(zoomScale * 100) + '%';
+      
+      // Infinite Grid pattern follows pan & zoom smoothly
+      viewport.style.backgroundPosition = `${panX}px ${panY}px`;
+      viewport.style.backgroundSize = `${32 * zoomScale}px ${32 * zoomScale}px`;
     }
 
     applyTransform();
