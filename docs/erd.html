@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Schoolify - Interactive Draggable ERD</title>
+  <title>Schoolify - Interactive Draggable ERD (Diagram Standards)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-dark: #090d16;
-      --bg-grid: #131b2e;
-      --panel-bg: rgba(15, 23, 42, 0.88);
+      --bg-dark: #070a12;
+      --bg-grid: #101626;
+      --panel-bg: rgba(15, 23, 42, 0.9);
       --border-color: rgba(255, 255, 255, 0.12);
       --text-main: #f8fafc;
       --text-muted: #94a3b8;
@@ -53,7 +53,7 @@
       align-items: center;
       justify-content: space-between;
       z-index: 100;
-      height: 60px;
+      height: 62px;
     }
 
     .brand-section {
@@ -79,6 +79,19 @@
     .title-group h1 {
       font-size: 16px;
       font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge-cardinality {
+      background: rgba(99, 102, 241, 0.2);
+      border: 1px solid #6366f1;
+      color: #a5b4fc;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
     }
 
     .title-group p {
@@ -89,25 +102,25 @@
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
     }
 
     .search-box {
       background: rgba(255, 255, 255, 0.06);
       border: 1px solid var(--border-color);
       border-radius: 8px;
-      padding: 6px 12px;
+      padding: 6px 14px;
       color: var(--text-main);
       font-size: 13px;
       outline: none;
-      width: 200px;
+      width: 220px;
       transition: all 0.2s;
     }
 
     .search-box:focus {
       border-color: #6366f1;
       background: rgba(255, 255, 255, 0.1);
-      width: 240px;
+      width: 260px;
     }
 
     /* Canvas Viewport */
@@ -117,8 +130,8 @@
       overflow: hidden;
       background-color: var(--bg-dark);
       background-image: 
-        radial-gradient(circle, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
-      background-size: 28px 28px;
+        radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+      background-size: 32px 32px;
       cursor: grab;
     }
 
@@ -131,8 +144,8 @@
       top: 0;
       left: 0;
       transform-origin: 0 0;
-      width: 10000px;
-      height: 10000px;
+      width: 12000px;
+      height: 12000px;
     }
 
     /* SVG Connections Layer */
@@ -146,25 +159,88 @@
       z-index: 10;
     }
 
-    .wire {
+    .wire-group {
+      pointer-events: all;
+      cursor: pointer;
+    }
+
+    .wire-group:hover .wire-main {
+      stroke: #38bdf8;
+      stroke-width: 2.8px;
+      filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.8));
+    }
+
+    .wire-group:hover .rel-badge rect {
+      fill: #1e293b;
+      stroke: #38bdf8;
+    }
+
+    .wire-group:hover .rel-badge text {
+      fill: #38bdf8;
+      font-weight: 700;
+    }
+
+    .wire-main {
       fill: none;
-      stroke: rgba(148, 163, 184, 0.35);
+      stroke: rgba(148, 163, 184, 0.45);
       stroke-width: 1.8px;
       transition: stroke 0.2s, stroke-width 0.2s;
     }
 
-    .wire.active {
+    .wire-group.active .wire-main {
       stroke: #60a5fa;
-      stroke-width: 3.2px;
-      filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.8));
+      stroke-width: 3px;
+      filter: drop-shadow(0 0 8px rgba(96, 165, 250, 0.9));
+    }
+
+    .wire-group.active .rel-badge rect {
+      fill: #0f172a;
+      stroke: #60a5fa;
+      stroke-width: 1.5px;
+    }
+
+    .wire-group.active .rel-badge text {
+      fill: #60a5fa;
+      font-weight: 700;
+    }
+
+    .rel-badge {
+      pointer-events: none;
+    }
+
+    .rel-badge rect {
+      fill: rgba(15, 23, 42, 0.9);
+      stroke: rgba(255, 255, 255, 0.15);
+      stroke-width: 1px;
+      rx: 6;
+      ry: 6;
+      transition: all 0.2s;
+    }
+
+    .rel-badge text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      fill: #cbd5e1;
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+
+    .cardinality-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      fill: #94a3b8;
+      text-anchor: middle;
+      dominant-baseline: central;
     }
 
     /* Table Node Cards */
     .table-card {
       position: absolute;
-      width: 270px;
+      width: 280px;
       background: rgba(15, 23, 42, 0.95);
-      backdrop-filter: blur(8px);
+      backdrop-filter: blur(10px);
       border: 1px solid var(--border-color);
       border-radius: 12px;
       box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
@@ -175,7 +251,7 @@
     }
 
     .table-card:hover {
-      box-shadow: 0 20px 35px -5px rgba(0, 0, 0, 0.8), 0 0 15px rgba(99, 102, 241, 0.25);
+      box-shadow: 0 20px 35px -5px rgba(0, 0, 0, 0.8), 0 0 18px rgba(99, 102, 241, 0.25);
       border-color: rgba(148, 163, 184, 0.4);
       z-index: 30;
     }
@@ -189,7 +265,7 @@
 
     .table-card.highlighted {
       border-color: #38bdf8;
-      box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+      box-shadow: 0 0 22px rgba(56, 189, 248, 0.6);
     }
 
     .table-header {
@@ -225,7 +301,7 @@
 
     .fields-list {
       padding: 8px 12px;
-      max-height: 250px;
+      max-height: 270px;
       overflow-y: auto;
       font-family: 'JetBrains Mono', monospace;
       font-size: 11.5px;
@@ -252,7 +328,7 @@
     }
 
     .field-row:hover {
-      background: rgba(255, 255, 255, 0.05);
+      background: rgba(255, 255, 255, 0.06);
     }
 
     .field-name {
@@ -304,7 +380,7 @@
       backdrop-filter: blur(16px);
       border: 1px solid var(--border-color);
       border-radius: 14px;
-      padding: 6px 12px;
+      padding: 6px 14px;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -346,11 +422,46 @@
       text-align: center;
     }
 
+    /* Diagram Legend Box */
+    .diagram-legend {
+      position: absolute;
+      top: 76px;
+      right: 20px;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 12px;
+      z-index: 80;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 220px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+    }
+
+    .legend-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text-muted);
+    }
+
+    .legend-symbol {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.12);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
     .tips-overlay {
       position: absolute;
       top: 76px;
       left: 20px;
-      background: rgba(15, 23, 42, 0.75);
+      background: rgba(15, 23, 42, 0.85);
       backdrop-filter: blur(8px);
       border: 1px solid var(--border-color);
       padding: 8px 14px;
@@ -369,8 +480,8 @@
     <div class="brand-section">
       <div class="brand-badge">S</div>
       <div class="title-group">
-        <h1>Schoolify - Interactive ERD (Kéo Thả Bảng)</h1>
-        <p>Bấm giữ tiêu đề để kéo bảng dời dây đè • Cuộn chuột để Zoom</p>
+        <h1>Schoolify - Interactive ERD <span class="badge-cardinality">Crow's Foot & 1:N / 1:1</span></h1>
+        <p>Hiển thị chi tiết quan hệ chuẩn Diagram • Kéo thả bảng tách dây • Zoom Pan mượt mà</p>
       </div>
     </div>
 
@@ -380,7 +491,28 @@
   </header>
 
   <div class="tips-overlay">
-    🖐️ <b>Kéo thả:</b> Bấm giữ tiêu đề bảng bất kỳ để di chuyển vị trí • Dây kết nối sẽ tự động uốn cong theo!
+    💡 <b>Chuẩn quan hệ:</b> Dây nối có ký hiệu <b>1:N (Một - Nhiều)</b> hoặc <b>1:1 (Một - Một)</b> kèm tên Foreign Key • Bấm dây để highlight!
+  </div>
+
+  <!-- Diagram Legend -->
+  <div class="diagram-legend">
+    <div style="font-weight: 700; color: #f8fafc; font-size: 12.5px; margin-bottom: 2px;">Chuẩn Ký Hiệu Diagram</div>
+    <div class="legend-row">
+      <span>Một - Nhiều (1 to Many)</span>
+      <span class="legend-symbol">||──< 1:N</span>
+    </div>
+    <div class="legend-row">
+      <span>Một - Một (1 to 1)</span>
+      <span class="legend-symbol">||──|| 1:1</span>
+    </div>
+    <div class="legend-row">
+      <span>Đầu khóa chính (PK)</span>
+      <span class="legend-symbol" style="color: #ef4444; background: rgba(239, 68, 68, 0.15);">|| (1)</span>
+    </div>
+    <div class="legend-row">
+      <span>Đầu khóa ngoại (FK)</span>
+      <span class="legend-symbol" style="color: #10b981; background: rgba(16, 185, 129, 0.15);">< (N)</span>
+    </div>
   </div>
 
   <!-- Viewport -->
@@ -389,13 +521,29 @@
       <!-- Dynamic SVG Connections -->
       <svg id="connections-layer">
         <defs>
-          <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="rgba(148, 163, 184, 0.6)" />
+          <!-- Crow's Foot: ONE (Double vertical bar ||) -->
+          <marker id="mark-one" viewBox="0 0 16 16" refX="12" refY="8" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+            <line x1="6" y1="2" x2="6" y2="14" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="11" y1="2" x2="11" y2="14" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"/>
           </marker>
-          <marker id="arrow-active" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#60a5fa" />
+          <marker id="mark-one-active" viewBox="0 0 16 16" refX="12" refY="8" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+            <line x1="6" y1="2" x2="6" y2="14" stroke="#60a5fa" stroke-width="3" stroke-linecap="round"/>
+            <line x1="11" y1="2" x2="11" y2="14" stroke="#60a5fa" stroke-width="3" stroke-linecap="round"/>
+          </marker>
+
+          <!-- Crow's Foot: MANY (Three-prong fork <) -->
+          <marker id="mark-many" viewBox="0 0 20 20" refX="16" refY="10" markerWidth="14" markerHeight="14" orient="auto-start-reverse">
+            <line x1="4" y1="10" x2="18" y2="2" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
+            <line x1="4" y1="10" x2="18" y2="10" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
+            <line x1="4" y1="10" x2="18" y2="18" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
+          </marker>
+          <marker id="mark-many-active" viewBox="0 0 20 20" refX="16" refY="10" markerWidth="15" markerHeight="15" orient="auto-start-reverse">
+            <line x1="4" y1="10" x2="18" y2="2" stroke="#60a5fa" stroke-width="2.8" stroke-linecap="round"/>
+            <line x1="4" y1="10" x2="18" y2="10" stroke="#60a5fa" stroke-width="2.8" stroke-linecap="round"/>
+            <line x1="4" y1="10" x2="18" y2="18" stroke="#60a5fa" stroke-width="2.8" stroke-linecap="round"/>
           </marker>
         </defs>
+        <g id="wires-container"></g>
       </svg>
 
       <!-- Tables Container -->
@@ -415,11 +563,11 @@
 
   <script>
     // -------------------------------------------------------------
-    // DATABASE SCHEMA DATA (28 Tables + Relationships)
+    // DATABASE SCHEMA DATA (28 Tables + Full Cardinality)
     // -------------------------------------------------------------
     const TABLES = [
       // Core & Users
-      { id: 'User', name: 'User', group: 'core', x: 100, y: 120, fields: [
+      { id: 'User', name: 'User', group: 'core', x: 80, y: 100, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'role', type: 'SystemRole' },
         { name: 'fullname', type: 'String' },
@@ -429,7 +577,7 @@
         { name: 'status', type: 'Boolean' },
         { name: 'last_login_at', type: 'DateTime' }
       ]},
-      { id: 'SchoolMember', name: 'SchoolMember', group: 'core', x: 450, y: 80, fields: [
+      { id: 'SchoolMember', name: 'SchoolMember', group: 'core', x: 450, y: 60, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'user_id', type: 'UUID', fk: true },
         { name: 'school_id', type: 'UUID', fk: true },
@@ -444,26 +592,26 @@
         { name: 'expertise', type: 'String' },
         { name: 'experience_years', type: 'Int' }
       ]},
-      { id: 'StudentProfile', name: 'StudentProfile', group: 'core', x: 450, y: 550, fields: [
+      { id: 'StudentProfile', name: 'StudentProfile', group: 'core', x: 450, y: 560, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'user_id', type: 'UUID', fk: true, uk: true },
         { name: 'date_of_birth', type: 'DateTime' },
         { name: 'grade_level', type: 'String' },
         { name: 'points', type: 'Int' }
       ]},
-      { id: 'ParentProfile', name: 'ParentProfile', group: 'core', x: 100, y: 550, fields: [
+      { id: 'ParentProfile', name: 'ParentProfile', group: 'core', x: 80, y: 560, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'user_id', type: 'UUID', fk: true, uk: true },
         { name: 'job_title', type: 'String' },
         { name: 'address', type: 'String' }
       ]},
-      { id: 'ParentStudent', name: 'ParentStudent', group: 'core', x: 280, y: 720, fields: [
+      { id: 'ParentStudent', name: 'ParentStudent', group: 'core', x: 260, y: 770, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'parent_id', type: 'UUID', fk: true },
         { name: 'student_id', type: 'UUID', fk: true },
         { name: 'relationship_type', type: 'String' }
       ]},
-      { id: 'Notification', name: 'Notification', group: 'core', x: 100, y: 360, fields: [
+      { id: 'Notification', name: 'Notification', group: 'core', x: 80, y: 360, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'user_id', type: 'UUID', fk: true },
         { name: 'title', type: 'String' },
@@ -472,7 +620,7 @@
       ]},
 
       // School & Department
-      { id: 'School', name: 'School', group: 'school', x: 800, y: 80, fields: [
+      { id: 'School', name: 'School', group: 'school', x: 820, y: 60, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'owner_id', type: 'UUID', fk: true },
         { name: 'name', type: 'String' },
@@ -481,7 +629,7 @@
         { name: 'email', type: 'String' },
         { name: 'status', type: 'SchoolStatus' }
       ]},
-      { id: 'Department', name: 'Department', group: 'school', x: 800, y: 350, fields: [
+      { id: 'Department', name: 'Department', group: 'school', x: 820, y: 350, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'school_id', type: 'UUID', fk: true },
         { name: 'name', type: 'String' },
@@ -489,7 +637,7 @@
       ]},
 
       // SaaS & Subscriptions
-      { id: 'SubscriptionPackage', name: 'SubscriptionPackage', group: 'saas', x: 100, y: 920, fields: [
+      { id: 'SubscriptionPackage', name: 'SubscriptionPackage', group: 'saas', x: 80, y: 960, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'name', type: 'String' },
         { name: 'price', type: 'Decimal' },
@@ -499,7 +647,7 @@
         { name: 'storage_limit_gb', type: 'Int' },
         { name: 'can_sell_courses', type: 'Boolean' }
       ]},
-      { id: 'SchoolSubscription', name: 'SchoolSubscription', group: 'saas', x: 450, y: 920, fields: [
+      { id: 'SchoolSubscription', name: 'SchoolSubscription', group: 'saas', x: 450, y: 960, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'school_id', type: 'UUID', fk: true },
         { name: 'package_id', type: 'UUID', fk: true },
@@ -507,7 +655,7 @@
         { name: 'end_date', type: 'DateTime' },
         { name: 'status', type: 'SubscriptionStatus' }
       ]},
-      { id: 'TeacherSubscription', name: 'TeacherSubscription', group: 'saas', x: 450, y: 1120, fields: [
+      { id: 'TeacherSubscription', name: 'TeacherSubscription', group: 'saas', x: 450, y: 1180, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'teacher_id', type: 'UUID', fk: true },
         { name: 'package_id', type: 'UUID', fk: true },
@@ -515,13 +663,13 @@
       ]},
 
       // Courses & Content
-      { id: 'Category', name: 'Category', group: 'academic', x: 1150, y: 80, fields: [
+      { id: 'Category', name: 'Category', group: 'academic', x: 1200, y: 60, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'name', type: 'String' },
         { name: 'slug', type: 'String', uk: true },
         { name: 'parent_id', type: 'UUID', fk: true }
       ]},
-      { id: 'Course', name: 'Course', group: 'academic', x: 1150, y: 280, fields: [
+      { id: 'Course', name: 'Course', group: 'academic', x: 1200, y: 280, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'school_id', type: 'UUID', fk: true },
         { name: 'department_id', type: 'UUID', fk: true },
@@ -531,14 +679,14 @@
         { name: 'is_marketplace', type: 'Boolean' },
         { name: 'status', type: 'CourseStatus' }
       ]},
-      { id: 'Lesson', name: 'Lesson', group: 'academic', x: 1150, y: 620, fields: [
+      { id: 'Lesson', name: 'Lesson', group: 'academic', x: 1200, y: 630, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'course_id', type: 'UUID', fk: true },
         { name: 'title', type: 'String' },
         { name: 'video_url', type: 'String' },
         { name: 'order_index', type: 'Int' }
       ]},
-      { id: 'LessonMaterial', name: 'LessonMaterial', group: 'academic', x: 1150, y: 860, fields: [
+      { id: 'LessonMaterial', name: 'LessonMaterial', group: 'academic', x: 1200, y: 880, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'lesson_id', type: 'UUID', fk: true },
         { name: 'material_type', type: 'MaterialType' },
@@ -546,20 +694,20 @@
       ]},
 
       // Classes & Timetable
-      { id: 'Class', name: 'Class', group: 'academic', x: 800, y: 570, fields: [
+      { id: 'Class', name: 'Class', group: 'academic', x: 820, y: 570, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'school_id', type: 'UUID', fk: true },
         { name: 'teacher_id', type: 'UUID', fk: true },
         { name: 'class_name', type: 'String' },
         { name: 'status', type: 'ClassStatus' }
       ]},
-      { id: 'ClassEnrollment', name: 'ClassEnrollment', group: 'academic', x: 800, y: 820, fields: [
+      { id: 'ClassEnrollment', name: 'ClassEnrollment', group: 'academic', x: 820, y: 820, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'class_id', type: 'UUID', fk: true },
         { name: 'student_id', type: 'UUID', fk: true },
         { name: 'joined_date', type: 'DateTime' }
       ]},
-      { id: 'ClassSession', name: 'ClassSession', group: 'academic', x: 800, y: 1040, fields: [
+      { id: 'ClassSession', name: 'ClassSession', group: 'academic', x: 820, y: 1050, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'class_id', type: 'UUID', fk: true },
         { name: 'teacher_id', type: 'UUID', fk: true },
@@ -571,27 +719,27 @@
       ]},
 
       // Question Banks & Exams
-      { id: 'QuestionBank', name: 'QuestionBank', group: 'academic', x: 1520, y: 120, fields: [
+      { id: 'QuestionBank', name: 'QuestionBank', group: 'academic', x: 1580, y: 100, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'title', type: 'String' },
         { name: 'owner_id', type: 'UUID', fk: true },
         { name: 'school_id', type: 'UUID', fk: true },
         { name: 'is_premium', type: 'Boolean' }
       ]},
-      { id: 'Question', name: 'Question', group: 'academic', x: 1520, y: 350, fields: [
+      { id: 'Question', name: 'Question', group: 'academic', x: 1580, y: 340, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'bank_id', type: 'UUID', fk: true },
         { name: 'lesson_id', type: 'UUID', fk: true },
         { name: 'type', type: 'QuestionType' },
         { name: 'title', type: 'String' }
       ]},
-      { id: 'Answer', name: 'Answer', group: 'academic', x: 1520, y: 580, fields: [
+      { id: 'Answer', name: 'Answer', group: 'academic', x: 1580, y: 580, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'question_id', type: 'UUID', fk: true },
         { name: 'content', type: 'String' },
         { name: 'is_answer', type: 'Boolean' }
       ]},
-      { id: 'ExamSubmission', name: 'ExamSubmission', group: 'academic', x: 1850, y: 350, fields: [
+      { id: 'ExamSubmission', name: 'ExamSubmission', group: 'academic', x: 1940, y: 340, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'student_id', type: 'UUID', fk: true },
         { name: 'bank_id', type: 'UUID', fk: true },
@@ -599,7 +747,7 @@
         { name: 'score', type: 'Decimal' },
         { name: 'status', type: 'SubmissionStatus' }
       ]},
-      { id: 'SubmissionAnswer', name: 'SubmissionAnswer', group: 'academic', x: 1850, y: 620, fields: [
+      { id: 'SubmissionAnswer', name: 'SubmissionAnswer', group: 'academic', x: 1940, y: 620, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'submission_id', type: 'UUID', fk: true },
         { name: 'question_id', type: 'UUID', fk: true },
@@ -608,7 +756,7 @@
         { name: 'points_earned', type: 'Decimal' },
         { name: 'teacher_feedback', type: 'String' }
       ]},
-      { id: 'StudentProgress', name: 'StudentProgress', group: 'academic', x: 1520, y: 820, fields: [
+      { id: 'StudentProgress', name: 'StudentProgress', group: 'academic', x: 1580, y: 820, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'student_id', type: 'UUID', fk: true },
         { name: 'course_id', type: 'UUID', fk: true },
@@ -617,7 +765,7 @@
       ]},
 
       // Store & Gamification
-      { id: 'StoreItem', name: 'StoreItem', group: 'store', x: 1520, y: 1060, fields: [
+      { id: 'StoreItem', name: 'StoreItem', group: 'store', x: 1580, y: 1070, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'teacher_id', type: 'UUID', fk: true },
         { name: 'type', type: 'StoreItemType' },
@@ -625,7 +773,7 @@
         { name: 'points', type: 'Int' },
         { name: 'stock', type: 'Int' }
       ]},
-      { id: 'StudentInventory', name: 'StudentInventory', group: 'store', x: 1850, y: 1060, fields: [
+      { id: 'StudentInventory', name: 'StudentInventory', group: 'store', x: 1940, y: 1070, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'student_id', type: 'UUID', fk: true },
         { name: 'item_id', type: 'UUID', fk: true },
@@ -634,7 +782,7 @@
       ]},
 
       // Orders & Billing
-      { id: 'Order', name: 'Order', group: 'order', x: 800, y: 1300, fields: [
+      { id: 'Order', name: 'Order', group: 'order', x: 820, y: 1320, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'user_id', type: 'UUID', fk: true },
         { name: 'reference_type', type: 'OrderReferenceType' },
@@ -644,7 +792,7 @@
         { name: 'payment_method', type: 'PaymentMethod' },
         { name: 'seller_id', type: 'UUID', fk: true }
       ]},
-      { id: 'Transaction', name: 'Transaction', group: 'order', x: 1150, y: 1300, fields: [
+      { id: 'Transaction', name: 'Transaction', group: 'order', x: 1200, y: 1320, fields: [
         { name: 'id', type: 'UUID', pk: true },
         { name: 'order_id', type: 'UUID', fk: true },
         { name: 'transaction_type', type: 'TransactionType' },
@@ -653,56 +801,57 @@
       ]}
     ];
 
+    // RELATIONSHIPS WITH EXPLICIT CARDINALITY
     const RELATIONS = [
-      { from: 'User', to: 'SchoolMember' },
-      { from: 'School', to: 'SchoolMember' },
-      { from: 'User', to: 'TeacherProfile' },
-      { from: 'User', to: 'StudentProfile' },
-      { from: 'User', to: 'ParentProfile' },
-      { from: 'ParentProfile', to: 'ParentStudent' },
-      { from: 'StudentProfile', to: 'ParentStudent' },
-      { from: 'User', to: 'School' },
-      { from: 'User', to: 'Notification' },
-      { from: 'School', to: 'Department' },
-      { from: 'Department', to: 'TeacherProfile' },
-      { from: 'School', to: 'SchoolSubscription' },
-      { from: 'SubscriptionPackage', to: 'SchoolSubscription' },
-      { from: 'TeacherProfile', to: 'TeacherSubscription' },
-      { from: 'SubscriptionPackage', to: 'TeacherSubscription' },
-      { from: 'Category', to: 'Course' },
-      { from: 'School', to: 'Course' },
-      { from: 'Department', to: 'Course' },
-      { from: 'TeacherProfile', to: 'Course' },
-      { from: 'Course', to: 'Lesson' },
-      { from: 'Lesson', to: 'LessonMaterial' },
-      { from: 'School', to: 'Class' },
-      { from: 'TeacherProfile', to: 'Class' },
-      { from: 'Class', to: 'ClassEnrollment' },
-      { from: 'StudentProfile', to: 'ClassEnrollment' },
-      { from: 'Class', to: 'ClassSession' },
-      { from: 'TeacherProfile', to: 'ClassSession' },
-      { from: 'User', to: 'QuestionBank' },
-      { from: 'School', to: 'QuestionBank' },
-      { from: 'QuestionBank', to: 'Question' },
-      { from: 'Question', to: 'Answer' },
-      { from: 'StudentProfile', to: 'ExamSubmission' },
-      { from: 'QuestionBank', to: 'ExamSubmission' },
-      { from: 'ExamSubmission', to: 'SubmissionAnswer' },
-      { from: 'Question', to: 'SubmissionAnswer' },
-      { from: 'StudentProfile', to: 'StudentProgress' },
-      { from: 'Course', to: 'StudentProgress' },
-      { from: 'TeacherProfile', to: 'StoreItem' },
-      { from: 'StoreItem', to: 'StudentInventory' },
-      { from: 'StudentProfile', to: 'StudentInventory' },
-      { from: 'User', to: 'Order' },
-      { from: 'Order', to: 'Transaction' }
+      { from: 'User', to: 'SchoolMember', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'user_id' },
+      { from: 'School', to: 'SchoolMember', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'school_id' },
+      { from: 'User', to: 'TeacherProfile', card: '1:1', fromEnd: '1', toEnd: '1', label: 'user_id' },
+      { from: 'User', to: 'StudentProfile', card: '1:1', fromEnd: '1', toEnd: '1', label: 'user_id' },
+      { from: 'User', to: 'ParentProfile', card: '1:1', fromEnd: '1', toEnd: '1', label: 'user_id' },
+      { from: 'ParentProfile', to: 'ParentStudent', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'parent_id' },
+      { from: 'StudentProfile', to: 'ParentStudent', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'student_id' },
+      { from: 'User', to: 'School', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'owner_id' },
+      { from: 'User', to: 'Notification', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'user_id' },
+      { from: 'School', to: 'Department', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'school_id' },
+      { from: 'Department', to: 'TeacherProfile', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'department_id' },
+      { from: 'School', to: 'SchoolSubscription', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'school_id' },
+      { from: 'SubscriptionPackage', to: 'SchoolSubscription', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'package_id' },
+      { from: 'TeacherProfile', to: 'TeacherSubscription', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'teacher_id' },
+      { from: 'SubscriptionPackage', to: 'TeacherSubscription', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'package_id' },
+      { from: 'Category', to: 'Course', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'subject_id' },
+      { from: 'School', to: 'Course', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'school_id' },
+      { from: 'Department', to: 'Course', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'department_id' },
+      { from: 'TeacherProfile', to: 'Course', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'owner_id' },
+      { from: 'Course', to: 'Lesson', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'course_id' },
+      { from: 'Lesson', to: 'LessonMaterial', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'lesson_id' },
+      { from: 'School', to: 'Class', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'school_id' },
+      { from: 'TeacherProfile', to: 'Class', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'teacher_id' },
+      { from: 'Class', to: 'ClassEnrollment', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'class_id' },
+      { from: 'StudentProfile', to: 'ClassEnrollment', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'student_id' },
+      { from: 'Class', to: 'ClassSession', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'class_id' },
+      { from: 'TeacherProfile', to: 'ClassSession', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'teacher_id' },
+      { from: 'User', to: 'QuestionBank', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'owner_id' },
+      { from: 'School', to: 'QuestionBank', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'school_id' },
+      { from: 'QuestionBank', to: 'Question', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'bank_id' },
+      { from: 'Question', to: 'Answer', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'question_id' },
+      { from: 'StudentProfile', to: 'ExamSubmission', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'student_id' },
+      { from: 'QuestionBank', to: 'ExamSubmission', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'bank_id' },
+      { from: 'ExamSubmission', to: 'SubmissionAnswer', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'submission_id' },
+      { from: 'Question', to: 'SubmissionAnswer', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'question_id' },
+      { from: 'StudentProfile', to: 'StudentProgress', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'student_id' },
+      { from: 'Course', to: 'StudentProgress', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'course_id' },
+      { from: 'TeacherProfile', to: 'StoreItem', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'teacher_id' },
+      { from: 'StoreItem', to: 'StudentInventory', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'item_id' },
+      { from: 'StudentProfile', to: 'StudentInventory', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'student_id' },
+      { from: 'User', to: 'Order', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'user_id' },
+      { from: 'Order', to: 'Transaction', card: '1:N', fromEnd: '1', toEnd: 'N', label: 'order_id' }
     ];
 
     // -------------------------------------------------------------
-    // RENDER TABLES & WIRES
+    // RENDER TABLES & CONNECTIONS WITH CROW'S FOOT & LABELS
     // -------------------------------------------------------------
     const container = document.getElementById('tables-container');
-    const svgLayer = document.getElementById('connections-layer');
+    const wiresContainer = document.getElementById('wires-container');
     const viewport = document.getElementById('viewport');
     const canvas = document.getElementById('canvas');
 
@@ -746,7 +895,7 @@
             <span class="badge-dot" style="background: ${color};"></span>
             <span>${table.name}</span>
           </div>
-          <span style="font-size: 11px; color: var(--text-muted);">::</span>
+          <span style="font-size: 11px; color: var(--text-muted);">:::</span>
         </div>
         <div class="fields-list">
           ${fieldsHtml}
@@ -756,13 +905,11 @@
       container.appendChild(card);
     });
 
-    // Render SVG Paths
+    // Render Dynamic SVG Curves with Crow's Foot & Badges
     function drawConnections() {
-      // Clear existing paths (except defs)
-      const paths = svgLayer.querySelectorAll('path.wire');
-      paths.forEach(p => p.remove());
+      wiresContainer.innerHTML = '';
 
-      RELATIONS.forEach((rel, index) => {
+      RELATIONS.forEach((rel) => {
         const fromCard = document.getElementById(`card-${rel.from}`);
         const toCard = document.getElementById(`card-${rel.to}`);
         if (!fromCard || !toCard) return;
@@ -812,13 +959,60 @@
         const cx2 = startX < endX ? endX - dx : endX + dx;
         const cy2 = endY;
 
+        // Group element for the wire
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'wire-group');
+        g.setAttribute('id', `wire-group-${rel.from}-${rel.to}`);
+
+        // Main Path
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', `M ${startX} ${startY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${endX} ${endY}`);
-        path.setAttribute('class', 'wire');
+        path.setAttribute('class', 'wire-main');
         path.setAttribute('id', `wire-${rel.from}-${rel.to}`);
-        path.setAttribute('marker-end', 'url(#arrow)');
 
-        svgLayer.appendChild(path);
+        // Crow's foot markers
+        path.setAttribute('marker-start', 'url(#mark-one)');
+        if (rel.toEnd === '1') {
+          path.setAttribute('marker-end', 'url(#mark-one)');
+        } else {
+          path.setAttribute('marker-end', 'url(#mark-many)');
+        }
+
+        g.appendChild(path);
+
+        // Midpoint coordinates on the cubic bezier curve (at t = 0.5)
+        const midX = 0.125 * startX + 0.375 * cx1 + 0.375 * cx2 + 0.125 * endX;
+        const midY = 0.125 * startY + 0.375 * cy1 + 0.375 * cy2 + 0.125 * endY;
+
+        // Relationship Pill Badge (Showing 1:N or 1:1 and Foreign Key)
+        const badgeG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        badgeG.setAttribute('class', 'rel-badge');
+
+        const badgeText = `${rel.card} [${rel.label}]`;
+        const textWidth = badgeText.length * 6.5 + 14;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', midX - textWidth / 2);
+        rect.setAttribute('y', midY - 10);
+        rect.setAttribute('width', textWidth);
+        rect.setAttribute('height', 20);
+
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', midX);
+        text.setAttribute('y', midY);
+        text.textContent = badgeText;
+
+        badgeG.appendChild(rect);
+        badgeG.appendChild(text);
+        g.appendChild(badgeG);
+
+        // Click on line to highlight relation
+        g.addEventListener('click', (e) => {
+          e.stopPropagation();
+          highlightWireGroup(rel.from, rel.to);
+        });
+
+        wiresContainer.appendChild(g);
       });
     }
 
@@ -882,8 +1076,8 @@
     // PAN & ZOOM CANVAS
     // -------------------------------------------------------------
     let zoomScale = 0.85;
-    let panX = 120;
-    let panY = 60;
+    let panX = 100;
+    let panY = 50;
     let isPanning = false;
     let panStartX = 0;
     let panStartY = 0;
@@ -901,6 +1095,10 @@
       viewport.classList.add('panning');
       panStartX = e.clientX - panX;
       panStartY = e.clientY - panY;
+
+      // Clear highlights when clicking background
+      document.querySelectorAll('.table-card').forEach(c => c.classList.remove('highlighted'));
+      document.querySelectorAll('.wire-group').forEach(w => w.classList.remove('active'));
     });
 
     viewport.addEventListener('wheel', (e) => {
@@ -932,9 +1130,9 @@
     });
 
     document.getElementById('btn-fit').addEventListener('click', () => {
-      zoomScale = 0.55;
+      zoomScale = 0.52;
       panX = 60;
-      panY = 40;
+      panY = 30;
       applyTransform();
     });
 
@@ -948,17 +1146,17 @@
       });
       drawConnections();
       zoomScale = 0.85;
-      panX = 120;
-      panY = 60;
+      panX = 100;
+      panY = 50;
       applyTransform();
     });
 
     // -------------------------------------------------------------
-    // SEARCH & HIGHLIGHT
+    // HIGHLIGHTS & SEARCH
     // -------------------------------------------------------------
     function highlightTable(tableId) {
       document.querySelectorAll('.table-card').forEach(c => c.classList.remove('highlighted'));
-      document.querySelectorAll('.wire').forEach(w => w.classList.remove('active'));
+      document.querySelectorAll('.wire-group').forEach(w => w.classList.remove('active'));
 
       const targetCard = document.getElementById(`card-${tableId}`);
       if (targetCard) {
@@ -968,13 +1166,33 @@
       // Highlight wires connected to this table
       RELATIONS.forEach(rel => {
         if (rel.from === tableId || rel.to === tableId) {
-          const wire = document.getElementById(`wire-${rel.from}-${rel.to}`);
-          if (wire) {
-            wire.classList.add('active');
-            wire.setAttribute('marker-end', 'url(#arrow-active)');
+          const wireGroup = document.getElementById(`wire-group-${rel.from}-${rel.to}`);
+          if (wireGroup) {
+            wireGroup.classList.add('active');
+            const path = wireGroup.querySelector('.wire-main');
+            path.setAttribute('marker-start', 'url(#mark-one-active)');
+            path.setAttribute('marker-end', rel.toEnd === '1' ? 'url(#mark-one-active)' : 'url(#mark-many-active)');
           }
         }
       });
+    }
+
+    function highlightWireGroup(fromId, toId) {
+      document.querySelectorAll('.table-card').forEach(c => c.classList.remove('highlighted'));
+      document.querySelectorAll('.wire-group').forEach(w => w.classList.remove('active'));
+
+      const fromCard = document.getElementById(`card-${fromId}`);
+      const toCard = document.getElementById(`card-${toId}`);
+      if (fromCard) fromCard.classList.add('highlighted');
+      if (toCard) toCard.classList.add('highlighted');
+
+      const wireGroup = document.getElementById(`wire-group-${fromId}-${toId}`);
+      if (wireGroup) {
+        wireGroup.classList.add('active');
+        const path = wireGroup.querySelector('.wire-main');
+        path.setAttribute('marker-start', 'url(#mark-one-active)');
+        path.setAttribute('marker-end', 'url(#mark-many-active)');
+      }
     }
 
     document.getElementById('search-input').addEventListener('input', (e) => {
@@ -984,7 +1202,7 @@
           c.style.opacity = '1';
           c.classList.remove('highlighted');
         });
-        document.querySelectorAll('.wire').forEach(w => w.classList.remove('active'));
+        document.querySelectorAll('.wire-group').forEach(w => w.classList.remove('active'));
         return;
       }
 
@@ -998,7 +1216,7 @@
           card.classList.add('highlighted');
           if (!firstMatch) firstMatch = table;
         } else {
-          card.style.opacity = '0.2';
+          card.style.opacity = '0.15';
           card.classList.remove('highlighted');
         }
       });
