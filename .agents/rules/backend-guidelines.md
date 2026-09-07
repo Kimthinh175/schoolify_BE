@@ -22,3 +22,15 @@ Khi phát triển các tính năng Backend (NestJS) cho project này, Agent BẮ
      1. `JwtAuthGuard`: Xác thực token từ Cookie.
      2. `SchoolMemberGuard`: Xác định quyền của User theo từng Trường học (`SchoolRole`).
      3. `Resource Ownership Check`: Kiểm tra quyền sở hữu tài nguyên (Ví dụ: `owner_id === user.id`) ở tầng Service/Guard.
+
+5. **Swagger Documentation (Bắt buộc cho mọi API mới):**
+   - **Mọi Controller mới** đều bắt buộc phải gắn decorator `@ApiTags('Tên Nhóm API')`.
+   - **Mọi Endpoint (Route handler)** đều bắt buộc phải có:
+     - `@ApiOperation({ summary: '...', description: '...' })` mô tả rõ mục đích và hành vi của API.
+     - `@ApiResponse({ status: ..., description: '...' })` đầy đủ cho các mã trạng thái (200/201 thành công, 400 bad request, 401 unauthorized, 403 forbidden, 404 not found, v.v.).
+     - `@ApiCookieAuth('access_token')` đối với tất cả các endpoint yêu cầu xác thực (`JwtAuthGuard`).
+     - `@ApiHeader({ name: 'x-school-id', description: '...' })` đối với các endpoint Multi-tenant trường học.
+   - **Mọi DTO (Data Transfer Object)** đều bắt buộc phải gắn:
+     - `@ApiProperty({ description: '...', example: '...' })` cho các trường bắt buộc.
+     - `@ApiPropertyOptional({ description: '...', example: '...' })` cho các trường tùy chọn/optional.
+   - Đường dẫn Swagger UI mặc định của hệ thống: `http://localhost:3001/api/docs`.
