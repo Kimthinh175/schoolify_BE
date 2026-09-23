@@ -3,332 +3,573 @@
 
 ---
 
-## 2.1 YÊU CẦU KHÁCH HÀNG (NGHIỆP VỤ HỆ THỐNG)
+## 2.1 YÊU CẦU KHÁCH HÀNG
 
-### 1. Quản lý người dùng & Phân quyền truy cập
-- **Đăng ký tài khoản:**
-  - Học sinh, phụ huynh và giáo viên có thể đăng ký tài khoản nhanh chóng thông qua các phương thức: Tài khoản Google (OAuth 2.0), Số điện thoại hoặc Email cá nhân.
-  - Hệ thống gửi mã xác minh (OTP) qua tin nhắn SMS hoặc Email để kích hoạt tài khoản trong vòng 120 giây nhằm bảo đảm tính xác thực.
-- **Đăng nhập & Đăng xuất:**
-  - Người dùng có thể đăng nhập bằng Email/Số điện thoại kèm mật khẩu hoặc Đăng nhập 1-chạm bằng Google.
-  - Cơ chế xác thực bảo mật hiện đại bằng JSON Web Token (JWT) lưu trữ an toàn trong HttpOnly Cookie, bảo vệ người dùng khỏi các cuộc tấn công XSS và CSRF.
+### Các yêu cầu của khách hàng
+
+#### Quản lý người dùng:
+- **Đăng ký:**
+  - Học viên có thể đăng ký tài khoản bằng các phương thức đăng ký khác nhau (Email, Số điện thoại, Google).
+- **Đăng nhập/Đăng xuất:**
+  - Học viên có thể đăng nhập bằng thông tin tài khoản của mình.
+  - Hỗ trợ cơ chế xác thực an toàn (NextAuth, JWT, Token, Cookie).
 - **Quản lý hồ sơ cá nhân:**
-  - Học sinh có thể cập nhật ảnh đại diện, họ và tên, trường đang học, tỉnh/thành phố và đặc biệt là **Khối lớp đang học (từ Lớp 1 đến Lớp 12)** để hệ thống tự động gợi ý đúng các khóa học và bài tập ôn luyện phù hợp.
-  - Cho phép thay đổi mật khẩu và cập nhật số điện thoại kèm xác thực mã OTP.
+  - Học viên có thể cập nhật thông tin cá nhân như tên, email, ảnh đại diện, khối lớp đang học (Lớp 1 đến Lớp 12), trường học, giới thiệu.
+
+#### Mua khóa học và học tập:
+- **Lộ trình và Khóa học:**
+  - **Khóa học có phí:**
+    - Hiển thị danh sách các khóa học có phí cho học viên chọn mua theo từng khối lớp và môn học.
+    - Cho phép tìm kiếm khóa học theo tên, theo khối lớp, môn học, bộ sách giáo khoa (Kết nối tri thức, Cánh Diều, Chân trời sáng tạo).
+  - **Xác nhận thanh toán:**
+    - Sau khi chọn được khóa học, học viên thanh toán qua chuyển khoản ngân hàng (VietQR Napas 24/7), MoMo, VNPay.
+    - Sau khi học viên thanh toán thành công, khóa học sẽ được thêm vào danh sách khóa học của họ.
+  - **Khóa học miễn phí:**
+    - Học viên đăng ký tài khoản, bấm đăng ký khóa học là có thể học ngay.
+- **Học tập:**
+  - **Học theo tuần tự:**
+    - Học viên cần hoàn thành bài học theo thứ tự, không được bỏ qua bài học.
+  - **Không tua khi học:**
+    - Hỗ trợ chức năng ngăn tua tiến độ video vượt quá thời gian đã xem, được phép tua ngược để nghe lại.
+  - **Hỗ trợ các chức năng: ghi chú, hỏi đáp:**
+    - **Ghi chú:** theo thời gian học video (hỗ trợ cho các bài học dạng Video). Lưu theo tiêu đề nội dung và cả thời gian khi dừng video để tạo ghi chú.
+    - **Hỏi đáp:** các hỏi đáp phân loại theo từng chương từng bài học, xem được các câu hỏi thường gặp, đặt câu hỏi trực tiếp với người tạo ra khóa học (thêm, sửa, xóa câu hỏi của chính bạn).
+- **Bài tập và Luyện thi K-12:**
+  - Đến với Schoolify bài tập cũng là một dạng bài học, học viên bắt buộc phải hoàn thành bài tập đạt yêu cầu (từ 80% trở lên) mới có thể mở khóa qua được bài tiếp theo.
+  - Bài tập có 3 dạng:
+    - Bài tập trắc nghiệm nhiều lựa chọn (`multiple_choice` - 4 phương án A, B, C, D).
+    - Bài tập đúng/sai (`true_false`).
+    - Bài tập điền từ / điền số khuyết (`fill`).
+    - Các bài tập đều có đáp án, xem giải thích chi tiết từng bước sau khi nộp bài.
+
+#### Đánh giá và chứng chỉ:
+- **Đánh giá khóa học:**
+  - Sau khi hoàn thành khóa học, học viên có thể đánh giá khóa học (từ 1 đến 5 sao) và để lại nhận xét.
+- **Chứng chỉ:**
+  - Học viên hoàn thành khóa học (100% video và bài tập) sẽ nhận được chứng chỉ hoàn thành khóa học (tải về file PDF).
+
+#### Nhắc nhở học tập tự động:
+- **Thêm, sửa, xóa, bật tắt:**
+  - Học viên thêm, sửa, xóa, bật/tắt được nhắc nhở học tập tự động theo thời gian biểu cá nhân.
+
+#### Xem bài viết và bình luận:
+- **Bài viết:**
+  - Học viên có thể truy cập mục bài viết trên website để đọc các bài viết liên quan đến phương pháp học tập K-12, mẹo giải nhanh, kinh nghiệm thi cử, v.v.
+  - Bài viết có thể được phân loại theo các chuyên mục môn học để dễ tìm kiếm.
+  - Mỗi bài viết hiển thị các thông tin: tiêu đề, hình ảnh, nội dung, tác giả, ngày đăng và số lượt xem.
+- **Bình luận:**
+  - Học viên có thể để lại bình luận dưới mỗi bài viết sau khi đăng nhập.
+  - Hỗ trợ bình luận lồng nhau (trả lời trực tiếp một bình luận cụ thể).
 
 ---
 
-### 2. Khám phá, Tìm kiếm và Mua khóa học (E-Commerce)
-- **Danh mục khóa học chuẩn K-12:**
-  - Phân loại rõ ràng theo: Khối lớp (Lớp 1 - 12), Môn học (Toán, Ngữ văn, Tiếng Anh, Vật lý, Hóa học, Sinh học, Lịch sử, Địa lý...), Bộ sách giáo khoa (*Kết nối tri thức, Cánh Diều, Chân trời sáng tạo*) và Mục tiêu chuyên biệt (Ôn thi vào Lớp 10, Luyện thi Tốt nghiệp THPT Quốc gia, Bồi dưỡng học sinh giỏi).
-- **Bộ lọc & Tìm kiếm thông minh:**
-  - Tìm kiếm khóa học theo từ khóa, tên giáo viên giảng dạy, mức giá, môn học và số lượt đánh giá sao.
-- **Trang chi tiết khóa học:**
-  - Cho phép học sinh và phụ huynh xem video bài giảng học thử miễn phí (Trial Lesson), đề cương chi tiết từng chương, thông tin giới thiệu và thành tích của giáo viên đứng lớp, cùng các đánh giá thực tế từ học viên trước đó.
-- **Mua và Thanh toán trực tuyến:**
-  - **Khóa học miễn phí:** Học sinh chỉ cần nhấn "Đăng ký học ngay" là hệ thống tự động thêm khóa học vào tủ học tập cá nhân.
-  - **Khóa học có phí:** Tích hợp các cổng thanh toán phổ biến hàng đầu Việt Nam: Quét mã VietQR (Napas 24/7 tự động gạch nợ trong 3 giây), Ví điện tử MoMo và Cổng VNPay.
-  - Sau khi giao dịch thanh toán thành công, hệ thống gửi email xác nhận biên lai và tự động mở khóa toàn bộ nội dung khóa học cho học sinh.
+### Chức năng của giảng viên
+
+#### Tạo khóa học:
+- Giảng viên có thể tạo khóa học mới, nhập thông tin khóa học (tên khóa học, mô tả, môn học, khối lớp, bộ sách giáo khoa, ảnh bìa, giá bán).
+- Tạo chương, bài học, bài tập theo nhiều dạng, thêm URL video bài giảng.
+- Thêm thứ tự bài học.
+
+#### Quản lý bài học:
+- Giảng viên có thể thêm, sửa, ẩn, xóa từng chương, bài học, bài tập trong khóa học.
+- Upload/nhúng video cho mỗi bài học để học sinh theo dõi.
+- Có thể sắp xếp lại thứ tự bài học hoặc chỉnh sửa bài học sau khi tạo.
+
+#### Tạo bài tập:
+- Giảng viên có thể tùy chọn tạo các dạng bài tập khác nhau cho học viên sau mỗi bài học:
+  - **Bài tập trắc nghiệm:** Nhập câu hỏi trắc nghiệm (hỗ trợ công thức Toán/Lý/Hóa LaTeX), nhập 4 đáp án A, B, C, D, chọn đáp án đúng và nhập lời giải thích.
+  - **Bài tập đúng/sai:** Nhập câu hỏi và chọn đáp án đúng (Đúng hoặc Sai).
+  - **Bài tập điền từ / điền số:** Nhập câu hỏi dạng điền khuyết và nhập từ khóa/kết quả cần điền.
+
+#### Trả lời câu hỏi của học viên giải đáp thắc mắc:
+- Giảng viên trả lời câu hỏi của từng học sinh dưới bài giảng của mình.
 
 ---
 
-### 3. Không gian học tập trực tuyến (Learning Management System - LMS)
-- **Học tập theo lộ trình tuần tự:**
-  - Học sinh phải hoàn thành bài học trước mới được mở khóa bài học tiếp theo, tránh tình trạng nhảy cóc kiến thức.
-- **Trình phát video bài giảng thông minh:**
-  - Hỗ trợ tính năng chống tua nhanh vượt quá thời lượng chưa xem để đảm bảo học sinh thực sự theo dõi bài giảng (cho phép tua lùi để nghe lại phần kiến thức chưa hiểu).
-  - Tự động lưu lại mốc thời gian xem dở (Resume watching) để học sinh tiếp tục học trên các thiết bị khác mà không bị gián đoạn.
-- **Ghi chú bài học thông minh (Timestamped Notes):**
-  - Cho phép học sinh tạo ghi chú ngay trong lúc xem video. Ghi chú được gắn liền với mốc phút:giây của video bài giảng, bấm vào ghi chú video sẽ tự động nhảy đến đúng thời điểm đó.
-- **Hỏi đáp & Thảo luận dưới bài học (Q&A):**
-  - Học sinh có thể đặt câu hỏi trực tiếp dưới từng bài giảng nếu chưa hiểu bài.
-  - Giáo viên bộ môn và các học viên khác có thể vào giải đáp, tạo môi trường học tập tương tác cao.
-- **Theo dõi tiến độ học tập (Progress Tracking):**
-  - Hiển thị trực quan thanh tiến độ hoàn thành (% Course Completion) của từng chương và toàn bộ khóa học.
+### Phân quyền Admin cho các bộ phận
+
+#### Bộ phận Quản lý Hệ thống (Admin tổng quản):
+- **Quản lý phân quyền:** Có quyền thêm, sửa, xóa các bộ phận quản trị khác. Phân quyền cho các bộ phận khác như Quản lý khóa học, Marketing, Kế toán, Giảng viên.
+- **Thêm/xóa bộ phận:** Có quyền thêm mới hoặc gỡ bỏ các bộ phận trong hệ thống quản trị.
+- **Kiểm duyệt khóa học:** Xem xét và phê duyệt các khóa học trước khi được công khai.
+- **Kiểm duyệt bài viết:** Kiểm tra và phê duyệt bài viết từ bộ phận Marketing trước khi công bố.
+- Xem được lịch sử truy cập, thao tác của các admin khác.
+
+#### Bộ phận Quản lý khóa học:
+- **Kiểm tra nội dung khóa học:** Có quyền xem xét, kiểm duyệt nội dung từ giảng viên, bao gồm các bài học và bài tập.
+- **Kiểm duyệt video:** Quản lý và kiểm duyệt các video bài giảng từ giảng viên trước khi đăng tải cho học viên.
+- **Phản hồi các thông tin cần sửa đổi:** Có quyền yêu cầu giảng viên chỉnh sửa (tên khóa học, mô tả, bài học, bài tập, v.v.).
+
+#### Bộ phận Marketing:
+- **Đăng bài viết:** Có quyền đăng bài viết quảng bá, giới thiệu khóa học, hoặc các bài viết liên quan đến giáo dục và nội dung khác. Có thể quản lý bài viết (thêm, sửa, ẩn).
+- **Phản hồi bình luận:** Theo dõi và trả lời các bình luận từ học viên liên quan đến bài viết hoặc nội dung khóa học. Được phép quản lý và xử lý các bình luận tiêu cực hoặc không phù hợp.
+
+#### Bộ phận Kế toán:
+- **Thống kê doanh thu:** Quản lý và tạo báo cáo doanh thu từ khóa học, theo dõi doanh thu hàng tuần, tháng, năm.
+- **Thống kê lợi nhuận:** Phân tích chi tiết và báo cáo lợi nhuận từ doanh thu khóa học, các chiến dịch khuyến mãi và tỷ lệ chi trả nhuận bút cho giảng viên.
+- Quyền xem báo cáo chi tiết về doanh thu và lợi nhuận từ việc bán khóa học.
 
 ---
 
-### 4. Hệ thống Luyện tập & Đánh giá kiến thức K-12 (Practice & Quiz Engine)
-- **Bài tập củng cố sau bài học:**
-  - Sau mỗi video bài giảng là phần bài tập bắt buộc để kiểm tra mức độ hiểu bài.
-  - Học sinh phải đạt điều kiện tối thiểu (ví dụ: đúng từ 80% trở lên) mới được tính là hoàn thành bài học.
-- **Các dạng câu hỏi trắc nghiệm phổ biến trong trường học:**
-  - *Trắc nghiệm 4 lựa chọn (Multiple Choice - A, B, C, D).*
-  - *Câu hỏi Đúng / Sai (True / False).*
-  - *Câu hỏi điền khuyết từ / số (Fill in the blank) dành cho công thức toán hoặc từ vựng tiếng Anh.*
-- **Phòng Luyện đề thi thử có tính giờ (Mock Exam):**
-  - Hỗ trợ các bộ đề thi thử bám sát cấu trúc đề thi chính thức (Đề kiểm tra 15 phút, 1 tiết 45 phút, Đề thi học kỳ, Đề thi thử THPT Quốc gia 50 câu - 90 phút).
-  - Đồng hồ đếm ngược thời gian thực, tự động nộp bài khi hết giờ.
-  - Hiển thị ngay điểm số, bảng đáp án đúng/sai kèm **Lời giải thích chi tiết từng câu** để học sinh tự rút kinh nghiệm.
-- **Đánh giá khóa học & Nhận chứng nhận:**
-  - Sau khi hoàn thành 100% video và bài tập của khóa học, học sinh được quyền đánh giá sao (1 - 5 sao), viết nhận xét và tải về Giấy chứng nhận hoàn thành khóa học (Certificate PDF).
+## 2.2 CÁC TÍNH NĂNG CỦA SCHOOLIFY
+
+### Auth
+
+#### Chức năng đăng nhập: Đăng nhập bằng tài khoản Google, Tài khoản (Email, Số điện thoại và mật khẩu)
+
+##### Chi tiết của đăng nhập Google:
+- **Hiển thị nút “Đăng nhập bằng Google”:**
+  - Trên giao diện đăng nhập, hiển thị nút “Đăng nhập bằng Google”.
+  - Nút này có thể sử dụng icon của Google để người dùng nhận biết.
+- **Người dùng nhấn nút “Đăng nhập bằng Google”:**
+  - Khi người dùng nhấn vào nút này, hệ thống sẽ chuyển hướng tới trang đăng nhập của Google.
+- **Người dùng nhập thông tin tài khoản Google:**
+  - Người dùng nhập địa chỉ email và mật khẩu tài khoản Google của họ.
+- **Xác thực Google:**
+  - Google sẽ xác thực thông tin tài khoản.
+  - Nếu thông tin chính xác, Google sẽ gửi mã xác thực (OAuth token) về cho hệ thống của bạn.
+- **Xử lý mã xác thực:**
+  - Hệ thống của bạn sẽ nhận mã xác thực từ Google và kiểm tra tính hợp lệ.
+  - Nếu mã hợp lệ, hệ thống sẽ cho phép người dùng đăng nhập vào tài khoản của họ trên ứng dụng của bạn.
+
+##### Đăng nhập bằng Tài khoản (Email, Số điện thoại và mật khẩu):
+- **Hiển thị form đăng nhập:**
+  - Trên giao diện đăng nhập, hiển thị form để người dùng nhập email hoặc số điện thoại và mật khẩu.
+  - Form này nên bao gồm các trường:
+    - Email hoặc Số điện thoại.
+    - Mật khẩu.
+    - Nút "Đăng nhập".
+- **Người dùng nhập thông tin tài khoản:**
+  - Người dùng nhập email hoặc số điện thoại và mật khẩu vào form đăng nhập.
+- **Gửi yêu cầu xác thực:**
+  - Khi người dùng nhấn nút "Đăng nhập", hệ thống sẽ gửi yêu cầu xác thực thông tin tài khoản tới máy chủ.
+- **Xác thực thông tin tài khoản:**
+  - Máy chủ sẽ kiểm tra thông tin email hoặc số điện thoại và mật khẩu mà người dùng đã nhập.
+  - Nếu thông tin chính xác, máy chủ sẽ tạo một phiên đăng nhập cho người dùng.
+- **Xử lý kết quả:**
+  - Nếu thông tin đăng nhập chính xác, người dùng sẽ được chuyển hướng tới trang chủ.
+  - Nếu thông tin không chính xác, hiển thị thông báo lỗi và yêu cầu người dùng nhập lại thông tin.
+- **Các yêu cầu bổ sung:**
+  - **Mã hóa mật khẩu:** Mật khẩu người dùng cần được mã hóa trước khi lưu trữ trong cơ sở dữ liệu.
+  - **Bảo mật thông tin:** Sử dụng các phương thức bảo mật như HTTPS để bảo vệ thông tin đăng nhập.
+  - **Xử lý lỗi:** Hiển thị các thông báo lỗi thân thiện và rõ ràng khi người dùng nhập sai thông tin.
 
 ---
 
-### 5. Nghiệp vụ dành cho Giảng viên / Giáo viên (Instructor Studio)
-- **Khởi tạo và Quản lý khóa học:**
-  - Nhập thông tin tổng quan khóa học: Tên khóa học, môn học, khối lớp, bộ sách giáo khoa, mô tả chi tiết, ảnh thumbnail và giá bán.
-  - Xây dựng cấu trúc khóa học phân cấp: Tạo các Chương (Sections) và các Bài học (Lessons).
-  - Tải lên video bài giảng, đính kèm tài liệu tóm tắt lý thuyết (PDF, slide).
-  - Dễ dàng kéo thả để sắp xếp lại thứ tự bài giảng.
-- **Tạo và Quản lý Ngân hàng bài tập:**
-  - Tạo bộ câu hỏi trắc nghiệm cho từng bài học hoặc tạo đề thi tổng hợp.
-  - Soạn thảo câu hỏi có hỗ trợ công thức Toán/Lý/Hóa bằng ký hiệu LaTeX chuẩn mực.
-  - Cung cấp đáp án đúng và lời giải thích chi tiết cho từng phương án.
-- **Tương tác và Giải đáp thắc mắc:**
-  - Nhận thông báo khi có học sinh đặt câu hỏi trong bài giảng và trả lời trực tiếp cho học sinh.
+#### Chức năng đăng ký: Đăng ký bằng tài khoản Google, Tài khoản (Email, Số điện thoại và mật khẩu)
+
+##### Chi tiết:
+- **Hiển thị giao diện đăng ký:**
+  - Trên giao diện đăng ký, hiển thị các tùy chọn đăng ký bằng tài khoản Google và Email/Số điện thoại.
+
+##### Đăng ký bằng tài khoản Google:
+- **Hiển thị nút "Đăng ký bằng Google":**
+  - Sử dụng icon Google để dễ nhận biết.
+- **Người dùng nhấn nút "Đăng ký bằng Google":**
+  - Chuyển hướng tới trang đăng nhập của Google.
+- **Người dùng nhập thông tin tài khoản Google:**
+  - Nhập địa chỉ email và mật khẩu tài khoản Google.
+- **Xác thực với Google:**
+  - Google xác thực thông tin tài khoản và gửi mã xác thực (OAuth token) về cho hệ thống của bạn.
+- **Xử lý mã xác thực:**
+  - Nhận mã xác thực từ Google và kiểm tra tính hợp lệ.
+  - Nếu mã hợp lệ, tạo tài khoản mới cho người dùng trên ứng dụng của bạn.
+
+##### Đăng ký bằng Tài khoản (Email, Số điện thoại và mật khẩu):
+- **Hiển thị form đăng ký:**
+  - Hiển thị form để người dùng nhập thông tin email hoặc số điện thoại và mật khẩu.
+  - Các trường thông tin bao gồm:
+    - Họ và tên học sinh.
+    - Khối lớp (Lớp 1 đến Lớp 12).
+    - Email hoặc Số điện thoại.
+    - Mật khẩu.
+    - Xác nhận mật khẩu.
+- **Người dùng nhập thông tin tài khoản:**
+  - Nhập đầy đủ thông tin vào form đăng ký.
+- **Gửi yêu cầu tạo tài khoản:**
+  - Khi người dùng nhấn nút "Đăng ký", hệ thống sẽ gửi yêu cầu tạo tài khoản tới máy chủ.
+- **Xác thực thông tin tài khoản:**
+  - Kiểm tra tính hợp lệ của email hoặc số điện thoại.
+  - Kiểm tra xem email hoặc số điện thoại đã được đăng ký trước đó chưa.
+- **Tạo tài khoản mới:**
+  - Nếu thông tin hợp lệ, tạo tài khoản mới cho người dùng.
+  - Mã hóa mật khẩu trước khi lưu trữ trong cơ sở dữ liệu.
+- **Các yêu cầu bổ sung:**
+  - **Xác minh email/số điện thoại:** Gửi email hoặc tin nhắn xác minh (OTP) để đảm bảo tính chính xác của thông tin người dùng trong vòng 120s.
+  - **Mã hóa mật khẩu:** Mật khẩu người dùng cần được mã hóa trước khi lưu trữ trong cơ sở dữ liệu.
+  - **Bảo mật thông tin:** Sử dụng các phương thức bảo mật như HTTPS để bảo vệ thông tin đăng ký.
+  - **Xử lý lỗi:** Hiển thị các thông báo lỗi thân thiện và rõ ràng khi người dùng nhập sai thông tin.
 
 ---
 
-### 6. Phân quyền Quản trị hệ thống (Admin & Các bộ phận nghiệp vụ)
-- **Bộ phận Quản lý Hệ thống (Super Admin):**
-  - Quản lý toàn bộ danh sách người dùng, kích hoạt hoặc khóa tài khoản vi phạm.
-  - Phân quyền cho các vai trò quản trị viên cấp dưới.
-  - Cấu hình chung cho hệ thống (cổng thanh toán, tham số gửi mail/SMS, danh mục môn học, khối lớp).
-- **Bộ phận Kiểm duyệt Nội dung (Content & Course Reviewer):**
-  - Xem xét, thẩm định chất lượng video bài giảng và nội dung bài tập của giáo viên trước khi phê duyệt công khai lên sàn khóa học.
-  - Gửi phản hồi yêu cầu giáo viên chỉnh sửa nếu phát hiện sai sót chuyên môn hoặc vi phạm tiêu chuẩn cộng đồng.
-- **Bộ phận Kế toán & Tài chính (Finance & Accounting):**
-  - Báo cáo và thống kê doanh thu bán khóa học theo thời gian thực (ngày, tuần, tháng, năm).
-  - Quản lý lịch sử giao dịch thanh toán trực tuyến của học viên.
-  - Tính toán tỷ lệ chia sẻ doanh thu (hoa hồng) và lập lệnh đối soát chi trả cho giáo viên đứng lớp.
+#### Chức năng thay đổi mật khẩu: Xác minh bằng số điện thoại | Email và mật khẩu cũ
+
+##### Chi tiết:
+- **Xác minh bằng Số điện thoại:**
+  - **Hiển thị form xác minh số điện thoại:**
+    - Trên giao diện thay đổi mật khẩu, hiển thị form để người dùng nhập số điện thoại.
+    - Các trường thông tin bao gồm:
+      - Số điện thoại.
+      - Nút "Gửi mã xác minh".
+  - **Người dùng nhập số điện thoại:**
+    - Người dùng nhập số điện thoại vào form và nhấn nút "Gửi mã xác minh".
+  - **Gửi mã xác minh:**
+    - Hệ thống gửi mã xác minh (OTP) đến số điện thoại của người dùng qua tin nhắn SMS.
+  - **Hiển thị form nhập mã xác minh và mật khẩu mới:**
+    - Sau khi gửi mã xác minh, hiển thị form để người dùng nhập mã xác minh và mật khẩu mới.
+    - Các trường thông tin bao gồm:
+      - Mã xác minh.
+      - Mật khẩu mới.
+      - Xác nhận mật khẩu mới.
+      - Nút "Xác nhận".
+  - **Người dùng nhập mã xác minh và mật khẩu mới:**
+    - Người dùng nhập mã xác minh và mật khẩu mới vào form.
+  - **Xác minh mã xác minh:**
+    - Hệ thống kiểm tra tính hợp lệ của mã xác minh.
+    - Nếu mã xác minh hợp lệ, chuyển sang bước tiếp theo.
+  - **Cập nhật mật khẩu mới:**
+    - Mã hóa mật khẩu mới trước khi lưu trữ trong cơ sở dữ liệu.
+    - Cập nhật mật khẩu mới cho tài khoản của người dùng trong cơ sở dữ liệu.
+  - **Thông báo kết quả:**
+    - Nếu thay đổi mật khẩu thành công, hiển thị thông báo xác nhận cho người dùng.
+    - Nếu mã xác minh không hợp lệ hoặc có lỗi xảy ra, hiển thị thông báo lỗi.
 
 ---
 
-## 2.2 ĐẶC TẢ CHI TIẾT CÁC TÍNH NĂNG CỦA HỆ THỐNG SCHOOLIFY
+#### Chức năng lấy lại mật khẩu: Xác minh bằng số điện thoại | Email
 
-### MODULE 1: XÁC THỰC VÀ BẢO MẬT (AUTHENTICATION)
+##### Xác minh bằng số điện thoại:
+- **Hiển thị form nhập số điện thoại:**
+  - Trên giao diện lấy lại mật khẩu, hiển thị form để người dùng nhập số điện thoại.
+  - Các trường thông tin bao gồm:
+    - Số điện thoại.
+    - Nút "Gửi mã xác minh".
+- **Người dùng nhập số điện thoại:**
+  - Người dùng nhập số điện thoại vào form và nhấn nút "Gửi mã xác minh".
+- **Gửi mã xác minh:**
+  - Hệ thống gửi mã xác minh (OTP) đến số điện thoại của người dùng qua tin nhắn SMS.
+- **Hiển thị form nhập mã xác minh và mật khẩu mới:**
+  - Sau khi gửi mã xác minh, hiển thị form để người dùng nhập mã xác minh và mật khẩu mới.
+  - Các trường thông tin bao gồm:
+    - Mã xác minh.
+    - Mật khẩu mới.
+    - Xác nhận mật khẩu mới.
+    - Nút "Xác nhận".
+- **Người dùng nhập mã xác minh và mật khẩu mới:**
+  - Người dùng nhập mã xác minh và mật khẩu mới vào form.
+- **Xác minh mã xác minh:**
+  - Hệ thống kiểm tra tính hợp lệ của mã xác minh.
+  - Nếu mã xác minh hợp lệ, chuyển sang bước tiếp theo.
+- **Cập nhật mật khẩu mới:**
+  - Mã hóa mật khẩu mới trước khi lưu trữ trong cơ sở dữ liệu.
+  - Cập nhật mật khẩu mới cho tài khoản của người dùng trong cơ sở dữ liệu.
+- **Thông báo kết quả:**
+  - Nếu lấy lại mật khẩu thành công, hiển thị thông báo xác nhận cho người dùng.
+  - Nếu mã xác minh không hợp lệ hoặc có lỗi xảy ra, hiển thị thông báo lỗi.
 
-#### 1. Chức năng Đăng nhập bằng Google (Google OAuth 2.0)
-- **Giao diện:** Hiển thị nút bấm "Đăng nhập bằng Google" nổi bật kèm logo chính hãng của Google trên trang đăng nhập.
-- **Luồng xử lý:**
-  1. Người dùng nhấn nút "Đăng nhập bằng Google".
-  2. Hệ thống chuyển hướng người dùng đến trang cấp quyền bảo mật của Google Identity Service.
-  3. Người dùng chọn tài khoản Gmail cá nhân và cấp quyền truy cập cơ bản (email, họ tên, avatar).
-  4. Google trả về mã xác thực `OAuth Authorization Code` cho Schoolify Backend.
-  5. Máy chủ Schoolify kiểm tra tính hợp lệ của Token với Google Server:
-     - Nếu người dùng đã có tài khoản: Tạo phiên đăng nhập, tạo cặp JWT (`access_token` và `refresh_token`), lưu vào HttpOnly Cookie và chuyển hướng người dùng về trang chủ.
-     - Nếu là người dùng mới: Tự động khởi tạo bản ghi học viên mới với thông tin từ Google, sau đó mở form nhanh để học viên chọn "Khối lớp đang học" nhằm cá nhân hóa trải nghiệm.
-
-#### 2. Chức năng Đăng nhập bằng Tài khoản (Email / Số điện thoại & Mật khẩu)
-- **Giao diện:** Form đăng nhập gồm các trường:
-  - *Email hoặc Số điện thoại.*
-  - *Mật khẩu* (kèm icon ẩn/hiện mật khẩu).
-  - Checkbox *"Ghi nhớ đăng nhập"*.
-  - Nút bấm *"Đăng nhập"* và liên kết *"Quên mật khẩu?"*.
-- **Luồng xử lý:**
-  1. Người dùng điền thông tin và nhấn "Đăng nhập".
-  2. Frontend kiểm tra định dạng email/số điện thoại cơ bản trước khi gửi yêu cầu.
-  3. Gửi yêu cầu HTTPS `POST /api/v1/auth/login` đến máy chủ.
-  4. Máy chủ tìm kiếm tài khoản theo email hoặc số điện thoại:
-     - Dùng thuật toán `bcrypt` so khớp chuỗi băm mật khẩu người dùng nhập với mật khẩu lưu trong cơ sở dữ liệu.
-     - Nếu thông tin chính xác: Cấp JWT Token và chuyển hướng người dùng về trang đích trước đó.
-     - Nếu thông tin sai: Trả về thông báo lỗi thân thiện: *"Email/Số điện thoại hoặc mật khẩu không chính xác"*.
-- **Yêu cầu bảo mật:**
-  - Cơ chế chống tấn công Brute-force: Khóa tài khoản tạm thời 15 phút nếu nhập sai mật khẩu quá 5 lần liên tiếp.
-
-#### 3. Chức năng Đăng ký Tài khoản mới
-- **Giao diện:** Form đăng ký gồm các trường:
-  - *Họ và tên học sinh.*
-  - *Email hoặc Số điện thoại.*
-  - *Khối lớp (Dropdown chọn từ Lớp 1 đến Lớp 12).*
-  - *Mật khẩu* (yêu cầu tối thiểu 8 ký tự, có chữ và số).
-  - *Xác nhận mật khẩu.*
-  - Nút bấm *"Đăng ký ngay"*.
-- **Luồng xử lý:**
-  1. Người dùng điền thông tin và nhấn "Đăng ký".
-  2. Hệ thống kiểm tra: Email/Số điện thoại đã tồn tại trong hệ thống hay chưa; Mật khẩu và Xác nhận mật khẩu có khớp nhau không.
-  3. Hệ thống tạo mã OTP gồm 6 chữ số ngẫu nhiên (có hiệu lực trong 120 giây) và gửi qua Email hoặc SMS của người dùng.
-  4. Hiển thị màn hình đếm ngược nhập mã xác thực OTP.
-  5. Người dùng nhập đúng mã OTP: Hệ thống thực hiện băm mật khẩu bằng `bcrypt`, tạo bản ghi người dùng mới với trạng thái kích hoạt `ACTIVE` và tự động đăng nhập.
-
-#### 4. Chức năng Lấy lại Mật khẩu (Quên mật khẩu)
-- **Giao diện:** Màn hình nhập Email hoặc Số điện thoại đã đăng ký tài khoản.
-- **Luồng xử lý qua Email:**
-  1. Người dùng nhập email và nhấn *"Gửi liên kết khôi phục"*.
-  2. Máy chủ kiểm tra email có tồn tại, tạo ra một mã Token bảo mật có thời hạn 15 phút và lưu tạm vào Redis.
-  3. Hệ thống gửi email chứa liên kết: `https://schoolify.vn/auth/reset-password?token=...`
-  4. Người dùng nhấp vào link từ email, mở ra trang đặt lại mật khẩu mới.
-  5. Người dùng nhập mật khẩu mới 2 lần và nhấn *"Cập nhật mật khẩu"*.
-  6. Máy chủ mã hóa mật khẩu mới và hủy bỏ token cũ, hiển thị thông báo thành công.
-
----
-
-### MODULE 2: QUẢN LÝ THÔNG TIN CÁ NHÂN & HỒ SƠ HỌC SINH (USER PROFILE)
-
-#### 1. Cập nhật Hồ sơ cá nhân
-- Người dùng truy cập trang *"Cài đặt tài khoản"*.
-- Có thể chỉnh sửa các trường: Họ và tên, Ngày sinh, Giới tính, Tỉnh/Thành phố, Trường học đang theo học, và Khối lớp.
-- Cho phép tải lên ảnh đại diện cá nhân (hệ thống tự động nén ảnh dưới 2MB và chuyển đổi sang định dạng WebP tối ưu).
-- Bấm nút *"Lưu thay đổi"* để cập nhật dữ liệu lên hệ thống.
-
-#### 2. Đổi mật khẩu trong cài đặt
-- Người dùng nhập: *Mật khẩu hiện tại*, *Mật khẩu mới*, và *Xác nhận mật khẩu mới*.
-- Hệ thống kiểm tra mật khẩu hiện tại có đúng không. Mật khẩu mới không được trùng với mật khẩu cũ.
-- Cập nhật mật khẩu thành công và gửi email thông báo bảo mật đến người dùng.
+##### Xác minh bằng Email:
+- **Hiển thị form nhập email:**
+  - Trên giao diện lấy lại mật khẩu, hiển thị form để người dùng nhập email.
+  - Các trường thông tin bao gồm:
+    - Email.
+    - Nút “Gửi email xác minh”.
+- **Người dùng nhập email:**
+  - Người dùng nhập email vào form và nhấn nút "Gửi email xác minh".
+- **Gửi email xác minh:**
+  - Hệ thống gửi email chứa liên kết xác minh đến địa chỉ email của người dùng.
+- **Người dùng nhận và nhấp vào liên kết xác minh trong email:**
+  - Người dùng mở email và nhấp vào liên kết xác minh để mở trang thay đổi mật khẩu.
+- **Hiển thị form nhập mật khẩu mới:**
+  - Sau khi nhấp vào liên kết xác minh, hiển thị form để người dùng nhập mật khẩu mới.
+  - Các trường thông tin bao gồm:
+    - Mật khẩu mới.
+    - Xác nhận mật khẩu mới.
+    - Nút “Xác nhận”.
+- **Người dùng nhập mật khẩu mới:**
+  - Người dùng nhập mật khẩu mới và xác nhận mật khẩu mới vào form.
+- **Cập nhật mật khẩu mới:**
+  - Mã hóa mật khẩu mới trước khi lưu trữ trong cơ sở dữ liệu.
+  - Cập nhật mật khẩu mới cho tài khoản của người dùng trong cơ sở dữ liệu.
+- **Thông báo kết quả:**
+  - Nếu lấy lại mật khẩu thành công, hiển thị thông báo xác nhận cho người dùng.
+  - Nếu có lỗi xảy ra, hiển thị thông báo lỗi.
+- **Các yêu cầu bổ sung:**
+  - **Bảo mật thông tin:** Sử dụng các phương thức bảo mật như HTTPS để bảo vệ thông tin xác minh và mật khẩu.
+  - **Mã hóa mật khẩu:** Mật khẩu cần được mã hóa trước khi lưu trữ trong cơ sở dữ liệu.
+  - **Xử lý lỗi:** Hiển thị các thông báo lỗi thân thiện và rõ ràng khi người dùng nhập sai thông tin hoặc có lỗi xảy ra.
 
 ---
 
-### MODULE 3: KHÁM PHÁ, MUA & THANH TOÁN KHÓA HỌC (E-COMMERCE & CHECKOUT)
+### Chức năng quản lý thông tin cá nhân
 
-#### 1. Tìm kiếm và Lọc khóa học
-- Thanh tìm kiếm trên Header cho phép gõ từ khóa tên khóa học, môn học hoặc tên giáo viên.
-- Bộ lọc đa tiêu chí bên thanh Sidebar:
-  - *Theo Khối lớp:* Lớp 1 -> Lớp 12.
-  - *Theo Bộ sách:* Kết nối tri thức, Cánh Diều, Chân trời sáng tạo.
-  - *Theo Mức giá:* Miễn phí, Dưới 200k, 200k - 500k, Trên 500k.
-  - *Sắp xếp:* Mới nhất, Đánh giá cao nhất, Bán chạy nhất.
+#### Chức năng thay đổi thông tin cá nhân: Thay đổi tên, khối lớp và các thông tin cá nhân khác
+- **Truy cập trang cài đặt cá nhân:**
+  - Người dùng đăng nhập vào tài khoản của họ và điều hướng đến trang cài đặt tài khoản.
+- **Cập nhật thông tin:**
+  - Người dùng sẽ thấy các trường thông tin cá nhân của họ (tên, email, khối lớp, trường học, ảnh đại diện...) và người dùng có thể nhập thông tin mới vào các trường đã cho.
+- **Xác nhận thay đổi:**
+  - Sau khi nhập thông tin mới, người dùng nhấn nút “Cập nhật”.
 
-#### 2. Chi tiết khóa học (Course Detail Page)
-- Hiển thị:
-  - Video giới thiệu ngắn (Trailer khóa học) và 1-2 bài giảng học thử miễn phí.
-  - Thông tin giảng viên: Tên, học vị, kinh nghiệm giảng dạy, trường công tác.
-  - Danh sách toàn bộ các chương và bài học trong khóa (cho xem trước thời lượng video của từng bài).
-  - Bảng đánh giá và phản hồi của học sinh đã học.
-  - Giá gốc, giá khuyến mãi và Nút *"Mua ngay"* hoặc *"Học ngay"* (đối với khóa miễn phí).
+#### Thay đổi số điện thoại: Xác minh số điện thoại chỉ thay đổi số điện thoại khi đã có Email (bắt buộc)
+- **Truy cập trang thay đổi SĐT:**
+  - Người dùng truy cập vào phần cài đặt số điện thoại trong trang cài đặt tài khoản.
+- **Nhập số điện thoại mới:**
+  - Người dùng nhập số điện thoại mới vào trường tương ứng và nhấn nút "Xác nhận".
+- **Xác minh qua email:**
+  - Một email chứa mã xác minh sẽ được gửi đến địa chỉ email của người dùng.
+  - Người dùng nhập mã xác minh vào trường trên trang web để xác nhận thay đổi số điện thoại.
+- **Hoàn tất thay đổi:**
+  - Sau khi mã xác minh được xác nhận, số điện thoại mới của người dùng sẽ được cập nhật.
+  - Người dùng nhận được thông báo trên website xác nhận rằng số điện thoại của họ đã được thay đổi thành công.
 
-#### 3. Quy trình Thanh toán Khóa học (Checkout Flow)
-- **Bước 1: Tạo đơn hàng:** Học sinh nhấn *"Mua ngay"*, hệ thống tạo đơn hàng với trạng thái `PENDING` và hiển thị trang thanh toán.
-- **Bước 2: Chọn phương thức thanh toán:**
-  - **Phương thức 1: Chuyển khoản VietQR (Khuyên dùng):**
-    - Hệ thống tạo động mã VietQR chuẩn Napas 24/7 chứa chính xác: *Số tài khoản ngân hàng trường, Số tiền chính xác, và Cú pháp chuyển khoản duy nhất (VD: SCH12345)*.
-    - Học sinh chỉ cần mở bất kỳ app ngân hàng nào quét mã và bấm chuyển khoản.
-    - Hệ thống bắt Webhook từ cổng thanh toán/ngân hàng trong vòng 3 giây, tự động đối soát nội dung và chuyển trạng thái đơn hàng sang `PAID`.
-  - **Phương thức 2: Ví MoMo & Cổng VNPay:**
-    - Chuyển hướng học sinh sang cổng thanh toán tương ứng để thực hiện thanh toán qua thẻ ATM nội địa, thẻ quốc tế hoặc ví điện tử.
-- **Bước 3: Kích hoạt khóa học tức thì:**
-  - Ngay khi đơn hàng được ghi nhận thanh toán thành công, hệ thống tự động thêm khóa học vào kho học tập cá nhân của học sinh và gửi email biên lai giao dịch.
-  - Trang web tự động chuyển hướng học sinh vào phòng học bài giảng đầu tiên.
-
----
-
-### MODULE 4: HỌC TẬP TRỰC TUYẾN (LEARNING PLAYER & LMS)
-
-#### 1. Cơ chế học tập tuần tự & Chống tua lén
-- Học sinh bắt buộc phải học lần lượt từng bài. Không thể bấm vào bài học số 3 nếu chưa hoàn thành bài học số 1 và số 2.
-- **Cơ chế chống tua trên trình phát video:**
-  - Không cho phép người dùng kéo thanh trượt video vượt quá mốc thời gian lớn nhất đã xem.
-  - Được phép tua ngược về trước để nghe lại kiến thức.
-  - Video chỉ được đánh dấu là "Đã xem xong" khi học sinh xem tối thiểu 90% thời lượng của video.
-
-#### 2. Chức năng Ghi chú bài giảng (Timestamped Notes)
-- Bên cạnh video có nút *"Tạo ghi chú tại [mm:ss]"*.
-- Học sinh bấm nút, video tự động tạm dừng, mở ô nhập văn bản để học sinh gõ ý chính cần nhớ.
-- Danh sách ghi chú được lưu trữ theo tài khoản học sinh, hiển thị thứ tự theo thời gian video.
-- Khi bấm vào bất kỳ dòng ghi chú nào, video sẽ tự động nhảy đến đúng giây đó và phát tiếp.
-
-#### 3. Chức năng Hỏi đáp trong bài học (Discussion & Q&A)
-- Dưới mỗi bài học có khu vực thảo luận.
-- Học sinh có thể đặt câu hỏi về bài giảng, đính kèm hình ảnh câu hỏi hoặc bài tập chưa hiểu.
-- Giáo viên đứng lớp nhận được thông báo chuông trên hệ thống và có thể trả lời trực tiếp câu hỏi của học sinh.
+#### Mật khẩu: Người dùng có thể thay đổi mật khẩu thông qua một phần cài đặt bảo mật, thường yêu cầu nhập mật khẩu hiện tại trước khi đổi sang mật khẩu mới
+- **Truy cập trang đổi mật khẩu:**
+  - Người dùng truy cập vào phần đổi mật khẩu trong trang cài đặt tài khoản.
+- **Nhập mật khẩu hiện tại và mật khẩu mới:**
+  - Người dùng nhập mật khẩu hiện tại, mật khẩu mới và xác nhận mật khẩu mới vào các trường tương ứng.
+- **Xác nhận thay đổi:**
+  - Người dùng nhấn nút "Đổi mật khẩu" để xác nhận thay đổi.
+  - Hệ thống kiểm tra mật khẩu hiện tại và tính bảo mật của mật khẩu mới.
+- **Hoàn tất thay đổi:**
+  - Nếu mọi thứ đều hợp lệ, mật khẩu mới sẽ được cập nhật.
+  - Người dùng nhận được thông báo rằng mật khẩu của họ đã được thay đổi thành công.
 
 ---
 
-### MODULE 5: LUYỆN TẬP & ĐÁNH GIÁ KIẾN THỨC K-12 (PRACTICE & QUIZ ENGINE)
+### Tìm kiếm khóa học và bài viết
 
-#### 1. Bài tập củng cố sau bài học (Lesson Quiz)
-- Sau khi xem xong video bài giảng, học sinh chuyển sang tab *"Làm bài tập củng cố"*.
-- Bộ câu hỏi gồm 5 - 10 câu trắc nghiệm bám sát nội dung vừa học.
-- Học sinh bấm chọn đáp án và nhấn *"Nộp bài"*.
-- Hệ thống chấm điểm tức thì:
-  - Nếu điểm số >= 80%: Hệ thống mở khóa bài học tiếp theo và cộng điểm tích lũy học tập.
-  - Nếu điểm số < 80%: Hệ thống yêu cầu học sinh xem lại bài giảng và làm lại bài tập.
+#### Người dùng nhập vào thanh tìm kiếm để tìm khóa học | bài viết và hiển thị lại nội dung liên quan với nội dung nhập vào
+- **Chi tiết:**
+  - Trên header có thanh tìm kiếm, người dùng nhập vào các ký tự hoặc từ khóa liên quan tới bài viết hay khóa học (theo môn học, khối lớp, tên giáo viên). Sau khi nhập xong có thể Enter hoặc Click vào nút button có icon kính lúp ở bên cạnh thanh tìm kiếm.
+  - Sau khi nhấn tìm kiếm sẽ hiển thị những khóa học và bài viết liên quan.
 
-#### 2. Phòng Luyện đề thi thử có tính giờ (Timed Exam)
-- Dành cho các bài kiểm tra 15 phút, kiểm tra 1 tiết hoặc đề thi thử vào Lớp 10 / Tốt nghiệp THPT.
-- **Giao diện làm bài thi chuyên nghiệp:**
-  - Bảng danh sách câu hỏi bên tay phải giúp học sinh dễ dàng theo dõi câu đã làm, câu chưa làm và câu cần xem lại.
-  - Đồng hồ đếm ngược thời gian làm bài hiển thị rõ ràng trên thanh tiêu đề.
-  - Hỗ trợ công thức Toán, Lý, Hóa hiển thị sắc nét bằng MathJax / KaTeX.
-- **Thu bài và Phân tích kết quả:**
-  - Khi hết giờ làm bài, hệ thống tự động khóa bài và gửi dữ liệu về máy chủ chấm điểm.
-  - Trả về màn hình tổng kết: Điểm số, số câu đúng/sai, thời gian hoàn thành.
-  - Hiển thị chi tiết từng câu hỏi kèm đáp án đúng của hệ thống và **Lời giải thích chi tiết từng bước** để học sinh tự củng cố kiến thức.
+#### Xem nội dung khóa học
+- Người dùng có thể xem nội dung tóm tắt ngay cả khi chưa đăng nhập, người tạo ra khóa học, lược sử, thành tựu, danh sách các bài học được học, các phản hồi và có thể để lại thông tin để tư vấn.
 
-#### 3. Nhận Chứng chỉ hoàn thành khóa học (Certificate)
-- Khi học sinh hoàn thành 100% video bài học và tất cả các bài kiểm tra trong khóa:
-- Hệ thống hiển thị nút *"Nhận chứng chỉ hoàn thành"*.
-- Học sinh xác nhận lại họ tên in trên chứng chỉ.
-- Hệ thống tự động tạo mã chứng chỉ độc bản và sinh file PDF Giấy chứng nhận có thể tải về máy hoặc chia sẻ lên mạng xã hội.
+#### Học các khóa học miễn phí:
+- **Khóa học miễn phí:**
+- **Chi tiết:**
+  - Người dùng sau khi đăng nhập có thể vào phần danh mục trên thanh menu hoặc tìm kiếm trên thanh tìm kiếm khóa học miễn phí và xem được các khóa học miễn phí trên trang.
+  - Sẽ chuyển tới trang chứa các môn học miễn phí, nhấn vào môn học sẽ có nút button học ngay ở bên dưới. Cứ mỗi bài học đã xong và hoàn thành bài tập, các câu hỏi trắc nghiệm sẽ giúp tăng số tiến độ hoàn thành % của môn học.
+  - Sau khi hoàn thành tất cả video bài học, bài tập và câu hỏi trắc nghiệm đủ 100% tiến độ bài học sẽ đến phần nhận chứng chỉ.
+  - Sau khi hoàn thành khóa học vẫn có thể xem lại các video, làm lại các bài tập và các câu hỏi trắc nghiệm.
+
+#### Khóa học có phí:
+- **Chi tiết:**
+  - Học viên chọn khóa học muốn học. Bấm nút thanh toán sẽ đến trang thanh toán. Có 3 phương thức thanh toán là chuyển khoản ngân hàng VietQR Napas 24/7, MoMo và VNPay.
+  - Sau khi thanh toán thành công bạn sẽ nhận được email thông báo thanh toán thành công.
+  - Sẽ chuyển tới trang chứa các khóa học của bạn. Nhấn vào môn học sẽ có nút button học ngay ở bên dưới. Nhấn vào nút học ngay để tới trang chứa các bài học có video bài giảng ở mỗi phần và phần bài tập cuối bài học, bộ câu hỏi trắc nghiệm sau mỗi bài học. Cứ mỗi bài học đã xong và hoàn thành bài tập, các câu hỏi trắc nghiệm sẽ giúp tăng số tiến độ hoàn thành % của môn học.
+  - Sau khi hoàn thành tất cả video bài học, bài tập và câu hỏi trắc nghiệm đủ 100% tiến độ bài học sẽ hiện nút nhận chứng chỉ ở ngay bên dưới. Sau khi hoàn thành khóa học vẫn có thể xem lại các video, làm lại các bài tập và các câu hỏi trắc nghiệm.
 
 ---
 
-### MODULE 6: DÀNH CHO GIẢNG VIÊN (INSTRUCTOR STUDIO)
+### Mua và thanh toán khóa học
 
-#### 1. Quản lý Khóa học & Bài giảng
-- Giảng viên tạo khóa học mới, nhập thông tin mô tả, ảnh bìa, chọn môn học và khối lớp.
-- Tạo các Chương (Sections) và các Bài học (Lessons).
-- Tải lên video bài giảng (hỗ trợ liên kết video bảo mật hoặc video lưu trữ trên đám mây CDN).
-- Đính kèm file tài liệu tóm tắt lý thuyết dạng PDF.
-- Kéo thả để sắp xếp lại thứ tự bài giảng trực quan.
+#### Danh sách khóa học
+- Hiển thị danh sách các khóa học cho học viên chọn mua.
+- Cho phép tìm kiếm khóa học theo tên, theo khối lớp, môn học, giá, hoặc giảng viên.
+- Tích hợp các phương thức thanh toán trực tuyến (VietQR Napas 24/7, MoMo, VNPay).
 
-#### 2. Soạn thảo Ngân hàng câu hỏi trắc nghiệm
-- Giảng viên thêm mới câu hỏi trắc nghiệm cho bài học:
-  - Nhập nội dung câu hỏi (hỗ trợ gõ chữ đậm, nghiêng, chèn ảnh minh họa và công thức toán học).
-  - Nhập các phương án lựa chọn A, B, C, D và tích chọn phương án đúng.
-  - Nhập nội dung lời giải thích chi tiết cho câu hỏi.
-- Cấu hình điểm số và thời gian làm bài cho đề thi.
-
-#### 3. Theo dõi Học viên & Trả lời Hỏi đáp
-- Giảng viên xem danh sách học viên đã đăng ký khóa học và tiến độ học tập trung bình của cả lớp.
-- Khu vực quản lý câu hỏi của học sinh: Lọc các câu hỏi chưa được giải đáp để trả lời kịp thời.
+#### Xác nhận thanh toán
+- Sau khi học viên thanh toán thành công, khóa học sẽ được thêm vào danh sách khóa học của họ.
 
 ---
 
-### MODULE 7: QUẢN TRỊ VIÊN HỆ THỐNG (ADMIN DASHBOARD)
+### Chức năng quản lý học trực tuyến trên Schoolify (Learning Management System)
+Học viên đăng ký khóa học có phí hoặc miễn phí đều được sử dụng chức năng LMS.
+Bao gồm:
 
-#### 1. Super Admin (Tổng quản)
-- Quản lý danh sách tài khoản toàn hệ thống (tìm kiếm, kích hoạt, tạm khóa người dùng).
-- Phân quyền quản trị viên: Phân bổ nhân sự vào các vai trò Quản lý khóa học, Kế toán, Chăm sóc khách hàng.
-- Cấu hình danh mục hệ thống: Khối lớp, Môn học, Bộ sách giáo khoa, Cấu hình cổng thanh toán.
+#### Học tập
+- **Học theo tuần tự:**
+  - Học viên cần hoàn thành bài học theo thứ tự được giảng viên sắp xếp.
+- **Không tua khi học:**
+  - Học viên không thể bỏ qua các bài học, bắt buộc học lần lượt. Không cho tua vượt quá thời gian video đã xem.
+- **Làm bài tập:**
+  - Nếu bài học có bài tập, học viên cần làm bài tập đạt chuẩn (>=80%) trước khi qua bài tiếp theo.
+- **Hỏi đáp trong bài học:**
+  - Tích hợp chức năng hỏi đáp trực tiếp trong mỗi bài học để học viên có thể đặt câu hỏi cho giảng viên.
 
-#### 2. Quản lý Nội dung (Course Ops / Content Moderator)
-- Xem danh sách các khóa học giáo viên gửi duyệt (Pending Approval).
-- Kiểm tra chất lượng video bài giảng và ngân hàng câu hỏi bài tập.
-- Bấm *"Phê duyệt"* để khóa học chính thức xuất hiện trên sàn bán khóa học, hoặc *"Yêu cầu chỉnh sửa"* kèm lý do chi tiết cho giáo viên.
+#### Đánh giá và chứng chỉ
+- **Đánh giá khóa học:**
+  - Sau khi hoàn thành khóa học, học viên có thể đánh giá khóa học (từ 1 đến 5 sao) và để lại nhận xét.
+- **Chứng chỉ:**
+  - Học viên hoàn thành khóa học sẽ nhận được chứng chỉ nếu có.
 
-#### 3. Kế toán & Báo cáo Doanh thu (Finance)
-- Dashboard biểu đồ thống kê trực quan: Doanh thu theo ngày, tuần, tháng, quý.
-- Thống kê các khóa học bán chạy nhất, số lượng học viên mới đăng ký.
-- Quản lý lịch sử các giao dịch thanh toán thành công và hoàn tiền (nếu có).
-- Báo cáo số liệu đối soát doanh thu để thực hiện chi trả nhuận bút cho giảng viên.
+#### Lên lịch học và nhắc nhở
+- **Tạo thời khóa biểu:**
+- **Nhắc nhở học:**
+  - Cho phép học viên bật/tắt thông báo nhắc nhở học theo thời gian đã lên lịch.
+
+#### Xem bài viết và bình luận
+- **Bài viết:**
+  - Học viên có thể truy cập mục bài viết trên website để đọc các bài viết liên quan đến các chủ đề giáo dục, kinh nghiệm học tập K-12, hướng dẫn kỹ năng, v.v.
+  - Bài viết có thể được phân loại theo các chuyên mục khác nhau để dễ tìm kiếm.
+  - Mỗi bài viết sẽ hiển thị các thông tin: tiêu đề, nội dung, tác giả, ngày đăng, và số lượt xem.
+- **Bình luận:**
+  - Học viên có thể để lại bình luận dưới mỗi bài viết sau khi đăng nhập.
+  - Hỗ trợ bình luận lồng nhau (trả lời trực tiếp một bình luận cụ thể).
 
 ---
 
-## 2.3 BẢNG KẾ HOẠCH TIẾN ĐỘ THỰC HIỆN DỰ ÁN (WBS - TIMELINE)
+### Chức năng của giảng viên
 
-| TT | Hạng Mục Công Việc | Ngày Bắt Đầu | Ngày Kết Thúc | Phụ Trách | Kết Quả Đầu Ra |
+#### Tạo khóa học
+- Giảng viên có thể tạo khóa học mới, nhập thông tin khóa học bao gồm tên khóa học, mô tả, môn học, khối lớp và số lượng bài học dự kiến.
+
+#### Quản lý bài học:
+- Giảng viên có thể tạo từng bài học trong khóa học.
+- Thêm URL video bài giảng.
+- Có thể sắp xếp lại thứ tự bài học hoặc chỉnh sửa bài học sau khi tạo.
+- Trả lời câu hỏi của học viên giải đáp thắc mắc.
+
+#### Tạo bài tập
+- Giảng viên có thể tùy chọn tạo các dạng bài tập khác nhau cho học viên sau mỗi bài học:
+  - **Bài tập trắc nghiệm:**
+    - Nhập câu hỏi trắc nghiệm (hỗ trợ công thức Toán/Lý/Hóa LaTeX).
+    - Nhập đáp án đúng và 2 hoặc 3 câu trả lời sai.
+    - Nhập lời giải thích chi tiết.
+  - **Bài tập đúng/sai:**
+    - Nhập câu hỏi và đáp án đúng (đúng hoặc sai).
+  - **Bài tập điền từ / điền số:**
+    - Nhập câu hỏi dạng điền từ hoặc điền số khuyết.
+    - Nhập từ khóa hoặc số cần điền vào câu trả lời của học viên.
+
+---
+
+### Feedback
+Người dùng được đánh giá khóa học khi đã hoàn thành khóa học.
+Người dùng được quyền phản hồi khóa học khi đã hoàn thành.
+
+#### Chi tiết:
+- Người dùng hoàn thành một khóa học.
+- Hệ thống kiểm tra và xác nhận rằng người dùng đã hoàn thành khóa học.
+- Người dùng nhìn thấy nút "Đánh giá khóa học" và "Viết đánh giá".
+- Người dùng nhấn vào nút để truy cập form đánh giá hoặc bình luận.
+- Người dùng nhập đánh giá hoặc bình luận và nhấn "Gửi".
+- Đánh giá hoặc bình luận của người dùng được gửi đến server và lưu trữ.
+- Đánh giá hoặc phản hồi sẽ được hiển thị trên trang chi tiết của khóa học.
+
+---
+
+### Chứng chỉ
+Học viên hoàn thành một khóa học 100% sẽ được chuyển đến trang chứng chỉ.
+
+#### Chi tiết:
+- Hệ thống kiểm tra và xác nhận rằng học viên đã hoàn thành khóa học.
+- Học viên nhìn thấy nút “Nhận Chứng chỉ” và kiểm tra thông tin học viên.
+- Sau khi điền thông tin học viên và bấm xác nhận bên dưới.
+- Hệ thống sẽ tạo chứng chỉ và gửi chứng chỉ thông qua Email hoặc trong trang thông tin của học viên.
+- Học viên có thể tải về chứng chỉ dưới dạng PDF.
+
+---
+
+### Xem bài viết (Không cần đăng nhập)
+- Người dùng truy cập vào trang web.
+- Người dùng nhìn thấy danh sách các bài viết trên trang chủ, trang danh sách bài viết hoặc phần tìm kiếm.
+- Người dùng nhấn vào tiêu đề hoặc nút "Xem chi tiết" của một bài viết mà họ quan tâm.
+- Người dùng được chuyển hướng đến trang chi tiết bài viết và có thể đọc toàn bộ nội dung bài viết mà không cần đăng nhập.
+
+---
+
+### Timeline Course
+#### Hiển Thị Tiến Độ Học Tập:
+- **Tiến Độ Bài Học:** Mỗi bài học hoặc phần của khóa học sẽ được đánh dấu là đã hoàn thành hoặc chưa, giúp người dùng dễ dàng theo dõi những gì họ đã học và những gì còn lại.
+- **Thanh Tiến Độ Tổng Quan:** Một thanh tiến độ tổng hợp thể hiện tỷ lệ hoàn thành của toàn bộ khóa học.
+
+---
+
+### Chức Năng Bài Tập Khóa Học
+#### Các Loại Bài Tập
+- **Bài Tập Trắc Nghiệm (Multiple Choice):** Học viên chọn đáp án đúng từ các lựa chọn có sẵn (A, B, C, D).
+- **Bài Tập Điền Từ / Điền Số (Fill in the blank):** Học viên điền từ, cụm từ hoặc con số kết quả vào chỗ trống trong câu.
+- **Bài Tập Đúng / Sai (True / False):** Học viên xác định tính đúng hoặc sai của một mệnh đề.
+- **Hiển Thị Kết Quả & Giải Thích Chi Tiết:** Sau khi nộp bài, hệ thống hiển thị điểm số, các câu làm đúng/sai kèm theo lời giải chi tiết từng bước cho từng câu hỏi.
+
+---
+
+### Chức Năng Nhận Chứng Chỉ Khóa Học
+- Người dùng được nhận chứng chỉ sau khi học xong 100% khóa học.
+- Xác nhận thông tin (cho chỉnh sửa tên trước khi in chứng chỉ).
+
+---
+
+### Phân quyền Admin cho các bộ phận
+
+#### Bộ phận Quản lý Hệ thống (Admin tổng quản):
+- **Quản lý phân quyền:**
+  - Có quyền thêm, sửa, xóa các bộ phận quản trị khác.
+  - Phân quyền cho các bộ phận khác như Quản lý khóa học, Marketing, Kiểm toán.
+- **Thêm/xóa bộ phận:**
+  - Có quyền thêm mới hoặc gỡ bỏ các bộ phận trong hệ thống quản trị.
+- **Kiểm duyệt khóa học:**
+  - Xem xét và phê duyệt các khóa học trước khi được công khai.
+- **Kiểm duyệt bài viết:**
+  - Kiểm tra và phê duyệt bài viết từ bộ phận Marketing trước khi công bố.
+
+#### Bộ phận Quản lý khóa học:
+- **Kiểm tra nội dung khóa học:**
+  - Có quyền xem xét, kiểm duyệt nội dung từ giảng viên, bao gồm các bài học và bài tập.
+- **Kiểm duyệt video:**
+  - Quản lý và kiểm duyệt các video bài giảng từ giảng viên trước khi đăng tải cho học viên.
+- **Phản hồi các thông tin cần sửa đổi:**
+  - Có quyền yêu cầu giảng viên chỉnh sửa (tên khóa học, mô tả, bài học, bài tập, v.v.).
+
+#### Bộ phận Marketing:
+- **Đăng bài viết:**
+  - Có quyền đăng bài viết quảng bá, giới thiệu khóa học, hoặc các bài viết liên quan đến giáo dục và nội dung khác.
+  - Có thể quản lý bài viết (thêm, sửa, xóa).
+- **Phản hồi bình luận:**
+  - Theo dõi và trả lời các bình luận từ học viên liên quan đến bài viết hoặc nội dung khóa học.
+  - Được phép quản lý và xử lý các bình luận tiêu cực hoặc không phù hợp.
+
+#### Bộ phận Kiểm toán (Kế toán):
+- **Thống kê doanh thu:**
+  - Quản lý và tạo báo cáo doanh thu từ khóa học, theo dõi lợi nhuận hàng tuần, tháng, năm.
+- **Thống kê lợi nhuận:**
+  - Phân tích chi tiết và báo cáo lợi nhuận từ doanh thu khóa học, các chiến dịch marketing, và hoạt động khác.
+  - Quyền xem báo cáo chi tiết về doanh thu và lợi nhuận từ việc bán khóa học.
+
+---
+
+## 2.3 KẾ HOẠCH DỰ ÁN
+
+| TT | Công việc | Bắt đầu | Kết thúc | Thành viên | Kết quả |
 |:---|:---|:---:|:---:|:---:|:---:|
-| **1** | **Khảo Sát & Phân Tích Yêu Cầu** | **01/10/2024** | **07/10/2024** | **Cả nhóm** | **Hoàn thành** |
-| 1.1 | Khảo sát nhu cầu học sinh K-12 & mô hình bán khóa học | 01/10/2024 | 03/10/2024 | Cả nhóm | Báo cáo khảo sát nhu cầu |
-| 1.2 | Xây dựng tài liệu đặc tả yêu cầu hệ thống (SRS) | 03/10/2024 | 05/10/2024 | Cả nhóm | Tài liệu SRS hoàn chỉnh |
-| 1.3 | Thiết kế sơ đồ Use Case tổng quan và phân rã các Actor | 05/10/2024 | 06/10/2024 | Cả nhóm | Bộ sơ đồ Use Case Diagrams |
-| 1.4 | Mô tả chi tiết các kịch bản nghiệp vụ (Use Case Specs) | 06/10/2024 | 07/10/2024 | Cả nhóm | Bảng đặc tả kịch bản Use Case |
-| **2** | **Thiết Kế Hệ Thống** | **08/10/2024** | **17/10/2024** | **Cả nhóm** | **Hoàn thành** |
-| 2.1 | Phác thảo kiến trúc công nghệ (NestJS, Next.js, PostgreSQL) | 08/10/2024 | 09/10/2024 | Backend Team | Sơ đồ System Architecture |
-| 2.2 | Thiết kế Sơ đồ quan hệ thực thể (ERD) & Cơ sở dữ liệu | 09/10/2024 | 12/10/2024 | Backend Team | Sơ đồ ERD & Database Schema |
-| 2.3 | Thiết kế SiteMap & Luồng người dùng (User Flow) | 10/10/2024 | 12/10/2024 | Frontend Team | Sơ đồ SiteMap & User Flow |
-| 2.4 | Thiết kế Giao diện UI/UX trên Figma (Client Web) | 12/10/2024 | 16/10/2024 | Frontend Team | Bản thiết kế Figma Client UI |
-| 2.5 | Thiết kế Giao diện UI/UX trên Figma (Admin & Instructor) | 14/10/2024 | 17/10/2024 | Frontend Team | Bản thiết kế Figma Admin UI |
-| **3** | **Lập Trình Phát Triển Backend (NestJS)** | **18/10/2024** | **15/11/2024** | **Backend Team** | **Hoàn thành** |
-| 3.1 | Khởi tạo dự án, kết nối PostgreSQL, viết Migration & Entities | 18/10/2024 | 22/10/2024 | Backend Team | DB Tables & TypeORM Setup |
-| 3.2 | Xây dựng Module Auth (JWT, Cookie, Google OAuth, OTP) | 23/10/2024 | 27/10/2024 | Backend Team | Bộ API Xác thực & Bảo mật |
-| 3.3 | Xây dựng Module Khóa học & Bài giảng (CRUD, Upload CDN) | 28/10/2024 | 03/11/2024 | Backend Team | API Khóa học & Bài học |
-| 3.4 | Xây dựng Module Luyện tập & Đề thi trắc nghiệm (Quiz Engine) | 04/11/2024 | 09/11/2024 | Backend Team | API Làm bài & Chấm điểm tự động |
-| 3.5 | Xây dựng Module Đơn hàng & Cổng thanh toán (VietQR, MoMo) | 10/11/2024 | 13/11/2024 | Backend Team | API Thanh toán & Webhook gạch nợ |
-| 3.6 | Xây dựng Module Báo cáo Thống kê cho Admin | 14/11/2024 | 15/11/2024 | Backend Team | API Thống kê doanh thu & tiến độ |
-| **4** | **Lập Trình Phát Triển Frontend (Next.js)** | **25/10/2024** | **25/11/2024** | **Frontend Team** | **Hoàn thành** |
-| 4.1 | Xây dựng Design System, Layout Header, Footer, Navigation | 25/10/2024 | 29/10/2024 | Frontend Team | Base Components & Typography |
-| 4.2 | Lập trình Màn hình Đăng nhập, Đăng ký, Cài đặt cá nhân | 30/10/2024 | 03/11/2024 | Frontend Team | Trang Auth & Profile UI |
-| 4.3 | Lập trình Trang chủ, Danh mục & Trang chi tiết khóa học | 04/11/2024 | 09/11/2024 | Frontend Team | Trang Marketplace & Checkout |
-| 4.4 | Lập trình Trình phát học tập (Video Player, Ghi chú, Q&A) | 10/11/2024 | 16/11/2024 | Frontend Team | Phòng học LMS tương tác |
-| 4.5 | Lập trình Giao diện Luyện đề trắc nghiệm & Xem lời giải | 17/11/2024 | 21/11/2024 | Frontend Team | Giao diện làm Quiz & Luyện thi |
-| 4.6 | Lập trình Giao diện Quản trị Admin & Giảng viên | 21/11/2024 | 25/11/2024 | Frontend Team | Trang Admin Dashboard & Studio |
-| **5** | **Kiểm Thử & Đảm Bảo Chất Lượng (QA/QC)** | **26/11/2024** | **05/12/2024** | **Cả nhóm** | **Hoàn thành** |
-| 5.1 | Kiểm thử chức năng toàn hệ thống (Functional Testing) | 26/11/2024 | 29/11/2024 | Tester | Bảng Test Cases & Kết quả test |
-| 5.2 | Kiểm thử luồng thanh toán VietQR & bảo mật dữ liệu | 30/11/2024 | 02/12/2024 | Backend + Tester | Báo cáo kiểm thử thanh toán |
-| 5.3 | Lập trình khắc phục lỗi phát sinh (Bug Fixing) | 03/12/2024 | 05/12/2024 | Cả nhóm | Bản Fix lỗi hoàn chỉnh |
-| **6** | **Đóng Gói, Triển Khai & Báo Cáo** | **06/12/2024** | **15/12/2024** | **Cả nhóm** | **Hoàn thành** |
-| 6.1 | Đóng gói Docker Container & Triển khai lên máy chủ Cloud | 06/12/2024 | 08/12/2024 | DevOps/Lead | Hệ thống chạy Production trên Domain |
-| 6.2 | Viết Tài liệu Hướng dẫn sử dụng cho Học sinh, GV và Admin | 09/12/2024 | 12/12/2024 | Cả nhóm | Bộ User Manual Docs |
-| 6.3 | Hoàn thiện Báo cáo Đồ án tốt nghiệp & Chuẩn bị Slide bảo vệ | 13/12/2024 | 15/12/2024 | Cả nhóm | Báo cáo đồ án & Slide hoàn chỉnh |
+| **1** | **Phân tích yêu cầu khách hàng** | **08/09/2024** | **15/09/2024** | **Cả nhóm** | **Done** |
+| 1.1 | Vẽ sơ đồ tổng quan hệ thống | 08/09/2024 | 10/09/2024 | Cả nhóm | Done |
+| 1.2 | Xây dựng đặc tả yêu cầu hệ thống | 10/09/2024 | 11/09/2024 | Cả nhóm | Done |
+| 1.3 | Vẽ UseCase | 11/09/2024 | 12/09/2024 | Cả nhóm | Done |
+| 1.4 | Mô tả quy trình nghiệp vụ | 12/09/2024 | 13/09/2024 | Cả nhóm | Done |
+| **2** | **Thiết kế hệ thống** | **13/09/2024** | **20/09/2024** | **Cả nhóm** | **Done** |
+| 2.1 | Phác thảo mô hình công nghệ ứng dụng | 13/09/2024 | 14/09/2024 | Tuấn, Tâm | Done |
+| 2.2 | Thiết kế SiteMap | 14/09/2024 | 18/09/2024 | Thảo, Thành | Done |
+| 2.3 | Design UI/UX Website | 14/09/2024 | 28/09/2024 | Tuấn, Tâm | Done |
+| 2.3.1 | Local Variable (Color, Typography, Box-shadow...) | 14/09/2024 | 16/09/2024 | Tuấn | Done |
+| 2.3.2 | Thiết kế các component dùng cho Admin | 16/09/2024 | 18/09/2024 | Tâm | Done |
+| 2.3.3 | Thiết kế các component dùng cho Client | 16/09/2024 | 18/09/2024 | Tuấn | Done |
+| 2.4.1 | Thiết kế sơ đồ tổ chức Website | 14/09/2024 | 16/09/2024 | Lam, Thuận | Done |
+| 2.4.2 | Thiết kế sơ đồ quan hệ thực thể (ERD) | 16/09/2024 | 17/09/2024 | Lam, Tâm, Tuấn, Thuận | Done |
+| 2.4.3 | Thiết kế chi tiết sơ đồ thực thể (ERD) | 18/09/2024 | 20/09/2024 | Lam, Tâm | Done |
+| 2.5 | Thiết kế User Flow | 14/09/2024 | 16/09/2024 | Thành | Done |
+| 2.6 | Lên kịch bản Test | 16/09/2024 | 24/09/2024 | Thành | Done |
+| **3** | **Thực hiện dự án** | **24/09/2024** | **10/11/2024** | **Cả nhóm** | **Done** |
+| | **Back-end** | **24/09/2024** | **30/10/2024** | | |
+| 3.1 | Thiết kế cơ sở dữ liệu | 24/09/2024 | 27/09/2024 | Tâm, Lam | Done |
+| 3.2 | Migration | 27/09/2024 | 29/09/2024 | Tâm, Lam | Done |
+| 3.3 | Model | 30/09/2024 | 30/09/2024 | Lam | Done |
+| 3.4 | Factory / Seeder | 31/09/2024 | 01/10/2024 | Tâm, Lam | Done |
+| 3.5 | Viết API, xây dựng controller, resource | 02/10/2024 | 30/10/2024 | Tâm, Lam | Done |
+| 3.6 | Deploy Backend, PostgreSQL, Cloud Hosting | 02/10/2024 | 30/10/2024 | Tâm, Lam | Done |
+| | **Front-end** | **24/09/2024** | **10/11/2024** | | |
+| 4.1 | Thiết kế giao diện Client | 24/09/2024 | 08/10/2024 | Thuận, Tuấn | Done |
+| 4.2 | Thiết kế giao diện Admin | 24/09/2024 | 08/10/2024 | Thảo | Done |
+| 4.3 | Lập trình Client | 28/09/2024 | 20/10/2024 | Thuận, Tuấn | Done |
+| 4.4 | Lập trình Admin | 28/09/2024 | 20/10/2024 | Thuận, Thảo, Thành | Done |
+| 4.5 | Lập trình tổng hợp - Admin | 01/11/2024 | 10/11/2024 | Tuấn, Thuận | Done |
+| **5** | **Kiểm thử** | **20/10/2024** | **15/11/2024** | **Cả nhóm** | **Done** |
+| 5.1 | Thực hiện kiểm thử Client | 20/10/2024 | 10/11/2024 | Thành | Done |
+| 5.2 | Thực hiện kiểm thử Admin | 10/11/2024 | 15/11/2024 | Thành | Done |
+| 5.3 | Lập trình sửa lỗi | 20/10/2024 | 15/11/2024 | Cả nhóm | Done |
+| **6** | **Đóng gói triển khai** | **15/11/2024** | **16/11/2024** | **Tuấn, Tâm** | **Done** |
+| 6.1 | Deploy Domain hosting | 15/11/2024 | 16/11/2024 | Tuấn, Tâm | Done |
+| 6.2 | Viết tài liệu hướng dẫn sử dụng | 10/11/2024 | 16/11/2024 | Thảo, Tuấn | Done |
