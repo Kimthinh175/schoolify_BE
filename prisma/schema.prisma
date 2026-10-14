@@ -108,6 +108,21 @@ enum QuestionType {
   TRUE_FALSE
 }
 
+enum QuestionFormat {
+  SINGLE_CHOICE  // Trắc nghiệm 4 chọn 1 (0.25đ/câu)
+  MULTI_CHOICE   // Chọn nhiều đáp án đúng
+  TRUE_FALSE     // Đúng/Sai 4 ý con a, b, c, d
+  SHORT_ANSWER   // Điền số / Trả lời ngắn
+  ESSAY          // Tự luận theo barem điểm
+}
+
+enum BloomLevel {
+  NHAN_BIET       // Nhận biết (Easy)
+  THONG_HIEU      // Thông hiểu (Medium)
+  VAN_DUNG        // Vận dụng (Hard)
+  VAN_DUNG_CAO    // Vận dụng cao (Very Hard)
+}
+
 enum StoreItemType {
   VOUCHER
   BADGE
@@ -550,14 +565,21 @@ model QuestionBank {
 }
 
 model Question {
-  id         String        @id @default(uuid())
-  bank_id    String?
-  lesson_id  String?
-  type       QuestionType? @default(MULTIPLE_CHOICE)
-  title      String?
-  question   String
-  answer     String?
-  created_at DateTime      @default(now())
+  id              String          @id @default(uuid())
+  bank_id         String?
+  lesson_id       String?
+  chapter_id      Int?            // Chương SGK
+  subject         String?         // "toan-hoc", "vat-ly"...
+  grade           Int?            // Khối 1 - 12
+  bloom_level     BloomLevel?     @default(THONG_HIEU)
+  question_format QuestionFormat? @default(SINGLE_CHOICE)
+  type            QuestionType?   @default(MULTIPLE_CHOICE)
+  title           String?
+  question        String          @db.Text
+  answer          String?         @db.Text
+  explanation     String?         @db.Text
+  default_points  Decimal?        @default(0.25) @db.Decimal(4, 2)
+  created_at      DateTime        @default(now())
 
   bank               QuestionBank?      @relation(fields: [bank_id], references: [id], onDelete: SetNull)
   lesson             Lesson?            @relation(fields: [lesson_id], references: [id], onDelete: SetNull)
@@ -566,16 +588,18 @@ model Question {
 
   @@index([bank_id])
   @@index([lesson_id])
+  @@index([subject, grade, bloom_level])
   @@map("questions")
 }
 
 model Answer {
-  id          String  @id @default(uuid())
+  id          String   @id @default(uuid())
   question_id String
-  content     String
-  explain     String?
-  img_url     String?
-  is_answer   Boolean @default(false)
+  content     String   @db.Text
+  explain     String?  @db.Text
+  img_url     String?  @db.Text
+  is_answer   Boolean  @default(false)
+  sub_label   String?  // 'a', 'b', 'c', 'd' (dành cho Đúng/Sai 4 ý con)
 
   question           Question           @relation(fields: [question_id], references: [id], onDelete: Cascade)
   submission_answers SubmissionAnswer[]
@@ -589,17 +613,22 @@ model Answer {
 // ----------------------------------------------------
 
 model ExamSubmission {
-  id            String           @id @default(uuid())
-  student_id    String
-  bank_id       String?
-  lesson_id     String?
-  class_id      String?
-  status        SubmissionStatus @default(IN_PROGRESS)
-  score         Decimal?         @db.Decimal(5, 2)
-  started_at    DateTime         @default(now())
-  submitted_at  DateTime?
-  graded_at     DateTime?
-  teacher_notes String?
+  id                 String           @id @default(uuid())
+  student_id         String
+  bank_id            String?
+  lesson_id          String?
+  class_id           String?
+  exam_title         String?          @db.VarChar(255)
+  exam_type          String?          @default("STANDARD") // 'STANDARD' | 'OLYMPIAD'
+  status             SubmissionStatus @default(IN_PROGRESS)
+  score              Decimal?         @db.Decimal(5, 2)
+  total_points       Decimal?         @default(10.00) @db.Decimal(5, 2)
+  time_spent_seconds Int?             @default(0)
+  started_at         DateTime         @default(now())
+  submitted_at       DateTime?
+  graded_at          DateTime?
+  teacher_notes      String?          @db.Text
+  snapshot_data      Json?            // JSONB: Lưu trọn vẹn toàn bộ bài thi + lời giải để FE mở modal tức thì
 
   student StudentProfile     @relation(fields: [student_id], references: [id], onDelete: Cascade)
   bank    QuestionBank?      @relation(fields: [bank_id], references: [id], onDelete: SetNull)
@@ -611,6 +640,7 @@ model ExamSubmission {
   @@index([bank_id])
   @@index([lesson_id])
   @@index([class_id])
+  @@index([submitted_at])
   @@map("exam_submissions")
 }
 
@@ -619,10 +649,12 @@ model SubmissionAnswer {
   submission_id      String
   question_id        String
   selected_answer_id String?
-  text_answer        String?
+  student_text_answer String? @db.Text // Điền số / Trả lời ngắn / Tự luận
+  sub_answers_json   Json?    // JSONB: Lưu lựa chọn a: true, b: false... của câu Đúng/Sai 4 ý
+  text_answer        String?  @db.Text
   is_correct         Boolean?
   points_earned      Decimal? @db.Decimal(5, 2)
-  teacher_feedback   String?
+  teacher_feedback   String?  @db.Text
 
   submission      ExamSubmission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
   question        Question       @relation(fields: [question_id], references: [id], onDelete: Cascade)

@@ -42,7 +42,6 @@ Thumbs.db
 # Prisma
 /generated/prisma
 
-# Documentation & Agent Rules (Explicitly Allowed)
-!*.md
-!docs/**
-!.agents/**
+# Ignore all markdown files per user rule
+*.md
+/docs/
