@@ -1,9 +1,23 @@
-import { Controller, Post, Get, Body } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { EvaluateSemanticCheckpointDto, AgentChatDto } from './dto/agent.dto';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  UseInterceptors,
+  UploadedFile,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes } from '@nestjs/swagger';
+import {
+  EvaluateSemanticCheckpointDto,
+  AgentChatDto,
+  DocxScanGenerateDto,
+  SaveGeneratedQuestionsDto,
+} from './dto/agent.dto';
 import { SemanticCheckpointService } from './services/semantic-checkpoint.service';
 import { SemanticCacheService } from './services/semantic-cache.service';
 import { AntigravityIpcBridgeService } from './services/antigravity-ipc-bridge.service';
+import { DocxExamGeneratorService } from './services/docx-exam-generator.service';
 
 @ApiTags('AI Agent & Semantic Intelligence (Trợ lý Tác nhân & Đối soát Ngữ nghĩa)')
 @Controller('agent')
@@ -12,6 +26,7 @@ export class AgentController {
     private readonly checkpointService: SemanticCheckpointService,
     private readonly cacheService: SemanticCacheService,
     private readonly ipcBridgeService: AntigravityIpcBridgeService,
+    private readonly docxGeneratorService: DocxExamGeneratorService,
   ) {}
 
   @Post('semantic-checkpoint')
@@ -69,6 +84,46 @@ export class AgentController {
       success: true,
       fromCache: false,
       data: bridgeResult,
+    };
+  }
+
+  @Post('docx-scan-generate')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @ApiOperation({
+    summary: 'Admin tải đề thi .docx -> AI quét phạm vi kiến thức & sinh ra số lượng câu hỏi theo mong muốn',
+    description:
+      'Nhận file .docx (multipart/form-data) hoặc dữ liệu văn bản/câu hỏi gốc từ đề .docx. AI sẽ phân tích môn học, chuyên đề, phân bố Bloom và sinh ra đúng targetCount câu hỏi nằm trong phạm vi kiến thức của đề.',
+  })
+  @ApiResponse({ status: 200, description: 'Quét phạm vi kiến thức và sinh câu hỏi thành công' })
+  async scanAndGenerateFromDocx(
+    @Body() dto: DocxScanGenerateDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    const data = await this.docxGeneratorService.scanAndGenerateFromDocx(
+      dto,
+      file?.buffer,
+      file?.originalname,
+    );
+
+    return {
+      success: true,
+      message: `AI đã quét phạm vi kiến thức của đề "${data.fileName}" và sinh thành công ${data.generatedCount} câu hỏi!`,
+      data,
+    };
+  }
+
+  @Post('docx-save-to-bank')
+  @ApiOperation({
+    summary: 'Lưu các câu hỏi AI đã sinh từ đề .docx vào Ngân hàng câu hỏi PostgreSQL',
+  })
+  @ApiResponse({ status: 201, description: 'Lưu câu hỏi vào PostgreSQL thành công' })
+  async saveDocxQuestionsToBank(@Body() dto: SaveGeneratedQuestionsDto) {
+    const data = await this.docxGeneratorService.saveGeneratedQuestionsToBank(dto);
+    return {
+      success: true,
+      message: `Đã lưu thành công ${data.savedCount} câu hỏi vào Ngân hàng câu hỏi PostgreSQL!`,
+      data,
     };
   }
 

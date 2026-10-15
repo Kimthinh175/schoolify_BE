@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, IsNumber } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsNumber, IsBoolean, IsArray, Min, Max } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 export class EvaluateSemanticCheckpointDto {
   @ApiPropertyOptional({
@@ -73,4 +74,97 @@ export class AgentChatDto {
   })
   @IsOptional()
   context?: Record<string, any>;
+}
+
+export class DocxScanGenerateDto {
+  @ApiProperty({
+    description: 'Số lượng câu hỏi muốn AI sinh ra trong phạm vi kiến thức của đề',
+    example: 15,
+    default: 15,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(100)
+  targetCount?: number = 15;
+
+  @ApiPropertyOptional({
+    description: 'Nội dung văn bản hoặc HTML đã bóc tách từ file .docx (nếu gửi qua JSON thay vì multipart file)',
+  })
+  @IsOptional()
+  @IsString()
+  rawText?: string;
+
+  @ApiPropertyOptional({
+    description: 'Tên file đề thi .docx tải lên',
+    example: 'De_Thi_Thu_Toan_12_GK1.docx',
+  })
+  @IsOptional()
+  @IsString()
+  fileName?: string;
+
+  @ApiPropertyOptional({
+    description: 'Môn học chỉ định (nếu để trống AI sẽ tự động nhận diện từ nội dung đề)',
+    example: 'toan-hoc',
+  })
+  @IsOptional()
+  @IsString()
+  subject?: string;
+
+  @ApiPropertyOptional({
+    description: 'Khối lớp (mặc định tự nhận diện hoặc 12)',
+    example: 12,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  grade?: number;
+
+  @ApiPropertyOptional({
+    description: 'Tỉ lệ % hoặc cấu hình mức độ nhận thức Bloom mong muốn (JSON string hoặc Object)',
+    example: { NHAN_BIET: 30, THONG_HIEU: 40, VAN_DUNG: 20, VAN_DUNG_CAO: 10 },
+  })
+  @IsOptional()
+  bloomRatio?: any;
+
+  @ApiPropertyOptional({
+    description: 'Danh sách câu hỏi gốc đã parse sơ bộ từ client (nếu có)',
+  })
+  @IsOptional()
+  seedQuestions?: any;
+
+  @ApiPropertyOptional({
+    description: 'Có tự động lưu ngay các câu hỏi sinh ra vào PostgreSQL Question Bank hay không',
+    default: false,
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  saveToBank?: boolean = false;
+}
+
+export class SaveGeneratedQuestionsDto {
+  @ApiProperty({
+    description: 'Danh sách câu hỏi đã được AI sinh và Admin duyệt để lưu vào Ngân hàng câu hỏi PostgreSQL',
+  })
+  @IsArray()
+  questions: any[];
+
+  @ApiPropertyOptional({
+    description: 'Môn học mặc định cho lô câu hỏi',
+    example: 'toan-hoc',
+  })
+  @IsOptional()
+  @IsString()
+  subject?: string;
+
+  @ApiPropertyOptional({
+    description: 'Khối lớp mặc định',
+    example: 12,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  grade?: number;
 }
