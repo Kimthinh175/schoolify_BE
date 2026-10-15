@@ -6,6 +6,7 @@ import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ExamsModule } from './modules/exams/exams.module';
+import { AgentModule } from './modules/agent/agent.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ExamsModule } from './modules/exams/exams.module';
     AuthModule,
     UsersModule,
     ExamsModule,
+    AgentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

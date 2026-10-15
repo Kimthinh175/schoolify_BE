@@ -791,3 +791,38 @@ model Notification {
   @@index([is_read])
   @@map("notifications")
 }
+
+// ----------------------------------------------------
+// AI AGENT & SEMANTIC CACHE (Zero-API-Key Architecture)
+// ----------------------------------------------------
+
+model SemanticCache {
+  id               String   @id @default(uuid())
+  query_text       String   @db.Text
+  query_vector     Float[]  // Vector embedding (384 dimensions from all-MiniLM-L6-v2)
+  response_text    String   @db.Text
+  client_actions   Json?    // Array of Client Tool Actions (JSON)
+  subject          String?  // e.g. "toan-hoc", "vat-ly"
+  grade            Int?     // 10, 11, 12
+  hit_count        Int      @default(1)
+  last_accessed_at DateTime @default(now())
+  created_at       DateTime @default(now())
+
+  @@index([subject, grade])
+  @@map("semantic_cache")
+}
+
+model SemanticCheckpointLog {
+  id                String   @id @default(uuid())
+  question_id       String?
+  student_answer    String   @db.Text
+  rubric_checkpoint String   @db.Text
+  matched_sentence  String?  @db.Text
+  vector_similarity Float?
+  is_correct        Boolean
+  explanation       String?  @db.Text
+  created_at        DateTime @default(now())
+
+  @@index([question_id])
+  @@map("semantic_checkpoint_logs")
+}
