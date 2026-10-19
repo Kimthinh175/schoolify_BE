@@ -27,10 +27,17 @@ export class SemanticCacheService implements OnModuleInit {
 
     try {
       this.isModelLoading = true;
-      this.logger.log('Đang tải mô hình nhúng cục bộ Xenova/all-MiniLM-L6-v2 (ONNX)...');
+      this.logger.log(
+        'Đang tải mô hình nhúng đa ngôn ngữ SOTA Xenova/multilingual-e5-large (1024 chiều - ONNX)...',
+      );
       const { pipeline } = await import('@xenova/transformers');
-      this.extractorPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-      this.logger.log('✅ Mô hình nhúng cục bộ đã sẵn sàng!');
+      this.extractorPipeline = await pipeline(
+        'feature-extraction',
+        'Xenova/multilingual-e5-large',
+      );
+      this.logger.log(
+        '✅ Mô hình nhúng đa ngôn ngữ Xenova/multilingual-e5-large (1024 chiều) đã sẵn sàng!',
+      );
       return this.extractorPipeline;
     } catch (err: any) {
       this.logger.error('Lỗi khi nạp mô hình nhúng:', err);
@@ -41,12 +48,13 @@ export class SemanticCacheService implements OnModuleInit {
   }
 
   /**
-   * Tính vector embedding chuẩn hóa cho chuỗi văn bản (384 chiều)
+   * Tính vector embedding chuẩn hóa cho chuỗi văn bản (1024 chiều - Multilingual E5 Large)
    */
   async getEmbedding(text: string): Promise<number[]> {
     const extractor = await this.initModel();
     const cleanText = text.trim().replace(/\s+/g, ' ');
-    const output = await extractor(cleanText, { pooling: 'mean', normalize: true });
+    const prefixedText = cleanText.startsWith('query:') ? cleanText : `query: ${cleanText}`;
+    const output = await extractor(prefixedText, { pooling: 'mean', normalize: true });
     return Array.from(output.data);
   }
 

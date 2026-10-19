@@ -44,9 +44,10 @@ export class GenerateMatrixExamDto {
   @IsNumber()
   totalQuestions: number;
 
-  @ApiProperty({ example: 45 })
+  @ApiPropertyOptional({ example: 45 })
+  @IsOptional()
   @IsNumber()
-  durationMinutes: number;
+  durationMinutes?: number;
 
   @ApiPropertyOptional({ type: [ChapterRatioDto] })
   @IsOptional()
@@ -57,16 +58,26 @@ export class GenerateMatrixExamDto {
 
   @ApiPropertyOptional({ type: BloomRatioDto })
   @IsOptional()
-  @ValidateNested()
-  @Type(() => BloomRatioDto)
-  bloomRatio?: BloomRatioDto;
+  bloomRatio?: any;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  bloomPercentages?: any;
 }
 
 export class SubmitExamDto {
-  @ApiProperty({ example: 'SES-1791982545377' })
+  @ApiPropertyOptional({ example: 'SES-1791982545377' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  sessionId: string;
+  sessionId?: string;
+
+  @ApiPropertyOptional({
+    example: 'att_8f7b3c2e1a4d90e2b4f5a6c7d8e9f012',
+    description: 'Mã phiên nộp bài bảo mật CSPRNG dạng att_[a-f0-9]{32} (nếu không gửi, Backend sẽ tự sinh CSPRNG)',
+  })
+  @IsOptional()
+  @IsString()
+  attemptToken?: string;
 
   @ApiPropertyOptional({ example: 'exam-toan-hoc-g12' })
   @IsOptional()
@@ -94,8 +105,9 @@ export class SubmitExamDto {
   chapterId?: number;
 
   @ApiProperty({ example: 1200 })
+  @IsOptional()
   @IsNumber()
-  timeSpentSeconds: number;
+  timeSpentSeconds?: number;
 
   @ApiPropertyOptional({ example: false })
   @IsOptional()
@@ -114,18 +126,43 @@ export class SubmitExamDto {
       essayAnswers: {}
     }
   })
-  @IsObject()
-  answers: {
+  @IsOptional()
+  answers?: {
     multipleChoices?: Record<string, string>;
     trueFalseAnswers?: Record<string, Record<string, boolean>>;
     shortAnswers?: Record<string, string>;
     essayAnswers?: Record<string, string>;
     flaggedIds?: Record<string, boolean>;
-  };
+  } | Array<{
+    questionId: string;
+    selectedAnswerId?: string;
+    textAnswer?: string;
+    studentTextAnswer?: string;
+    subAnswers?: Record<string, boolean>;
+  }>;
 
   @ApiPropertyOptional({ description: 'Toàn bộ snapshot dữ liệu đề để lưu snapshot_data' })
   @IsOptional()
   snapshotData?: any;
+
+  @ApiPropertyOptional({ example: 'BASIC', description: 'Cấp độ đề thi: BASIC (3đ) | MEDIUM (4đ) | ADVANCED (9đ)' })
+  @IsOptional()
+  @IsString()
+  level?: string;
+
+  @ApiPropertyOptional({ example: 8.8, description: 'Điểm số đã chấm từ đề thi (thang điểm 10)' })
+  @IsOptional()
+  @IsNumber()
+  scoreOverride?: number;
+
+  @ApiPropertyOptional({ example: false, description: 'Có trừ luôn phí vào phòng thi khi nộp bài hay không (nếu chưa trừ lúc bắt đầu)' })
+  @IsOptional()
+  deductEntryCost?: boolean;
+
+  @ApiPropertyOptional({ description: 'ID người dùng (nếu không truyền qua JWT)' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
 
 export class SyncOfflineSubmissionsDto {
@@ -144,3 +181,91 @@ export class SyncOfflineSubmissionsDto {
   @IsArray()
   submissions: any[];
 }
+
+export class DailyClaimPointsDto {
+  @ApiPropertyOptional({ description: 'ID người dùng (tùy chọn nếu đã có JWT)' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiPropertyOptional({ description: 'Cưỡng bức reset về 9 điểm để test' })
+  @IsOptional()
+  forceReset?: boolean;
+}
+
+export class StartExamWithPointsDto {
+  @ApiProperty({
+    example: 'BASIC',
+    description: 'Cấp độ bài thi: BASIC / CO_BAN (3đ - làm được 3 bài/ngày), MEDIUM / TRUNG_BINH (4đ - làm được 2 bài/ngày), ADVANCED / GIOI (9đ - làm được 1 bài/ngày)',
+  })
+  @IsString()
+  @IsNotEmpty()
+  level: string;
+
+  @ApiPropertyOptional({ example: 'exam-toan-12-co-ban-01' })
+  @IsOptional()
+  @IsString()
+  examId?: string;
+
+  @ApiPropertyOptional({ example: 'Đề luyện tập Toán 12 - Cấp độ Cơ bản' })
+  @IsOptional()
+  @IsString()
+  examTitle?: string;
+
+  @ApiPropertyOptional({ example: 'toan-hoc' })
+  @IsOptional()
+  @IsString()
+  subjectSlug?: string;
+
+  @ApiPropertyOptional({ example: 12 })
+  @IsOptional()
+  @IsNumber()
+  grade?: number;
+
+  @ApiPropertyOptional({ description: 'ID người dùng (tùy chọn nếu đã có JWT)' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+}
+
+export class SettleExamPointsDto {
+  @ApiProperty({
+    example: 9.2,
+    description: 'Điểm bài thi trên thang điểm 10 (< 5đ: -1đ | 5 - 8.5đ: 0đ | 8.5 - 9.9đ: +1đ | 10đ: +2đ)',
+  })
+  @IsNumber()
+  score: number;
+
+  @ApiPropertyOptional({ example: 'BASIC', description: 'Cấp độ đề thi: BASIC (3đ) | MEDIUM (4đ) | ADVANCED (9đ)' })
+  @IsOptional()
+  @IsString()
+  level?: string;
+
+  @ApiPropertyOptional({ example: 'Đề luyện tập Toán 12 - Cấp độ Cơ bản' })
+  @IsOptional()
+  @IsString()
+  examTitle?: string;
+
+  @ApiPropertyOptional({ example: 'sub-123456' })
+  @IsOptional()
+  @IsString()
+  submissionId?: string;
+
+  @ApiPropertyOptional({ example: 'SES-1791982545377' })
+  @IsOptional()
+  @IsString()
+  sessionId?: string;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Nếu true thì trừ cả phí mở đề (3đ/4đ/9đ) trước rồi mới cộng/trừ điểm kết quả bài thi',
+  })
+  @IsOptional()
+  deductEntryCost?: boolean;
+
+  @ApiPropertyOptional({ description: 'ID người dùng (tùy chọn nếu đã có JWT)' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+}
+

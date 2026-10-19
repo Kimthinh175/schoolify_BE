@@ -147,6 +147,7 @@ model User {
   fullname      String
   avatar_url    String?
   email         String     @unique
+  google_id     String?
   phone         String?
   password_hash String
   status        Boolean    @default(true)
@@ -167,6 +168,7 @@ model User {
   question_banks          QuestionBank[]
   store_items             StoreItem[]
 
+  @@index([google_id])
   @@map("users")
 }
 
@@ -208,11 +210,13 @@ model TeacherProfile {
 }
 
 model StudentProfile {
-  id            String    @id @default(uuid())
-  user_id       String    @unique
-  date_of_birth DateTime?
-  grade_level   String?
-  points        Int       @default(0)
+  id                    String    @id @default(uuid())
+  user_id               String    @unique
+  date_of_birth         DateTime?
+  grade_level           String?
+  points                Int       @default(0)
+  exam_points           Int       @default(9)
+  last_daily_grant_date String?   @db.VarChar(20)
 
   user            User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
   enrollments     ClassEnrollment[]
@@ -220,6 +224,7 @@ model StudentProfile {
   parent_students ParentStudent[]
   submissions     ExamSubmission[]
   progress        StudentProgress[]
+  exam_point_logs ExamPointLog[]
 
   @@map("student_profile")
 }
@@ -614,6 +619,7 @@ model Answer {
 
 model ExamSubmission {
   id                 String           @id @default(uuid())
+  attempt_token      String?          @unique @db.VarChar(64)
   student_id         String
   bank_id            String?
   lesson_id          String?
@@ -826,3 +832,24 @@ model SemanticCheckpointLog {
   @@index([question_id])
   @@map("semantic_checkpoint_logs")
 }
+
+model ExamPointLog {
+  id            String   @id @default(uuid())
+  student_id    String
+  action_type   String   @db.VarChar(50) // DAILY_GRANT | START_EXAM | SCORE_PENALTY_UNDER_5 | SCORE_NEUTRAL | SCORE_REWARD_8_5_TO_9_9 | SCORE_REWARD_10
+  exam_level    String?  @db.VarChar(30) // BASIC | MEDIUM | ADVANCED
+  exam_title    String?  @db.VarChar(255)
+  submission_id String?
+  exam_score    Decimal? @db.Decimal(5, 2)
+  points_before Int
+  points_delta  Int
+  points_after  Int
+  note          String?  @db.Text
+  created_at    DateTime @default(now())
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@index([student_id, created_at])
+  @@map("exam_point_logs")
+}
+

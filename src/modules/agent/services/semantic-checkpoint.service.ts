@@ -73,10 +73,10 @@ export class SemanticCheckpointService {
       `📊 Vector Match cao nhất: ${(similarityScore * 100).toFixed(1)}% | Câu: "${candidateSentence}"`,
     );
 
-    // 4. KIỂM TRA BỘ LỌC VECTOR:
-    // Nếu độ tương đồng quá thấp (< 0.55), học sinh hoàn toàn không nói về ý này -> Early Exit
-    const VECTOR_FILTER_THRESHOLD = 0.55;
-    if (similarityScore < VECTOR_FILTER_THRESHOLD || !candidateSentence) {
+    // 4. KIỂM TRA BỘ LỌC VECTOR (Calibrated cho 1024 chiều Xenova/multilingual-e5-large):
+    // Chỉ cho đi tiếp sang AI nếu phát hiện câu tương đồng > 0.85 (85%)
+    const VECTOR_FILTER_THRESHOLD = 0.85;
+    if (similarityScore <= VECTOR_FILTER_THRESHOLD || !candidateSentence) {
       this.logger.log(`❌ [Vector Filter] Không phát hiện câu tương đồng -> Early Exit (False)`);
 
       // Ghi log vào database
@@ -100,6 +100,7 @@ export class SemanticCheckpointService {
     const aiEvalResult = await this.ipcBridgeService.evaluateSemanticLogic(
       candidateSentence,
       rubricCheckpoint,
+      similarityScore,
     );
 
     // 6. Ghi log kết quả chấm vào PostgreSQL

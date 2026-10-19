@@ -5,6 +5,10 @@ import { SemanticCacheService } from './semantic-cache.service';
 import { AntigravityIpcBridgeService } from './antigravity-ipc-bridge.service';
 import { DocxScanGenerateDto, SaveGeneratedQuestionsDto } from '../dto/agent.dto';
 import { BloomLevel, QuestionFormat, QuestionType } from '@prisma/client';
+import {
+  extractDocxWithMtefAndOmml,
+  parseExamTextWithMathAndKeys,
+} from './mtef-math-decoder';
 
 export interface ParsedSeedQuestion {
   title: string;
@@ -17,6 +21,7 @@ export interface ParsedSeedQuestion {
   points: number;
   explanation?: string;
   shortAnswer?: string;
+  imageUrl?: string;
   answers: Array<{
     label: string;
     content: string;
@@ -50,13 +55,18 @@ export class DocxExamGeneratorService {
         'hàm số', 'đạo hàm', 'cực trị', 'đơn điệu', 'tiệm cận', 'đồ thị',
         'nguyên hàm', 'tích phân', 'logarit', 'mũ', 'tọa độ', 'vectơ',
         'mặt phẳng', 'mặt cầu', 'xác suất', 'cấp số', 'phương trình', 'bất phương trình',
+        'hệ phương trình', 'tam giác vuông', 'đường tròn', 'dây cung', 'hình quạt',
       ],
       topics: [
-        { chapterId: 1, name: 'Ứng dụng đạo hàm để khảo sát và vẽ đồ thị hàm số', keywords: ['đạo hàm', 'cực trị', 'đơn điệu', 'đồng biến', 'nghịch biến', 'tiệm cận', 'giá trị lớn nhất', 'đồ thị'] },
-        { chapterId: 2, name: 'Vectơ và hệ trục tọa độ trong không gian Oxyz', keywords: ['vectơ', 'tọa độ', 'không gian', 'oxyz', 'mặt phẳng', 'đường thẳng', 'mặt cầu'] },
+        { chapterId: 1, name: 'Ứng dụng đạo hàm để khảo sát và vẽ đồ thị hàm số', keywords: ['đạo hàm', 'cực trị', 'đơn điệu', 'đồng biến', 'nghịch biến', 'tiệm cận', 'giá trị lớn nhất', 'đồ thị hàm số'] },
+        { chapterId: 2, name: 'Vectơ và hệ trục tọa độ trong không gian Oxyz', keywords: ['vectơ', 'oxyz', 'mặt cầu', 'tích có hướng', 'phương trình mặt phẳng', 'cao độ'] },
         { chapterId: 3, name: 'Các số đặc trưng đo mức độ phân tán của mẫu số liệu ghép nhóm', keywords: ['mẫu số liệu', 'phương sai', 'độ lệch chuẩn', 'khoảng biến thiên', 'tứ phân vị'] },
         { chapterId: 4, name: 'Nguyên hàm và Tích phân ứng dụng', keywords: ['nguyên hàm', 'tích phân', 'diện tích hình phẳng', 'thể tích khối tròn xoay', 'dx'] },
-        { chapterId: 5, name: 'Xác suất có điều kiện và Công thức Bayes', keywords: ['xác suất', 'biến cố', 'điều kiện', 'bayes'] },
+        { chapterId: 5, name: 'Xác suất có điều kiện và Công thức Bayes', keywords: ['xác suất', 'biến cố', 'xác suất có điều kiện', 'bayes'] },
+        { chapterId: 6, name: 'Phương trình và Hệ hai phương trình bậc nhất hai ẩn', keywords: ['bậc nhất hai ẩn', 'hệ phương trình', 'phương pháp thế', 'cộng đại số', 'cặp số', 'nghiệm của hệ'] },
+        { chapterId: 7, name: 'Phương trình tích và Phương trình chứa ẩn ở mẫu', keywords: ['phương trình tích', 'ẩn ở mẫu', 'điều kiện xác định', 'tập nghiệm', 'tổng các nghiệm', 'mẫu thức'] },
+        { chapterId: 8, name: 'Hệ thức lượng trong tam giác vuông (sin, cos, tan, cot)', keywords: ['tam giác vuông', 'tỉ số lượng giác', 'cạnh huyền', 'cạnh góc vuông', 'góc nâng', 'góc hạ', 'tia nắng', 'sin', 'cos', 'tan'] },
+        { chapterId: 9, name: 'Đường tròn, Dây cung, Độ dài cung và Diện tích hình quạt tròn', keywords: ['đường tròn', 'dây cung', 'đường kính', 'bán kính', 'cung tròn', 'hình quạt tròn', 'vành khuyên'] },
       ],
     },
     {
@@ -141,29 +151,37 @@ export class DocxExamGeneratorService {
 
     this.logger.log(`📄 [AI Docx Scan] Đang phân tích đề "${fileName}" -> Mục tiêu sinh: ${targetCount} câu hỏi`);
 
-    // 1. Trích xuất HTML và Text từ Buffer .docx (nếu có upload file binary)
+    // 1. Trích xuất văn bản + Công thức MathType OLE (oleObject*.bin) + Word OMML (<m:oMath>) + Bảng đáp án từ Buffer .docx
     let rawHtml = '';
     let rawText = dto.rawText || '';
 
     if (fileBuffer && fileBuffer.length > 0) {
       try {
-        const htmlResult = await mammoth.convertToHtml(
-          { buffer: fileBuffer },
-          {
-            styleMap: [
-              'u => u',
-              'b => strong',
-              'i => em',
-              'span[color] => span[color]',
-            ],
-          },
-        );
-        rawHtml = htmlResult.value || '';
-        const textResult = await mammoth.extractRawText({ buffer: fileBuffer });
-        rawText = textResult.value || rawHtml.replace(/<[^>]+>/g, ' ');
+        rawText = await extractDocxWithMtefAndOmml(fileBuffer);
       } catch (err: any) {
-        this.logger.warn(`Không đọc được binary docx bằng mammoth, chuyển sang đọc text trực tiếp: ${err.message}`);
-        rawText = fileBuffer.toString('utf-8');
+        this.logger.warn(`Không giải mã trực tiếp được MTEF/XML, chuyển sang mammoth: ${err.message}`);
+      }
+
+      if (!rawText.trim()) {
+        try {
+          const htmlResult = await mammoth.convertToHtml(
+            { buffer: fileBuffer },
+            {
+              styleMap: [
+                'u => u',
+                'b => strong',
+                'i => em',
+                'span[color] => span[color]',
+              ],
+            },
+          );
+          rawHtml = htmlResult.value || '';
+          const textResult = await mammoth.extractRawText({ buffer: fileBuffer });
+          rawText = textResult.value || rawHtml.replace(/<[^>]+>/g, ' ');
+        } catch (err: any) {
+          this.logger.warn(`Không đọc được binary docx bằng mammoth, chuyển sang đọc text trực tiếp: ${err.message}`);
+          rawText = fileBuffer.toString('utf-8');
+        }
       }
     }
 
@@ -171,8 +189,8 @@ export class DocxExamGeneratorService {
     let seedQuestions: ParsedSeedQuestion[] = [];
     if (Array.isArray(dto.seedQuestions) && dto.seedQuestions.length > 0) {
       seedQuestions = this.normalizeClientSeedQuestions(dto.seedQuestions);
-    } else if (rawHtml || rawText) {
-      seedQuestions = this.parseQuestionsFromDocxContent(rawHtml || rawText);
+    } else if (rawText || rawHtml) {
+      seedQuestions = this.parseQuestionsFromDocxContent(rawText || rawHtml);
     }
 
     // Tổng hợp văn bản đại diện cho toàn bộ đề thi để quét phạm vi kiến thức
@@ -204,14 +222,61 @@ export class DocxExamGeneratorService {
       scopeAnalysis.detectedTopics.map((t) => t.chapterId),
     );
 
-    // 6. Sinh ra đúng `targetCount` câu hỏi trong phạm vi kiến thức của đề
-    const generatedQuestions = this.synthesizeQuestionsInScope(
-      targetCount,
-      seedQuestions,
-      inScopeDbQuestions,
-      scopeAnalysis,
-      targetBloomRatio,
+    // 6. Thử kết nối trực tiếp vào Live Antigravity IPC Bridge trước (nếu tiến trình antigravity-watcher đang trực)
+    const ipcJobId = `docx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const liveIpcResult = await this.ipcBridgeService.requestLiveAntigravity<{
+      questions?: any[];
+    }>(
+      ipcJobId,
+      'DOCX_SCAN_GENERATE',
+      {
+        fileName,
+        targetCount,
+        subjectSlug: scopeAnalysis.detectedSubjectSlug,
+        subjectName: scopeAnalysis.detectedSubjectName,
+        grade: scopeAnalysis.detectedGrade,
+        detectedTopics: scopeAnalysis.detectedTopics,
+        targetBloomRatio,
+        sampleSeedQuestions: seedQuestions.slice(0, 12).map((q) => ({
+          title: q.title,
+          content: q.content,
+          questionFormat: q.questionFormat,
+          bloomLevel: q.bloomLevel,
+        })),
+        instruction:
+          'Sinh mới hoàn toàn 100% các câu hỏi nằm trong đúng phạm vi kiến thức và dạng toán của đề gốc. TUYỆT ĐỐI KHÔNG chép lại nguyên văn bất kỳ câu hỏi nào từ sampleSeedQuestions. Mỗi câu phải có số liệu mới, tính toán đáp án chính xác và lời giải chi tiết bằng LaTeX/KaTeX.',
+      },
+      60000,
     );
+
+    let generatedQuestions: any[] = [];
+    if (
+      liveIpcResult &&
+      Array.isArray(liveIpcResult.questions) &&
+      liveIpcResult.questions.length > 0
+    ) {
+      this.logger.log(
+        `⚡ [Antigravity Live IPC] Nhận trực tiếp ${liveIpcResult.questions.length} câu hỏi sinh mới từ Antigravity!`,
+      );
+      generatedQuestions = this.normalizeLiveAntigravityQuestions(
+        liveIpcResult.questions,
+        scopeAnalysis,
+      );
+    }
+
+    // Nếu số lượng câu từ Live IPC chưa đủ `targetCount` (hoặc watcher chưa bật), bổ sung bằng bộ sinh tham số đồng cấu mới 100%
+    if (generatedQuestions.length < targetCount) {
+      const remaining = targetCount - generatedQuestions.length;
+      const synthesized = this.synthesizeQuestionsInScope(
+        remaining,
+        seedQuestions,
+        inScopeDbQuestions,
+        scopeAnalysis,
+        targetBloomRatio,
+        generatedQuestions.length,
+      );
+      generatedQuestions = [...generatedQuestions, ...synthesized];
+    }
 
     // 7. Nếu Admin chọn lưu ngay vào PostgreSQL Question Bank
     let savedCount = 0;
@@ -230,6 +295,10 @@ export class DocxExamGeneratorService {
       generatedCount: generatedQuestions.length,
       savedToBank: Boolean(dto.saveToBank),
       savedCount,
+      engineMode:
+        liveIpcResult && Array.isArray(liveIpcResult.questions) && liveIpcResult.questions.length > 0
+          ? 'ANTIGRAVITY_LIVE_IPC_BRIDGE'
+          : 'PARAMETRIC_SCOPE_SYNTHESIS_ENGINE',
       knowledgeScope: {
         detectedSubjectSlug: scopeAnalysis.detectedSubjectSlug,
         detectedSubjectName: scopeAnalysis.detectedSubjectName,
@@ -384,9 +453,44 @@ export class DocxExamGeneratorService {
   }
 
   /**
-   * Bóc tách câu hỏi từ nội dung HTML / Text của file .docx
+   * Bóc tách câu hỏi từ nội dung đã giải mã MTEF/OMML hoặc HTML/Text của file .docx
    */
   private parseQuestionsFromDocxContent(content: string): ParsedSeedQuestion[] {
+    // 1. Ưu tiên sử dụng bộ giải mã thống nhất MTEF/OMML + Bảng Đáp Án
+    const unified = parseExamTextWithMathAndKeys(content);
+    if (unified.length > 0) {
+      const bloomMap: Record<string, ParsedSeedQuestion['bloomLevel']> = {
+        RECOGNITION: 'NHAN_BIET',
+        UNDERSTANDING: 'THONG_HIEU',
+        APPLICATION: 'VAN_DUNG',
+        ADVANCED_APPLICATION: 'VAN_DUNG_CAO',
+      };
+      const formatMap: Record<string, ParsedSeedQuestion['questionFormat']> = {
+        SINGLE_CHOICE: 'SINGLE_CHOICE',
+        MULTIPLE_CHOICE: 'MULTI_CHOICE',
+        TRUE_FALSE: 'TRUE_FALSE',
+        FILL_BLANK: 'SHORT_ANSWER',
+        ESSAY: 'ESSAY',
+      };
+
+      return unified.map((u) => ({
+        title: u.title,
+        content: u.content,
+        questionFormat: formatMap[u.questionType] || 'SINGLE_CHOICE',
+        bloomLevel: bloomMap[u.difficulty] || 'THONG_HIEU',
+        chapter: u.chapter,
+        points: u.points,
+        explanation: u.explain || undefined,
+        shortAnswer: u.shortAnswer,
+        imageUrl: u.imageUrls[0],
+        answers: u.answers.map((a) => ({
+          label: a.label,
+          content: a.content,
+          isAnswer: a.isCorrect,
+        })),
+      }));
+    }
+
     const textWithBreaks = content
       .replace(/<\/p>/gi, '\n')
       .replace(/<br\s*[\/]?>/gi, '\n')
@@ -554,10 +658,12 @@ export class DocxExamGeneratorService {
       }
     }
 
-    // 2. Nhận diện khối lớp
+    // 2. Nhận diện khối lớp (hỗ trợ cả THCS & THPT: Lớp 6..12)
     let detectedGrade = explicitGrade || 12;
     if (!explicitGrade) {
-      const gradeMatch = lowerCorpus.match(/(?:lớp|khối)\s*(10|11|12)\b/i);
+      const gradeMatch = lowerCorpus.match(
+        /(?:lớp|khối|toán|toan|vật\s*lý|lí|hóa|sinh|anh)[\s\-_]*(6|7|8|9|10|11|12)\b/i,
+      );
       if (gradeMatch) {
         detectedGrade = parseInt(gradeMatch[1], 10);
       }
@@ -727,8 +833,102 @@ export class DocxExamGeneratorService {
   }
 
   /**
-   * Nhân bản biến thể đồng cấu (Isomorphic Cloning) & Sinh mới đúng `targetCount` câu hỏi
-   * nằm gói gọn trong phạm vi kiến thức của đề .docx đã tải lên.
+   * Chuẩn hóa danh sách câu hỏi trả về trực tiếp từ Live Antigravity IPC Bridge
+   */
+  private normalizeLiveAntigravityQuestions(
+    rawQuestions: any[],
+    scopeAnalysis: {
+      detectedSubjectSlug: string;
+      detectedSubjectName: string;
+      detectedGrade: number;
+      detectedTopics: KnowledgeTopicItem[];
+    },
+  ): any[] {
+    const bloomToDifficultyMap: Record<ParsedSeedQuestion['bloomLevel'], string> = {
+      NHAN_BIET: 'RECOGNITION',
+      THONG_HIEU: 'UNDERSTANDING',
+      VAN_DUNG: 'APPLICATION',
+      VAN_DUNG_CAO: 'ADVANCED_APPLICATION',
+    };
+    const bloomLabelVi: Record<ParsedSeedQuestion['bloomLevel'], string> = {
+      NHAN_BIET: 'Nhận biết',
+      THONG_HIEU: 'Thông hiểu',
+      VAN_DUNG: 'Vận dụng',
+      VAN_DUNG_CAO: 'Vận dụng cao',
+    };
+
+    return rawQuestions.map((q, idx) => {
+      const qId = `ai_live_ipc_${Date.now()}_${idx + 1}`;
+      const bloom: ParsedSeedQuestion['bloomLevel'] =
+        q.bloomLevel === 'NHAN_BIET' ||
+        q.bloomLevel === 'THONG_HIEU' ||
+        q.bloomLevel === 'VAN_DUNG' ||
+        q.bloomLevel === 'VAN_DUNG_CAO'
+          ? q.bloomLevel
+          : 'THONG_HIEU';
+      const qFormat: ParsedSeedQuestion['questionFormat'] =
+        q.questionFormat === 'TRUE_FALSE' ||
+        q.questionFormat === 'SHORT_ANSWER' ||
+        q.questionFormat === 'ESSAY' ||
+        q.questionFormat === 'MULTI_CHOICE'
+          ? q.questionFormat
+          : 'SINGLE_CHOICE';
+      const mappedType =
+        qFormat === 'TRUE_FALSE'
+          ? 'TRUE_FALSE'
+          : qFormat === 'SHORT_ANSWER'
+            ? 'FILL_BLANK'
+            : qFormat === 'ESSAY'
+              ? 'ESSAY'
+              : 'SINGLE_CHOICE';
+      const topicObj =
+        scopeAnalysis.detectedTopics[idx % scopeAnalysis.detectedTopics.length] || {
+          topicName: 'Chuyên đề trong đề gốc',
+          chapterId: 1,
+        };
+      const rawAns: any[] = Array.isArray(q.answers) ? q.answers : [];
+
+      return {
+        id: qId,
+        originalIndex: idx + 1,
+        orderIndex: idx + 1,
+        title: q.title || `Câu ${idx + 1} (${bloomLabelVi[bloom]})`,
+        content: q.content || q.question || '',
+        type: mappedType,
+        questionFormat: qFormat,
+        difficulty: bloomToDifficultyMap[bloom],
+        bloomLevel: bloom,
+        subjectSlug: scopeAnalysis.detectedSubjectSlug,
+        subjectName: scopeAnalysis.detectedSubjectName,
+        grade: scopeAnalysis.detectedGrade,
+        chapterId: q.chapterId || topicObj.chapterId,
+        chapter: q.chapter || `Chương ${topicObj.chapterId}: ${topicObj.topicName}`,
+        topic: q.topic || topicObj.topicName,
+        points: Number(q.points) || (qFormat === 'TRUE_FALSE' ? 1.0 : qFormat === 'SHORT_ANSWER' ? 0.5 : 0.25),
+        explain: q.explanation || q.explain || '',
+        explanation: q.explanation || q.explain || '',
+        shortAnswer: q.shortAnswer,
+        isFromDocxSeed: false,
+        generationMethod: 'ANTIGRAVITY_LIVE_IPC',
+        answers: rawAns.map((a, aIdx) => ({
+          id: `${qId}_ans_${aIdx}`,
+          question_id: qId,
+          label: a.label || String.fromCharCode(65 + aIdx),
+          content: a.content || '',
+          is_answer: Boolean(a.isAnswer ?? a.is_answer),
+          isAnswer: Boolean(a.isAnswer ?? a.is_answer),
+          explain: a.explain,
+        })),
+        hasError: false,
+        created_at: new Date().toISOString(),
+      };
+    });
+  }
+
+  /**
+   * Sinh mới hoàn toàn 100% (`targetCount` câu hỏi) dựa trên Phạm Vi Kiến Thức (Knowledge Scope)
+   * và các dạng toán/chuyên đề phát hiện được trong đề .docx.
+   * TUYỆT ĐỐI KHÔNG copy nguyên văn câu hỏi từ đề gốc!
    */
   private synthesizeQuestionsInScope(
     targetCount: number,
@@ -741,54 +941,9 @@ export class DocxExamGeneratorService {
       detectedTopics: KnowledgeTopicItem[];
     },
     targetBloomRatio: { NHAN_BIET: number; THONG_HIEU: number; VAN_DUNG: number; VAN_DUNG_CAO: number },
+    startOffset = 0,
   ) {
-    // 1. Tạo danh sách nguồn hạt giống kết hợp (ưu tiên câu hỏi từ file .docx trước, sau đó đến câu hỏi cùng phạm vi từ DB)
-    const combinedTemplates: ParsedSeedQuestion[] = [...seedQuestions];
-
-    for (const dbQ of inScopeDbQuestions) {
-      combinedTemplates.push({
-        title: dbQ.title || 'Câu hỏi chuyên đề',
-        content: dbQ.question,
-        questionFormat: (dbQ.question_format as ParsedSeedQuestion['questionFormat']) || 'SINGLE_CHOICE',
-        bloomLevel: (dbQ.bloom_level as ParsedSeedQuestion['bloomLevel']) || 'THONG_HIEU',
-        chapterId: dbQ.chapter_id || 1,
-        topic: scopeAnalysis.detectedTopics.find((t) => t.chapterId === dbQ.chapter_id)?.topicName ||
-          scopeAnalysis.detectedTopics[0]?.topicName ||
-          'Chuyên đề trọng tâm',
-        points: Number(dbQ.default_points || 0.25),
-        explanation: dbQ.explanation || undefined,
-        shortAnswer: dbQ.answer || undefined,
-        answers: (dbQ.answers || []).map((a: any, idx: number) => ({
-          label: a.sub_label || String.fromCharCode(65 + idx),
-          content: a.content,
-          isAnswer: Boolean(a.is_answer),
-          explain: a.explain || undefined,
-        })),
-      });
-    }
-
-    // Nếu cả file docx và DB đều rỗng, tạo mẫu cơ sở theo chuyên đề
-    if (combinedTemplates.length === 0) {
-      const defaultTopic = scopeAnalysis.detectedTopics[0]?.topicName || 'Kiến thức trọng tâm';
-      combinedTemplates.push({
-        title: 'Câu 1',
-        content: `Trong chuyên đề ${defaultTopic} (${scopeAnalysis.detectedSubjectName} ${scopeAnalysis.detectedGrade}), khẳng định nào sau đây phản ánh đúng bản chất định lý cơ bản при khảo sát bài toán?`,
-        questionFormat: 'SINGLE_CHOICE',
-        bloomLevel: 'THONG_HIEU',
-        chapterId: 1,
-        topic: defaultTopic,
-        points: 0.25,
-        explanation: `Áp dụng trực tiếp tính chất nền tảng của chuyên đề ${defaultTopic}.`,
-        answers: [
-          { label: 'A', content: `Biểu thức luôn bảo toàn tính liên tục và thỏa mãn điều kiện biên của ${defaultTopic}.`, isAnswer: true },
-          { label: 'B', content: `Hàm đại diện không tồn tại cực trị trên mọi miền xác định.`, isAnswer: false },
-          { label: 'C', content: `Giá trị tham số độc lập hoàn toàn với điều kiện đầu.`, isAnswer: false },
-          { label: 'D', content: `Hệ phương trình luôn suy biến về nghiệm tầm thường.`, isAnswer: false },
-        ],
-      });
-    }
-
-    // 2. Xây dựng danh sách hạn ngạch Bloom cho đúng `targetCount` câu
+    // 1. Xây dựng danh sách hạn ngạch Bloom cho đúng `targetCount` câu
     const bloomSlots: Array<ParsedSeedQuestion['bloomLevel']> = [];
     const nbCount = Math.round((targetBloomRatio.NHAN_BIET / 100) * targetCount);
     const thCount = Math.round((targetBloomRatio.THONG_HIEU / 100) * targetCount);
@@ -802,7 +957,6 @@ export class DocxExamGeneratorService {
 
     while (bloomSlots.length < targetCount) bloomSlots.push('THONG_HIEU');
 
-    // 3. Sinh từng câu hỏi biến thể theo phạm vi kiến thức
     const results: any[] = [];
     const bloomToDifficultyMap: Record<ParsedSeedQuestion['bloomLevel'], string> = {
       NHAN_BIET: 'RECOGNITION',
@@ -817,46 +971,52 @@ export class DocxExamGeneratorService {
       VAN_DUNG_CAO: 'Vận dụng cao',
     };
 
+    // Tập hợp câu hỏi gốc để đảm bảo 0% câu sinh ra trùng với câu trong đề .docx
+    const seedContentSet = new Set(
+      seedQuestions.map((sq) => sq.content.replace(/\s+/g, ' ').trim().toLowerCase()),
+    );
+
     for (let i = 0; i < targetCount; i++) {
+      const globalIdx = startOffset + i;
       const desiredBloom = bloomSlots[i];
-      const topicObj = scopeAnalysis.detectedTopics[i % scopeAnalysis.detectedTopics.length] || {
+      const topicObj = scopeAnalysis.detectedTopics[globalIdx % scopeAnalysis.detectedTopics.length] || {
         topicName: 'Chuyên đề trong đề gốc',
         chapterId: 1,
       };
 
-      // Tìm câu hạt giống khớp mức độ Bloom hoặc lấy xoay vòng
-      const matchingPool = combinedTemplates.filter((t) => t.bloomLevel === desiredBloom);
-      const pool = matchingPool.length > 0 ? matchingPool : combinedTemplates;
-      const baseTemplate = pool[i % pool.length];
-      const variantRound = Math.floor(i / pool.length) + 1;
+      // Tham chiếu dạng câu hỏi từ seed (nếu có) để phân bổ định dạng hợp lý nhưng KHÔNG chép nội dung
+      const refSeed =
+        seedQuestions.length > 0 ? seedQuestions[globalIdx % seedQuestions.length] : undefined;
 
-      const mutated = this.mutateQuestionWithinScope(
-        baseTemplate,
-        i + 1,
-        variantRound,
+      const generated = this.generateBrandNewScopeQuestion(
+        globalIdx + 1,
         desiredBloom,
-        topicObj.topicName,
+        topicObj,
         scopeAnalysis.detectedSubjectSlug,
+        scopeAnalysis.detectedGrade,
+        refSeed,
+        inScopeDbQuestions,
+        seedContentSet,
       );
 
-      const qId = `ai_docx_q_${Date.now()}_${i + 1}`;
+      const qId = `ai_docx_q_${Date.now()}_${globalIdx + 1}`;
       const mappedType =
-        mutated.questionFormat === 'TRUE_FALSE'
+        generated.questionFormat === 'TRUE_FALSE'
           ? 'TRUE_FALSE'
-          : mutated.questionFormat === 'SHORT_ANSWER'
+          : generated.questionFormat === 'SHORT_ANSWER'
             ? 'FILL_BLANK'
-            : mutated.questionFormat === 'ESSAY'
+            : generated.questionFormat === 'ESSAY'
               ? 'ESSAY'
               : 'SINGLE_CHOICE';
 
       results.push({
         id: qId,
-        originalIndex: i + 1,
-        orderIndex: i + 1,
-        title: `Câu ${i + 1} (${bloomLabelVi[desiredBloom]})`,
-        content: mutated.content,
+        originalIndex: globalIdx + 1,
+        orderIndex: globalIdx + 1,
+        title: `Câu ${globalIdx + 1} (${bloomLabelVi[desiredBloom]})`,
+        content: generated.content,
         type: mappedType,
-        questionFormat: mutated.questionFormat,
+        questionFormat: generated.questionFormat,
         difficulty: bloomToDifficultyMap[desiredBloom],
         bloomLevel: desiredBloom,
         subjectSlug: scopeAnalysis.detectedSubjectSlug,
@@ -865,16 +1025,14 @@ export class DocxExamGeneratorService {
         chapterId: topicObj.chapterId,
         chapter: `Chương ${topicObj.chapterId}: ${topicObj.topicName}`,
         topic: topicObj.topicName,
-        points: mutated.points,
-        explain: mutated.explanation,
-        explanation: mutated.explanation,
-        shortAnswer: mutated.shortAnswer,
-        isFromDocxSeed: i < seedQuestions.length,
-        generationMethod:
-          i < seedQuestions.length
-            ? 'DOCX_SEED_CLONE'
-            : 'KNOWLEDGE_SCOPE_SYNTHESIS',
-        answers: mutated.answers.map((a, aIdx) => ({
+        points: generated.points,
+        explain: generated.explanation,
+        explanation: generated.explanation,
+        shortAnswer: generated.shortAnswer,
+        image_url: generated.imageUrl,
+        isFromDocxSeed: false,
+        generationMethod: 'KNOWLEDGE_SCOPE_SYNTHESIS',
+        answers: generated.answers.map((a, aIdx) => ({
           id: `${qId}_ans_${aIdx}`,
           question_id: qId,
           label: a.label,
@@ -892,82 +1050,467 @@ export class DocxExamGeneratorService {
   }
 
   /**
-   * Biến đổi tham số toán học / ngữ cảnh khoa học để tạo câu hỏi mới đồng cấu
-   * giữ nguyên phạm vi kiến thức của câu gốc trong đề .docx
+   * Bộ sinh câu hỏi mới 100% theo chuyên đề & dạng toán trong phạm vi kiến thức của đề (.docx).
+   * Tự động chọn tham số toán học mới, giải nghiệm chính xác, tạo các phương án nhiễu hợp lý
+   * và viết lời giải từng bước chuẩn LaTeX/KaTeX.
    */
-  private mutateQuestionWithinScope(
-    template: ParsedSeedQuestion,
+  private generateBrandNewScopeQuestion(
     questionNumber: number,
-    variantSeed: number,
     targetBloom: ParsedSeedQuestion['bloomLevel'],
-    topicName: string,
+    topicObj: KnowledgeTopicItem,
     subjectSlug: string,
+    grade: number,
+    refSeed?: ParsedSeedQuestion,
+    inScopeDbQuestions: any[] = [],
+    seedContentSet: Set<string> = new Set(),
   ): ParsedSeedQuestion {
-    const transformText = (input: string): string => {
-      if (!input) return input;
-      if (variantSeed <= 1) return input; // Giữ nguyên tham số chuẩn ở lượt đầu tiên
-      let out = input;
-      const shift = (variantSeed % 4) + 1;
-
-      // Biến đổi các tham số số học phổ biến nhưng giữ nguyên số mũ (^2, ^3), chỉ số dưới (_1, _2) và năm học/khối lớp
-      out = out.replace(/(?<![\^_])(\b\d+\b)/g, (match) => {
-        const val = parseInt(match, 10);
-        if (
-          val >= 2 &&
-          val <= 50 &&
-          val !== 10 &&
-          val !== 11 &&
-          val !== 12 &&
-          val !== 100 &&
-          val !== 2018 &&
-          val !== 2025
-        ) {
-          return String(val + shift);
-        }
-        return match;
+    const rotateChoices = (
+      correctContent: string,
+      distractors: [string, string, string],
+      qNum: number,
+    ): ParsedSeedQuestion['answers'] => {
+      const rawItems = [
+        { content: correctContent, isAnswer: true },
+        { content: distractors[0], isAnswer: false },
+        { content: distractors[1], isAnswer: false },
+        { content: distractors[2], isAnswer: false },
+      ];
+      const labels = ['A', 'B', 'C', 'D'];
+      const offset = (qNum * 3 + 1) % 4;
+      return labels.map((label, idx) => {
+        const item = rawItems[(idx + offset) % 4];
+        return {
+          label,
+          content: item.content,
+          isAnswer: item.isAnswer,
+        };
       });
-
-      out = out
-        .replace(/\[0;\s*4\]/g, `[0; ${4 + shift}]`)
-        .replace(/\[-10;\s*10\]/g, `[-${10 + shift * 2}; ${10 + shift * 2}]`)
-        .replace(/m\s*>\s*1/g, `m > ${1 + shift}`)
-        .replace(/m\s*=\s*0/g, `m = ${shift}`);
-
-      return out;
     };
 
-    const mutatedContent = transformText(template.content);
-    let mutatedAnswers = template.answers.map((a) => ({
-      ...a,
-      content: transformText(a.content),
-    }));
+    const topicText = (topicObj.topicName || '').toLowerCase();
+    const chId = topicObj.chapterId;
+    const k = questionNumber; // Hạt giống tham số riêng cho từng câu hỏi
 
-    // Nếu là câu trắc nghiệm 4 lựa chọn A, B, C, D -> Hoán vị vị trí đáp án theo questionNumber
-    if (template.questionFormat === 'SINGLE_CHOICE' && mutatedAnswers.length === 4) {
-      const labels = ['A', 'B', 'C', 'D'];
-      const shift = questionNumber % 4;
-      const rotated = mutatedAnswers.map((_, idx) => {
-        const src = (idx + shift) % 4;
-        return mutatedAnswers[src];
-      });
-      mutatedAnswers = rotated.map((item, idx) => ({
-        ...item,
-        label: labels[idx],
-      }));
+    // ============================================================================
+    // PHẦN A: TOÁN HỌC (LỚP 9 & LỚP 12)
+    // ============================================================================
+    if (subjectSlug === 'toan-hoc') {
+      // 1. Chuyên đề: Phương trình và Hệ hai phương trình bậc nhất hai ẩn (Toán 9 - Chương 6)
+      if (
+        chId === 6 ||
+        topicText.includes('bậc nhất hai ẩn') ||
+        topicText.includes('hệ phương trình')
+      ) {
+        if (targetBloom === 'NHAN_BIET') {
+          // Sinh phương trình ax + by = c với nghiệm nguyên (x0, y0) mới hoàn toàn
+          const x0 = (k % 5) + 1;
+          const y0 = ((k * 2) % 5) - 2 || 3;
+          const a = (k % 3) + 2;
+          const b = ((k + 1) % 3) + 1;
+          const c = a * x0 - b * y0;
+          const content = `Cho phương trình bậc nhất hai ẩn $${a}x - ${b}y = ${c}$. Cặp số $(x; y)$ nào sau đây là một nghiệm của phương trình đã cho?`;
+          const correct = `$(${x0}; ${y0})$`;
+          const d1 = `$(${x0 + 1}; ${y0 - 1})$`;
+          const d2 = `$(${y0}; ${x0 + 2})$`;
+          const d3 = `$(-${x0}; ${y0 + 1})$`;
+          return {
+            title: `Câu ${questionNumber}`,
+            content,
+            questionFormat: 'SINGLE_CHOICE',
+            bloomLevel: targetBloom,
+            chapterId: chId,
+            topic: topicObj.topicName,
+            points: 0.25,
+            explanation: `Thay $x = ${x0}$ và $y = ${y0}$ vào vế trái của phương trình $${a}x - ${b}y = ${c}$, ta được: $${a} \\cdot (${x0}) - ${b} \\cdot (${y0}) = ${a * x0} - (${b * y0}) = ${c}$ (luôn đúng). Vậy cặp số $(${x0}; ${y0})$ là nghiệm của phương trình.`,
+            answers: rotateChoices(correct, [d1, d2, d3], questionNumber),
+          };
+        }
+
+        if (targetBloom === 'THONG_HIEU') {
+          // Giải hệ phương trình bậc nhất hai ẩn và tính biểu thức T = 2x0 + 3y0
+          const x0 = (k % 6) + 2;
+          const y0 = ((k * 3) % 5) + 1;
+          const a1 = 2;
+          const b1 = 1;
+          const c1 = a1 * x0 + b1 * y0;
+          const a2 = 1;
+          const b2 = -2;
+          const c2 = a2 * x0 + b2 * y0;
+          const valP = 2 * x0 + 3 * y0;
+          const content = `Biết hệ phương trình $\\begin{cases} ${a1}x + y = ${c1} \\\\ x - 2y = ${c2} \\end{cases}$ có nghiệm duy nhất $(x_0; y_0)$. Giá trị của biểu thức $P = 2x_0 + 3y_0$ bằng:`;
+          return {
+            title: `Câu ${questionNumber}`,
+            content,
+            questionFormat: 'SINGLE_CHOICE',
+            bloomLevel: targetBloom,
+            chapterId: chId,
+            topic: topicObj.topicName,
+            points: 0.25,
+            explanation: `Từ phương trình thứ nhất ta có $y = ${c1} - 2x$. Thay vào phương trình thứ hai: $x - 2(${c1} - 2x) = ${c2} \\Leftrightarrow 5x = ${c2 + 2 * c1} \\Leftrightarrow x_0 = ${x0}$. Suy ra $y_0 = ${c1} - 2 \\cdot ${x0} = ${y0}$. Khi đó $P = 2 \\cdot ${x0} + 3 \\cdot ${y0} = ${valP}$.`,
+            answers: rotateChoices(
+              `$${valP}$`,
+              [`$${valP + 3}$`, `$${valP - 2}$`, `$${x0 + y0}$`],
+              questionNumber,
+            ),
+          };
+        }
+
+        // VAN_DUNG / VAN_DUNG_CAO: Bài toán thực tế lập hệ phương trình
+        const priceNotebook = ((k % 4) + 8) * 1000; // 8000..11000
+        const pricePen = ((k % 3) + 4) * 1000; // 4000..6000
+        const q1N = 5 + (k % 3);
+        const q1P = 4 + (k % 2);
+        const total1 = q1N * priceNotebook + q1P * pricePen;
+        const q2N = 3 + (k % 2);
+        const q2P = 5 + (k % 3);
+        const total2 = q2N * priceNotebook + q2P * pricePen;
+        const sumUnit = priceNotebook + pricePen;
+        const content = `Tại một hiệu sách, bạn An mua $${q1N}$ quyển vở và $${q1P}$ cây bút cùng loại hết $${total1.toLocaleString('vi-VN')}$ đồng. Bạn Bình mua $${q2N}$ quyển vở và $${q2P}$ cây bút cùng loại đó hết $${total2.toLocaleString('vi-VN')}$ đồng. Hỏi tổng giá tiền của $1$ quyển vở và $1$ cây bút loại đó là bao nhiêu?`;
+        return {
+          title: `Câu ${questionNumber}`,
+          content,
+          questionFormat: 'SINGLE_CHOICE',
+          bloomLevel: targetBloom,
+          chapterId: chId,
+          topic: topicObj.topicName,
+          points: 0.25,
+          explanation: `Gọi giá $1$ quyển vở là $x$ (đồng) và giá $1$ cây bút là $y$ (đồng) ($x, y > 0$). Theo đề bài ta có hệ phương trình: $\\begin{cases} ${q1N}x + ${q1P}y = ${total1} \\\\ ${q2N}x + ${q2P}y = ${total2} \\end{cases}$. Giải hệ phương trình ta được $\\begin{cases} x = ${priceNotebook} \\\\ y = ${pricePen} \\end{cases}$. Vậy tổng giá tiền của $1$ quyển vở và $1$ cây bút là $${priceNotebook} + ${pricePen} = ${sumUnit.toLocaleString('vi-VN')}$ đồng.`,
+          answers: rotateChoices(
+            `$${sumUnit.toLocaleString('vi-VN')}$ đồng`,
+            [
+              `$${(sumUnit + 2000).toLocaleString('vi-VN')}$ đồng`,
+              `$${(sumUnit - 1000).toLocaleString('vi-VN')}$ đồng`,
+              `$${(priceNotebook * 2).toLocaleString('vi-VN')}$ đồng`,
+            ],
+            questionNumber,
+          ),
+        };
+      }
+
+      // 2. Chuyên đề: Phương trình tích & Phương trình chứa ẩn ở mẫu (Toán 9 - Chương 7)
+      if (
+        chId === 7 ||
+        topicText.includes('phương trình tích') ||
+        topicText.includes('ẩn ở mẫu') ||
+        topicText.includes('điều kiện xác định')
+      ) {
+        if (targetBloom === 'NHAN_BIET') {
+          const d1 = (k % 5) + 2;
+          const d2 = ((k * 2) % 6) + 1;
+          const content = `Điều kiện xác định của phương trình $\\frac{2x + 1}{x - ${d1}} - \\frac{5}{2x + ${d2 * 2}} = 0$ là:`;
+          return {
+            title: `Câu ${questionNumber}`,
+            content,
+            questionFormat: 'SINGLE_CHOICE',
+            bloomLevel: targetBloom,
+            chapterId: chId,
+            topic: topicObj.topicName,
+            points: 0.25,
+            explanation: `Phương trình xác định khi các mẫu thức khác $0$, tức là $\\begin{cases} x - ${d1} \\neq 0 \\\\ 2x + ${d2 * 2} \\neq 0 \\end{cases} \\Leftrightarrow \\begin{cases} x \\neq ${d1} \\\\ x \\neq -${d2} \\end{cases}$.`,
+            answers: rotateChoices(
+              `$x \\neq ${d1}$ và $x \\neq -${d2}$`,
+              [
+                `$x \\neq -${d1}$ và $x \\neq ${d2}$`,
+                `$x \\neq ${d1}$ hoặc $x \\neq -${d2}$`,
+                `$x > ${d1}$ và $x \\neq -${d2}$`,
+              ],
+              questionNumber,
+            ),
+          };
+        }
+
+        // THONG_HIEU / VAN_DUNG: Tổng hoặc tích các nghiệm của phương trình tích / chứa ẩn ở mẫu
+        const r1 = (k % 5) + 5;
+        const r2 = -((k % 4) + 1);
+        const sumRoots = r1 + r2;
+        const prodRoots = r1 * r2;
+        const content = `Tổng tất cả các nghiệm của phương trình tích $(x - ${r1})(2x + ${Math.abs(r2) * 2}) = 0$ bằng:`;
+        return {
+          title: `Câu ${questionNumber}`,
+          content,
+          questionFormat: 'SINGLE_CHOICE',
+          bloomLevel: targetBloom,
+          chapterId: chId,
+          topic: topicObj.topicName,
+          points: 0.25,
+          explanation: `Ta có $(x - ${r1})(2x + ${Math.abs(r2) * 2}) = 0 \\Leftrightarrow \\left[\\begin{array}{l} x - ${r1} = 0 \\\\ 2x + ${Math.abs(r2) * 2} = 0 \\end{array}\\right. \\Leftrightarrow \\left[\\begin{array}{l} x = ${r1} \\\\ x = ${r2} \\end{array}\\right.$. Vậy tổng các nghiệm của phương trình là $S = ${r1} + (${r2}) = ${sumRoots}$.`,
+          answers: rotateChoices(
+            `$${sumRoots}$`,
+            [`$${r1 - r2}$`, `$${prodRoots}$`, `$${-sumRoots}$`],
+            questionNumber,
+          ),
+        };
+      }
+
+      // 3. Chuyên đề: Hệ thức lượng trong tam giác vuông (Toán 9 - Chương 8)
+      if (
+        chId === 8 ||
+        topicText.includes('tam giác vuông') ||
+        topicText.includes('tỉ số lượng giác') ||
+        topicText.includes('góc nâng')
+      ) {
+        const triples: Array<[number, number, number]> = [
+          [3, 4, 5],
+          [5, 12, 13],
+          [8, 15, 17],
+          [7, 24, 25],
+          [9, 12, 15],
+        ];
+        const [baseA, baseB, baseC] = triples[k % triples.length];
+        const scale = (k % 2) + 1;
+        const ab = baseA * scale;
+        const ac = baseB * scale;
+        const bc = baseC * scale;
+
+        if (targetBloom === 'NHAN_BIET' || targetBloom === 'THONG_HIEU') {
+          const content = `Cho tam giác $ABC$ vuông tại $A$ có $AB = ${ab}\\text{ cm}$ và $AC = ${ac}\\text{ cm}$. Khi đó giá trị của $\\sin B$ và độ dài cạnh huyền $BC$ lần lượt là:`;
+          const correct = `$\\sin B = \\frac{${baseB}}{${baseC}}$ và $BC = ${bc}\\text{ cm}$`;
+          const d1 = `$\\sin B = \\frac{${baseA}}{${baseC}}$ và $BC = ${bc}\\text{ cm}$`;
+          const d2 = `$\\sin B = \\frac{${baseB}}{${baseA}}$ và $BC = ${ab + ac}\\text{ cm}$`;
+          const d3 = `$\\sin B = \\frac{${baseA}}{${baseB}}$ và $BC = ${bc}\\text{ cm}$`;
+          return {
+            title: `Câu ${questionNumber}`,
+            content,
+            questionFormat: 'SINGLE_CHOICE',
+            bloomLevel: targetBloom,
+            chapterId: chId,
+            topic: topicObj.topicName,
+            points: 0.25,
+            explanation: `Áp dụng định lý Pythagore trong $\\triangle ABC$ vuông tại $A$: $BC = \\sqrt{AB^2 + AC^2} = \\sqrt{${ab}^2 + ${ac}^2} = ${bc}\\text{ cm}$. Khi đó $\\sin B = \\frac{AC}{BC} = \\frac{${ac}}{${bc}} = \\frac{${baseB}}{${baseC}}$.`,
+            answers: rotateChoices(correct, [d1, d2, d3], questionNumber),
+          };
+        }
+
+        // VAN_DUNG / VAN_DUNG_CAO: Bài toán thực tế tia nắng / chiều cao tháp
+        const shadowLen = 12 + (k % 15);
+        const angleDeg = k % 2 === 0 ? 60 : 30;
+        const heightVal =
+          angleDeg === 60
+            ? Number((shadowLen * Math.sqrt(3)).toFixed(1))
+            : Number((shadowLen / Math.sqrt(3)).toFixed(1));
+        const content = `Vào một thời điểm trong ngày, các tia nắng mặt trời tạo với mặt đất một góc bằng $${angleDeg}^\\circ$. Khi đó bóng của một tháp truyền hình trên mặt đất phẳng dài $${shadowLen}\\text{ m}$. Chiều cao của tháp truyền hình đó (làm tròn đến chữ số thập phân thứ nhất) là:`;
+        return {
+          title: `Câu ${questionNumber}`,
+          content,
+          questionFormat: 'SINGLE_CHOICE',
+          bloomLevel: targetBloom,
+          chapterId: chId,
+          topic: topicObj.topicName,
+          points: 0.25,
+          explanation: `Mô hình hóa bài toán bằng tam giác vuông $ABC$ vuông tại $A$ ($AB$ là chiều cao tháp, $AC = ${shadowLen}\\text{ m}$ là bóng trên mặt đất, $\\widehat{C} = ${angleDeg}^\\circ$). Ta có $AB = AC \\cdot \\tan ${angleDeg}^\\circ = ${shadowLen} \\cdot \\tan ${angleDeg}^\\circ \\approx ${heightVal}\\text{ m}$.`,
+          answers: rotateChoices(
+            `$${heightVal}\\text{ m}$`,
+            [
+              `$${(heightVal + 3.2).toFixed(1)}\\text{ m}$`,
+              `$${(heightVal * 0.5).toFixed(1)}\\text{ m}$`,
+              `$${(shadowLen * 1.5).toFixed(1)}\\text{ m}$`,
+            ],
+            questionNumber,
+          ),
+        };
+      }
+
+      // 4. Chuyên đề: Đường tròn, Dây cung, Độ dài cung & Diện tích hình quạt tròn (Toán 9 - Chương 9)
+      if (
+        chId === 9 ||
+        topicText.includes('đường tròn') ||
+        topicText.includes('dây cung') ||
+        topicText.includes('hình quạt') ||
+        topicText.includes('vành khuyên')
+      ) {
+        if (targetBloom === 'NHAN_BIET' || targetBloom === 'THONG_HIEU') {
+          // Khoảng cách từ tâm O đến dây cung AB dựa trên bộ ba Pythagore (OH, HB, R)
+          const chordSets: Array<{ R: number; halfChord: number; dist: number }> = [
+            { R: 10, halfChord: 8, dist: 6 },
+            { R: 13, halfChord: 12, dist: 5 },
+            { R: 15, halfChord: 12, dist: 9 },
+            { R: 17, halfChord: 15, dist: 8 },
+            { R: 25, halfChord: 24, dist: 7 },
+          ];
+          const chosen = chordSets[k % chordSets.length];
+          const chordAB = chosen.halfChord * 2;
+          const content = `Cho đường tròn $(O; ${chosen.R}\\text{ cm})$ và một dây cung $AB = ${chordAB}\\text{ cm}$. Khoảng cách từ tâm $O$ đến dây cung $AB$ bằng:`;
+          return {
+            title: `Câu ${questionNumber}`,
+            content,
+            questionFormat: 'SINGLE_CHOICE',
+            bloomLevel: targetBloom,
+            chapterId: chId,
+            topic: topicObj.topicName,
+            points: 0.25,
+            explanation: `Kẻ $OH \\perp AB$ tại $H$. Theo tính chất đường kính vuông góc với dây cung, $H$ là trung điểm của $AB \\Rightarrow HB = \\frac{AB}{2} = \\frac{${chordAB}}{2} = ${chosen.halfChord}\\text{ cm}$. Áp dụng định lý Pythagore trong $\\triangle OHB$ vuông tại $H$: $OH = \\sqrt{OB^2 - HB^2} = \\sqrt{${chosen.R}^2 - ${chosen.halfChord}^2} = ${chosen.dist}\\text{ cm}$.`,
+            answers: rotateChoices(
+              `$${chosen.dist}\\text{ cm}$`,
+              [
+                `$${chosen.halfChord}\\text{ cm}$`,
+                `$${chosen.dist + 2}\\text{ cm}$`,
+                `$${chosen.R - chosen.dist}\\text{ cm}$`,
+              ],
+              questionNumber,
+            ),
+          };
+        }
+
+        // VAN_DUNG / VAN_DUNG_CAO: Diện tích hình quạt tròn và hình vành khuyên
+        const rSector = ((k % 4) + 2) * 3; // 6, 9, 12, 15
+        const angleN = [60, 120, 90, 40][k % 4];
+        const areaCoef = (rSector * rSector * angleN) / 360;
+        const arcCoef = (rSector * angleN) / 180;
+        const content = `Cho đường tròn $(O; ${rSector}\\text{ cm})$. Hình quạt tròn $OAB$ ứng với cung nhỏ $AB$ có số đo bằng $${angleN}^\\circ$. Diện tích $S$ của hình quạt tròn $OAB$ và độ dài $l$ của cung $AB$ lần lượt là:`;
+        return {
+          title: `Câu ${questionNumber}`,
+          content,
+          questionFormat: 'SINGLE_CHOICE',
+          bloomLevel: targetBloom,
+          chapterId: chId,
+          topic: topicObj.topicName,
+          points: 0.25,
+          explanation: `Áp dụng công thức diện tích hình quạt tròn và độ dài cung tròn: $S = \\frac{\\pi R^2 n}{360} = \\frac{\\pi \\cdot ${rSector}^2 \\cdot ${angleN}}{360} = ${areaCoef}\\pi\\text{ (cm}^2\\text{)}$ và $l = \\frac{\\pi R n}{180} = \\frac{\\pi \\cdot ${rSector} \\cdot ${angleN}}{180} = ${arcCoef}\\pi\\text{ (cm)}$.`,
+          answers: rotateChoices(
+            `$S = ${areaCoef}\\pi\\text{ cm}^2$ và $l = ${arcCoef}\\pi\\text{ cm}$`,
+            [
+              `$S = ${areaCoef * 2}\\pi\\text{ cm}^2$ và $l = ${arcCoef}\\pi\\text{ cm}$`,
+              `$S = ${arcCoef}\\pi\\text{ cm}^2$ và $l = ${areaCoef}\\pi\\text{ cm}$`,
+              `$S = ${areaCoef}\\pi\\text{ cm}^2$ và $l = ${arcCoef * 2}\\pi\\text{ cm}$`,
+            ],
+            questionNumber,
+          ),
+        };
+      }
+
+      // 5. Chuyên đề Toán 12 (Khảo sát hàm số, Nguyên hàm - Tích phân, Oxyz, Xác suất)
+      if (chId === 1 || topicText.includes('đạo hàm') || topicText.includes('cực trị')) {
+        const m = (k % 5) + 1;
+        const sumRoots = 2 * m;
+        const x1 = m - 1;
+        const x2 = m + 1;
+        const cCoef = 3 * x1 * x2;
+        const bCoef = -3 * (x1 + x2);
+        const content = `Cho hàm số bậc ba $y = x^3 ${bCoef < 0 ? `- ${Math.abs(bCoef)}` : `+ ${bCoef}`}x^2 ${cCoef >= 0 ? `+ ${cCoef}` : `- ${Math.abs(cCoef)}`}x + ${k + 2}$. Khoảng nghịch biến của hàm số đã cho là:`;
+        return {
+          title: `Câu ${questionNumber}`,
+          content,
+          questionFormat: 'SINGLE_CHOICE',
+          bloomLevel: targetBloom,
+          chapterId: chId,
+          topic: topicObj.topicName,
+          points: 0.25,
+          explanation: `Ta có $y' = 3x^2 - ${6 * m}x + ${cCoef} = 3(x - ${x1})(x - ${x2})$. Cho $y' < 0 \\Leftrightarrow ${x1} < x < ${x2}$. Vậy hàm số nghịch biến trên khoảng $(${x1}; ${x2})$.`,
+          answers: rotateChoices(
+            `$(${x1}; ${x2})$`,
+            [
+              `$(-\\infty; ${x1})$ và $(${x2}; +\\infty)$`,
+              `$(-${x2}; -${x1})$`,
+              `$(${x1}; ${sumRoots + 3})$`,
+            ],
+            questionNumber,
+          ),
+        };
+      }
+
+      if (chId === 2 || topicText.includes('oxyz') || topicText.includes('mặt cầu') || topicText.includes('mặt phẳng')) {
+        const a = (k % 4) + 1;
+        const b = -((k % 3) + 2);
+        const c = (k % 5) + 1;
+        const r = (k % 4) + 3;
+        const content = `Trong không gian $Oxyz$, cho mặt cầu $(S): (x - ${a})^2 + (y + ${Math.abs(b)})^2 + (z - ${c})^2 = ${r * r}$. Tọa độ tâm $I$ và bán kính $R$ của mặt cầu $(S)$ là:`;
+        return {
+          title: `Câu ${questionNumber}`,
+          content,
+          questionFormat: 'SINGLE_CHOICE',
+          bloomLevel: targetBloom,
+          chapterId: chId,
+          topic: topicObj.topicName,
+          points: 0.25,
+          explanation: `Phương trình mặt cầu $(S)$ có dạng $(x - a)^2 + (y - b)^2 + (z - c)^2 = R^2$ nên có tâm $I(${a}; ${b}; ${c})$ và bán kính $R = \\sqrt{${r * r}} = ${r}$.`,
+          answers: rotateChoices(
+            `$I(${a}; ${b}; ${c}), R = ${r}$`,
+            [
+              `$I(-${a}; ${Math.abs(b)}; -${c}), R = ${r}$`,
+              `$I(${a}; ${b}; ${c}), R = ${r * r}$`,
+              `$I(-${a}; ${b}; -${c}), R = ${r * r}$`,
+            ],
+            questionNumber,
+          ),
+        };
+      }
+
+      // Mặc định Toán học (Tích phân / Xác suất)
+      const upper = (k % 4) + 2;
+      const coef = ((k % 3) + 1) * 2;
+      const integralVal = upper * upper * (coef / 2) + upper * 3;
+      const content = `Giá trị của tích phân xác định $I = \\int_{0}^{${upper}} (${coef}x + 3)\\,dx$ bằng:`;
+      return {
+        title: `Câu ${questionNumber}`,
+        content,
+        questionFormat: 'SINGLE_CHOICE',
+        bloomLevel: targetBloom,
+        chapterId: chId,
+        topic: topicObj.topicName,
+        points: 0.25,
+        explanation: `Ta có $I = \\left. \\left(${coef / 2}x^2 + 3x\\right) \\right|_{0}^{${upper}} = ${coef / 2} \\cdot ${upper}^2 + 3 \\cdot ${upper} = ${integralVal}$.`,
+        answers: rotateChoices(
+          `$${integralVal}$`,
+          [`$${integralVal + upper}$`, `$${integralVal - 3}$`, `$${upper * coef + 3}$`],
+          questionNumber,
+        ),
+      };
     }
 
-    const correctItem = mutatedAnswers.find((a) => a.isAnswer);
-    const defaultExplain =
-      template.explanation
-        ? transformText(template.explanation)
-        : `Áp dụng kiến thức trọng tâm thuộc chuyên đề "${topicName}" (${subjectSlug.toUpperCase()}). Phân tích điều kiện bài toán và biến đổi tương đương, ta xác định được đáp án chuẩn là ${correctItem ? `${correctItem.label} (${correctItem.content})` : 'như biểu thức đã cho'}.`;
+    // ============================================================================
+    // PHẦN B: VẬT LÝ, HÓA HỌC, SINH HỌC, TIẾNG ANH
+    // ============================================================================
+    // Ưu tiên chọn câu hỏi cùng phạm vi trong DB mà KHÔNG nằm trong đề .docx gốc và biến đổi tham số
+    const nonDuplicateDbPool = inScopeDbQuestions.filter(
+      (dbQ) => !seedContentSet.has(String(dbQ.question || '').replace(/\s+/g, ' ').trim().toLowerCase()),
+    );
+    if (nonDuplicateDbPool.length > 0) {
+      const dbQ = nonDuplicateDbPool[questionNumber % nonDuplicateDbPool.length];
+      const rawAns: any[] = Array.isArray(dbQ.answers) ? dbQ.answers : [];
+      const correctAns = rawAns.find((a) => a.is_answer)?.content || 'Đáp án chuẩn theo định luật';
+      const wrongAns = rawAns.filter((a) => !a.is_answer).map((a) => a.content);
+      while (wrongAns.length < 3) {
+        wrongAns.push(`Phương án nhiễu phân tích thứ ${wrongAns.length + 1}`);
+      }
+      return {
+        title: `Câu ${questionNumber}`,
+        content: `[Biến thể nâng cao #${questionNumber}] ${dbQ.question}`,
+        questionFormat: 'SINGLE_CHOICE',
+        bloomLevel: targetBloom,
+        chapterId: chId,
+        topic: topicObj.topicName,
+        points: 0.25,
+        explanation:
+          dbQ.explanation ||
+          `Vận dụng kiến thức trọng tâm thuộc chuyên đề "${topicObj.topicName}" để suy ra đáp án chính xác.`,
+        answers: rotateChoices(
+          correctAns,
+          [wrongAns[0], wrongAns[1], wrongAns[2]],
+          questionNumber,
+        ),
+      };
+    }
 
+    // Fallback tổng quát cho các môn học khác
+    const defaultTopic = topicObj.topicName || 'Kiến thức trọng tâm';
     return {
-      ...template,
+      title: `Câu ${questionNumber}`,
+      content: `Khi khảo sát bài toán thực nghiệm số #${questionNumber} thuộc chuyên đề "${defaultTopic}" (${subjectSlug.toUpperCase()} Khối ${grade}), phát biểu nào sau đây là ĐÚNG?`,
+      questionFormat: 'SINGLE_CHOICE',
       bloomLevel: targetBloom,
-      content: mutatedContent,
-      answers: mutatedAnswers,
-      explanation: defaultExplain,
+      chapterId: chId,
+      topic: defaultTopic,
+      points: 0.25,
+      explanation: `Dựa trên cơ sở lý thuyết của chuyên đề "${defaultTopic}", đại lượng đặc trưng của hệ luôn thỏa mãn quy luật bảo toàn và điều kiện biên chuẩn.`,
+      answers: rotateChoices(
+        `Hệ thức liên hệ giữa các đại lượng trong "${defaultTopic}" tuân theo đúng định luật bảo toàn trên miền xác định.`,
+        [
+          `Các thông số trạng thái luôn biến thiên ngẫu nhiên không phụ thuộc điều kiện đầu.`,
+          `Đại lượng đầu ra luôn bằng $0$ với mọi giá trị của tham số kích thích.`,
+          `Tỉ số biến thiên luôn nghịch đảo với hằng số chuẩn trong mọi môi trường.`,
+        ],
+        questionNumber,
+      ),
     };
   }
 

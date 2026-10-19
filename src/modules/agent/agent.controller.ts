@@ -62,6 +62,8 @@ export class AgentController {
         fromCache: true,
         cacheSimilarity: cacheResult.similarity,
         data: {
+          source: 'SEMANTIC_CACHE',
+          similarity: cacheResult.similarity,
           message: cacheResult.responseText,
           actions: cacheResult.clientActions || [],
         },
@@ -71,8 +73,8 @@ export class AgentController {
     // 2. Nếu Cache Miss -> Gọi qua Antigravity IPC Bridge
     const bridgeResult = await this.ipcBridgeService.generateAgentResponse(dto);
 
-    // 3. Bất đồng bộ lưu vào Semantic Cache để tái sử dụng
-    this.cacheService.saveToCache(
+    // 3. Lưu vào Semantic Cache để tái sử dụng tức thì
+    await this.cacheService.saveToCache(
       dto.message,
       bridgeResult.message,
       bridgeResult.actions,
@@ -83,7 +85,11 @@ export class AgentController {
     return {
       success: true,
       fromCache: false,
-      data: bridgeResult,
+      data: {
+        source: 'ANTIGRAVITY_AGENT',
+        similarity: 1.0,
+        ...bridgeResult,
+      },
     };
   }
 

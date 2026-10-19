@@ -18,6 +18,7 @@ import {
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { GoogleLoginDto, SendOtpDto, VerifyOtpDto } from './dto/google-login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 
@@ -45,6 +46,7 @@ export class AuthController {
     return {
       message: 'Đăng ký tài khoản thành công',
       user,
+      accessToken,
     };
   }
 
@@ -67,6 +69,59 @@ export class AuthController {
     return {
       message: 'Đăng nhập thành công',
       user,
+      accessToken,
+    };
+  }
+
+  @Post('google')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Đăng nhập / Đăng ký bằng Google OAuth2 (Ported từ src)',
+    description: 'Xác thực Google ID Token / OAuth2, tự động tạo hoặc liên kết User + Profile và cấp JWT cookie',
+  })
+  @ApiResponse({ status: 200, description: 'Đăng nhập Google thành công' })
+  async googleLogin(
+    @Body() googleDto: GoogleLoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user, accessToken, googleClientId } = await this.authService.googleLogin(googleDto);
+
+    this.setTokenCookie(res, accessToken);
+
+    return {
+      message: 'Đăng nhập bằng Google thành công',
+      user,
+      accessToken,
+      googleClientId,
+    };
+  }
+
+  @Post('send-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Gửi mã OTP qua Số điện thoại',
+  })
+  async sendOtp(@Body() dto: SendOtpDto) {
+    return this.authService.sendOtp(dto);
+  }
+
+  @Post('verify-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Xác thực mã OTP và Đăng nhập / Đăng ký tự động',
+  })
+  async verifyOtp(
+    @Body() dto: VerifyOtpDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user, accessToken } = await this.authService.verifyOtp(dto);
+
+    this.setTokenCookie(res, accessToken);
+
+    return {
+      message: 'Xác thực OTP và đăng nhập thành công',
+      user,
+      accessToken,
     };
   }
 
@@ -116,3 +171,4 @@ export class AuthController {
     });
   }
 }
+
