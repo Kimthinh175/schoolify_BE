@@ -41,3 +41,9 @@ Thumbs.db
 
 # Prisma
 /generated/prisma
+
+# Ignore all markdown files per user rule
+*.md
+/docs/
+/ipc/inbox/*.json
+/ipc/outbox/*.json
