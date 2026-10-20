@@ -274,7 +274,8 @@ export class ExamsController {
     @Query('page') page = '1',
     @Query('limit') limit = '10',
   ) {
-    const userId = req.user?.id || null;
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || req.user?.id || req.query?.userId || null;
     const data = await this.examsService.getPracticeHistory(
       userId,
       parseInt(page, 10),

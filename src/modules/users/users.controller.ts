@@ -1,7 +1,9 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
+  Delete,
   Param,
   Body,
   Query,
@@ -31,11 +33,31 @@ export class UsersController {
       role,
       search,
       page: page ? parseInt(page, 10) : 1,
-      limit: limit ? parseInt(limit, 10) : 20,
+      limit: limit ? parseInt(limit, 10) : 100,
     });
     return {
       success: true,
       ...result,
+    };
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Tạo người dùng mới từ Admin (SUPER_ADMIN / TEACHER / STUDENT)' })
+  async createUser(
+    @Body()
+    body: {
+      fullname: string;
+      email: string;
+      phone?: string;
+      password?: string;
+      role?: 'SUPER_ADMIN' | 'TEACHER' | 'STUDENT';
+    },
+  ) {
+    const created = await this.usersService.createAdminUser(body);
+    return {
+      success: true,
+      message: 'Tạo người dùng mới thành công',
+      user: created,
     };
   }
 
@@ -62,6 +84,7 @@ export class UsersController {
       status?: boolean;
       points?: number;
       grade_level?: string;
+      role?: 'SUPER_ADMIN' | 'TEACHER' | 'STUDENT';
     },
   ) {
     const updated = await this.usersService.updateUser(id, body);
@@ -69,6 +92,17 @@ export class UsersController {
       success: true,
       message: 'Cập nhật thông tin thành công',
       user: updated,
+    };
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Xóa tài khoản người dùng (Admin)' })
+  async remove(@Param('id') id: string) {
+    const result = await this.usersService.deleteUser(id);
+    return {
+      success: true,
+      message: 'Đã xóa người dùng thành công',
+      ...result,
     };
   }
 }
