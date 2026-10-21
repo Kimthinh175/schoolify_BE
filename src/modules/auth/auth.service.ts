@@ -9,7 +9,7 @@ import { GoogleLoginDto, SendOtpDto, VerifyOtpDto } from './dto/google-login.dto
 
 const GOOGLE_CLIENT_ID =
   process.env.GOOGLE_CLIENT_ID ||
-  '353464933030-gs4nius9ik1kikb6meq9acigl5kju766.apps.googleusercontent.com';
+  '511595808378-ibkrl21ad899r4dmd2v7pit5ejhalgg6.apps.googleusercontent.com';
 
 interface OtpRecord {
   otp: string;

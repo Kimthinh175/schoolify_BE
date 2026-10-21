@@ -818,6 +818,8 @@ export class ExamsService {
         timeSpentSeconds: s.time_spent_seconds,
         submittedAt: s.submitted_at,
         status: s.status,
+        totalPoints: Number(s.total_points || 10),
+        snapshotData: s.snapshot_data,
       })),
       pagination: {
         totalItems: total,
@@ -868,7 +870,7 @@ export class ExamsService {
     search?: string;
   }) {
     const page = Math.max(1, query.page || 1);
-    const limit = Math.min(100, Math.max(1, query.limit || 20));
+    const limit = Math.min(1000, Math.max(1, query.limit || 20));
     const skip = (page - 1) * limit;
 
     const where: any = {};
@@ -950,7 +952,13 @@ export class ExamsService {
         question: questionText,
         explanation: payload.explanation || 'Lời giải chi tiết theo chuẩn GDPT 2018.',
         bloom_level: (payload.bloomLevel as any) || 'THONG_HIEU',
-        question_format: (payload.questionFormat as any) || 'SINGLE_CHOICE',
+        question_format: (
+          payload.questionFormat === 'TRUE_FALSE_GROUP'
+            ? 'TRUE_FALSE'
+            : payload.questionFormat === 'MULTIPLE_CHOICE'
+              ? 'MULTI_CHOICE'
+              : payload.questionFormat || 'SINGLE_CHOICE'
+        ) as any,
         type: 'SINGLE_CHOICE',
         answers: {
           create: (
@@ -994,6 +1002,18 @@ export class ExamsService {
     }
 
     const qText = payload.question ?? payload.content;
+    const anyPayload = payload as any;
+    if (Array.isArray(anyPayload.answers) && anyPayload.answers.length > 0) {
+      await this.prisma.answer.deleteMany({ where: { question_id: id } });
+      await this.prisma.answer.createMany({
+        data: anyPayload.answers.map((a: any) => ({
+          question_id: id,
+          content: String(a.content || ''),
+          is_answer: Boolean(a.is_answer ?? a.is_correct),
+          explain: a.explanation || a.explain || null,
+        })),
+      });
+    }
 
     return this.prisma.question.update({
       where: { id },
@@ -1035,6 +1055,31 @@ export class ExamsService {
       },
       orderBy: { created_at: 'desc' },
     });
+    if (banks.length === 0) {
+      const grouped = await this.prisma.question.groupBy({
+        by: ['subject'],
+        _count: { id: true },
+      });
+      for (const g of grouped) {
+        if (!g.subject) continue;
+        const createdBank = await this.prisma.questionBank.create({
+          data: {
+            title: `Kho đề chuẩn GDPT 2018 - Môn ${g.subject.toUpperCase()}`,
+            is_premium: false,
+          },
+        });
+        await this.prisma.question.updateMany({
+          where: { subject: g.subject, bank_id: null },
+          data: { bank_id: createdBank.id },
+        });
+      }
+      return this.prisma.questionBank.findMany({
+        include: {
+          _count: { select: { questions: true, exam_submissions: true } },
+        },
+        orderBy: { created_at: 'desc' },
+      });
+    }
     return banks;
   }
 
@@ -1109,13 +1154,17 @@ export class ExamsService {
   }
 
   private computeQuotaByLevel(currentPoints: number) {
+    const basicMax = Math.floor(currentPoints / EXAM_LEVEL_COSTS.BASIC);
+    const mediumMax = Math.floor(currentPoints / EXAM_LEVEL_COSTS.MEDIUM);
+    const advancedMax = Math.floor(currentPoints / EXAM_LEVEL_COSTS.ADVANCED);
     return {
       BASIC: {
         code: 'BASIC',
         label: 'Cơ bản',
         costPoints: EXAM_LEVEL_COSTS.BASIC,
         dailyBaseAllowanceExams: 3,
-        remainingExamsPossible: Math.floor(currentPoints / EXAM_LEVEL_COSTS.BASIC),
+        remainingExamsPossible: basicMax,
+        maxExamsAvailable: basicMax,
         canStart: currentPoints >= EXAM_LEVEL_COSTS.BASIC,
       },
       MEDIUM: {
@@ -1123,7 +1172,8 @@ export class ExamsService {
         label: 'Trung bình',
         costPoints: EXAM_LEVEL_COSTS.MEDIUM,
         dailyBaseAllowanceExams: 2,
-        remainingExamsPossible: Math.floor(currentPoints / EXAM_LEVEL_COSTS.MEDIUM),
+        remainingExamsPossible: mediumMax,
+        maxExamsAvailable: mediumMax,
         canStart: currentPoints >= EXAM_LEVEL_COSTS.MEDIUM,
       },
       ADVANCED: {
@@ -1131,7 +1181,8 @@ export class ExamsService {
         label: 'Giỏi',
         costPoints: EXAM_LEVEL_COSTS.ADVANCED,
         dailyBaseAllowanceExams: 1,
-        remainingExamsPossible: Math.floor(currentPoints / EXAM_LEVEL_COSTS.ADVANCED),
+        remainingExamsPossible: advancedMax,
+        maxExamsAvailable: advancedMax,
         canStart: currentPoints >= EXAM_LEVEL_COSTS.ADVANCED,
       },
     };
@@ -1352,11 +1403,15 @@ export class ExamsService {
       .filter((l) => l.action_type === 'SCORE_PENALTY_UNDER_5')
       .reduce((sum, l) => sum + Math.abs(l.points_delta), 0);
 
+    const alreadyClaimedToday = todayLogs.some((l) => l.action_type === 'DAILY_CHECKIN');
+
     return {
       studentProfileId: profile.id,
       currentPoints,
+      diamonds: Number(profile.points ?? 0),
       dailyAllowance: DAILY_EXAM_POINT_ALLOWANCE,
       lastDailyGrantDate: profile.last_daily_grant_date || today,
+      alreadyClaimedToday,
       quotaByLevel: this.computeQuotaByLevel(currentPoints),
       todaySummary: {
         date: today,
@@ -1382,54 +1437,68 @@ export class ExamsService {
   }
 
   /**
-   * API 2: Phát / Nhận 9 điểm làm đề hàng ngày (hoặc forceReset về 9 điểm)
+   * API 2: Điểm danh nhận 9 điểm hàng ngày (Mỗi ngày tuyệt đối chỉ được nhận 1 lần duy nhất)
    */
   async claimDailyExamPoints(userId: string | null, dto: DailyClaimPointsDto) {
     const today = this.getTodayDateStringVN();
     const effectiveUserId = userId || dto?.userId || null;
+    const profile = await this.getOrInitStudentProfile(effectiveUserId);
+    const before = Number(profile.exam_points ?? DAILY_EXAM_POINT_ALLOWANCE);
 
-    // Nếu forceReset = true -> Reset ngay về 9 điểm
-    if (dto?.forceReset) {
-      const profile = await this.getOrInitStudentProfile(effectiveUserId);
-      const before = Number(profile.exam_points ?? 0);
-      const updated = await this.prisma.studentProfile.update({
-        where: { id: profile.id },
-        data: {
-          exam_points: DAILY_EXAM_POINT_ALLOWANCE,
-          last_daily_grant_date: today,
-        },
-      });
-      await this.prisma.examPointLog.create({
-        data: {
-          student_id: profile.id,
-          action_type: 'DAILY_GRANT',
-          points_before: before,
-          points_delta: DAILY_EXAM_POINT_ALLOWANCE - before,
-          points_after: DAILY_EXAM_POINT_ALLOWANCE,
-          note: `Cấp mới cố định ${DAILY_EXAM_POINT_ALLOWANCE} điểm làm đề trong ngày (${today})`,
-        },
-      });
+    const startOfToday = new Date(`${today}T00:00:00+07:00`);
+    const existingCheckinToday = await this.prisma.examPointLog.findFirst({
+      where: {
+        student_id: profile.id,
+        action_type: 'DAILY_CHECKIN',
+        created_at: { gte: startOfToday },
+      },
+    });
+
+    if (existingCheckinToday) {
       return {
-        claimed: true,
+        claimed: false,
+        alreadyClaimedToday: true,
         grantDate: today,
         dailyAllowance: DAILY_EXAM_POINT_ALLOWANCE,
         previousPoints: before,
-        currentPoints: updated.exam_points,
-        quotaByLevel: this.computeQuotaByLevel(updated.exam_points),
-        message: `Đã cấp mới ${DAILY_EXAM_POINT_ALLOWANCE} điểm làm đề hôm nay (${today}). Đủ làm 3 bài Cơ bản, hoặc 2 bài Trung bình, hoặc 1 bài Giỏi!`,
+        currentPoints: before,
+        diamonds: Number(profile.points ?? 0),
+        quotaByLevel: this.computeQuotaByLevel(before),
+        message: `Hôm nay (${today}) bạn đã điểm danh rồi nhé! Mỗi ngày chỉ được điểm danh 1 lần, vui lòng quay lại vào ngày mai nhé.`,
       };
     }
 
-    const profile = await this.getOrInitStudentProfile(effectiveUserId);
-    const currentPoints = Number(profile.exam_points ?? DAILY_EXAM_POINT_ALLOWANCE);
+    const updated = await this.prisma.studentProfile.update({
+      where: { id: profile.id },
+      data: {
+        exam_points: { increment: 9 },
+        points: { increment: 9 },
+        last_daily_grant_date: today,
+      },
+    });
+
+    await this.prisma.examPointLog.create({
+      data: {
+        student_id: profile.id,
+        action_type: 'DAILY_CHECKIN',
+        points_before: Number(profile.points ?? 0),
+        points_delta: 9,
+        points_after: Number(updated.points ?? 0),
+        note: `Điểm danh chuyên cần (${today}): Nhận +9 Kim Cương (💎)`,
+      },
+    });
 
     return {
       claimed: true,
-      grantDate: profile.last_daily_grant_date || today,
-      dailyAllowance: DAILY_EXAM_POINT_ALLOWANCE,
-      currentPoints,
-      quotaByLevel: this.computeQuotaByLevel(currentPoints),
-      message: `Số dư điểm làm đề hôm nay (${today}) của bạn là ${currentPoints} điểm.`,
+      alreadyClaimedToday: true,
+      grantDate: today,
+      dailyAllowance: 9,
+      pointsDelta: 9,
+      previousPoints: before,
+      currentPoints: updated.exam_points,
+      diamonds: Number(updated.points ?? 0),
+      quotaByLevel: this.computeQuotaByLevel(updated.exam_points),
+      message: `Điểm danh thành công ngày ${today}! Bạn đã nhận +9 Kim Cương (💎) hôm nay.`,
     };
   }
 

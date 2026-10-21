@@ -10,9 +10,15 @@ async function bootstrap() {
   // 1. Enable Cookie Parser for reading HTTP-Only cookies
   app.use(cookieParser());
 
-  // 2. Enable CORS with credentials for Next.js Frontend
+  // 2. Enable CORS with credentials for Next.js Frontend (hỗ trợ cả port 3000 và 3050)
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: [
+      process.env.FRONTEND_URL || 'http://localhost:3000',
+      'http://localhost:3000',
+      'http://localhost:3050',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:3050',
+    ],
     credentials: true,
   });
 
@@ -59,7 +65,7 @@ async function bootstrap() {
   });
 
   const port = process.env.PORT ?? 3001;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   console.log(`🚀 Schoolify Backend is running on http://localhost:${port}`);
   console.log(`📚 Swagger API Docs available at http://localhost:${port}/api/docs`);
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CatalogService } from './catalog.service';
 
@@ -13,6 +13,39 @@ export class CatalogController {
     const data = await this.catalogService.listPackages();
     return {
       success: true,
+      data,
+    };
+  }
+
+  @Post('packages')
+  @ApiOperation({ summary: 'Tạo gói cước SaaS mới (Admin)' })
+  async createPackage(@Body() body: any) {
+    const data = await this.catalogService.createPackage(body);
+    return {
+      success: true,
+      message: 'Tạo gói đăng ký mới thành công',
+      data,
+    };
+  }
+
+  @Patch('packages/:id')
+  @ApiOperation({ summary: 'Cập nhật gói cước SaaS (Admin)' })
+  async updatePackage(@Param('id') id: string, @Body() body: any) {
+    const data = await this.catalogService.updatePackage(id, body);
+    return {
+      success: true,
+      message: 'Cập nhật gói đăng ký thành công',
+      data,
+    };
+  }
+
+  @Delete('packages/:id')
+  @ApiOperation({ summary: 'Xóa gói cước SaaS (Admin)' })
+  async deletePackage(@Param('id') id: string) {
+    const data = await this.catalogService.deletePackage(id);
+    return {
+      success: true,
+      message: 'Xóa gói đăng ký thành công',
       data,
     };
   }
@@ -63,6 +96,48 @@ export class CatalogController {
   @ApiOperation({ summary: 'Thống kê tổng quan toàn hệ thống (Real-time PostgreSQL KPIs)' })
   async getStats() {
     const data = await this.catalogService.getSystemStats();
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Get('store-items')
+  @ApiOperation({ summary: 'Danh sách vật phẩm Cửa hàng Đổi quà (PostgreSQL store_items)' })
+  async listStoreItems() {
+    const data = await this.catalogService.listStoreItems();
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Post('store-items')
+  @ApiOperation({ summary: 'Tạo vật phẩm đổi thưởng mới (Giáo viên / Admin)' })
+  async createStoreItem(@Body() body: any) {
+    const data = await this.catalogService.createStoreItem(body);
+    return {
+      success: true,
+      message: 'Tạo phần thưởng mới thành công',
+      data,
+    };
+  }
+
+  @Post('store-items/:id/redeem')
+  @ApiOperation({ summary: 'Học sinh đổi quà bằng Điểm Năng Lượng và lưu vào Túi đồ (PostgreSQL)' })
+  async redeemStoreItem(@Param('id') id: string, @Body() body: { userId?: string }) {
+    const data = await this.catalogService.redeemStoreItem(id, body?.userId);
+    return {
+      success: true,
+      message: data.message,
+      data,
+    };
+  }
+
+  @Get('inventory')
+  @ApiOperation({ summary: 'Danh sách quà tặng trong Túi đồ của học sinh (PostgreSQL student_inventory)' })
+  async listStudentInventory(@Query('userId') userId?: string) {
+    const data = await this.catalogService.listStudentInventory(userId);
     return {
       success: true,
       data,
