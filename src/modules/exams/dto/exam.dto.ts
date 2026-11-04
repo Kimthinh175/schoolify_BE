@@ -63,6 +63,44 @@ export class GenerateMatrixExamDto {
   @ApiPropertyOptional()
   @IsOptional()
   bloomPercentages?: any;
+
+  @ApiPropertyOptional({ example: 'Cực trị của hàm số' })
+  @IsOptional()
+  @IsString()
+  topicTag?: string;
+
+  @ApiPropertyOptional({ example: 'EASY' })
+  @IsOptional()
+  @IsString()
+  targetDifficulty?: string;
+
+  @ApiPropertyOptional({ example: 'TOPIC' })
+  @IsOptional()
+  @IsString()
+  practiceMode?: string;
+
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @IsNumber()
+  chapterId?: number;
+
+  @ApiPropertyOptional({ example: 'BASIC', description: 'Cấp độ đề thi: BASIC (3đ) | MEDIUM (4đ) | ADVANCED (9đ)' })
+  @IsOptional()
+  @IsString()
+  level?: string;
+
+  @ApiPropertyOptional({ description: 'ID người dùng (nếu không truyền qua JWT)' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiPropertyOptional({ description: 'Bỏ qua kiểm tra điểm (chỉ dành cho giáo viên, admin)' })
+  @IsOptional()
+  skipPointCheck?: boolean;
+
+  @ApiPropertyOptional({ description: 'Có trừ điểm luôn khi sinh đề hay không (mặc định false - chỉ validate số dư)' })
+  @IsOptional()
+  deductPoints?: boolean;
 }
 
 export class SubmitExamDto {
@@ -268,4 +306,27 @@ export class SettleExamPointsDto {
   @IsString()
   userId?: string;
 }
+
+export class AdminAdjustPointsDto {
+  @ApiPropertyOptional({ example: 9, description: 'Số điểm Tia Sáng làm đề (exam_points)' })
+  @IsOptional()
+  @IsNumber()
+  examPoints?: number;
+
+  @ApiPropertyOptional({ example: 100, description: 'Số điểm Ngọc Tri Thức / Kim Cương (points)' })
+  @IsOptional()
+  @IsNumber()
+  diamonds?: number;
+
+  @ApiPropertyOptional({ description: 'ID người dùng (mặc định là chính admin đang đăng nhập)' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiPropertyOptional({ description: 'Ghi chú lý do điều chỉnh' })
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
 

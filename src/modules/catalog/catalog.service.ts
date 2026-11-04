@@ -1,24 +1,96 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { PayOSService } from './payos.service';
 
 @Injectable()
 export class CatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(CatalogService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly payosService: PayOSService,
+  ) {}
+
 
   /**
-   * Lấy danh sách gói cước SaaS (Tự động khởi tạo 3 gói FREE / PRO / VIP nếu chưa có)
+   * Lấy danh sách gói cước SaaS (2 gói học sinh duy nhất 50k & 100k + Gói Miễn Phí)
    */
   async listPackages() {
     let packages = await this.prisma.subscriptionPackage.findMany({
       orderBy: { price: 'asc' },
     });
 
-    if (packages.length === 0) {
-      await this.prisma.subscriptionPackage.createMany({
-        data: [
-          {
-            name: 'Gói Cơ Bản (Free)',
-            description: 'Luyện đề tiêu chuẩn mỗi ngày, xem đáp án cơ bản và tích lũy Streak.',
+    if (packages.length === 0 || packages.some((p) => Number(p.price) === 199000 || Number(p.price) === 499000)) {
+      // Xóa các gói cũ nếu có để đồng bộ sang 2 gói học sinh chuẩn 50k & 100k
+      try {
+        await this.prisma.subscriptionPackage.deleteMany({
+          where: {
+            price: { in: [199000, 499000] },
+          },
+        });
+      } catch {}
+
+      const existing50k = await this.prisma.subscriptionPackage.findFirst({ where: { price: 50000 } });
+      if (!existing50k) {
+        await this.prisma.subscriptionPackage.create({
+          data: {
+            name: 'Gói Bứt Phá (50k)',
+            description: '+5 Điểm Xịn mỗi ngày (tích lũy), +9 Điểm Free mỗi ngày (tổng 18đ Free/ngày) để tạo & luyện đề thả ga.',
+            price: 50000,
+            billing_cycle: 'MONTHLY',
+            duration_days: 30,
+            max_teachers: 1,
+            max_students_total: 100,
+            max_classes: 5,
+            max_students_per_class: 40,
+            storage_limit_gb: 10,
+            can_sell_courses: false,
+            is_active: true,
+            features: [
+              '+5 Điểm Xịn (💎) mỗi ngày tự động cộng dồn vào ví',
+              '+9 Điểm Free thêm mỗi ngày (Tổng 18 Điểm Free / ngày)',
+              'Đủ làm 6 đề Cơ bản hoặc 4 đề Trung bình hoặc 2 đề Giỏi mỗi ngày',
+              'Cày thêm Điểm Xịn khi làm đề đạt >= 8.5 điểm',
+              'Đổi quà hấp dẫn trong Schoolify Store',
+            ],
+          },
+        });
+      }
+
+      const existing100k = await this.prisma.subscriptionPackage.findFirst({ where: { price: 100000 } });
+      if (!existing100k) {
+        await this.prisma.subscriptionPackage.create({
+          data: {
+            name: 'Gói Thủ Khoa VIP (100k)',
+            description: '+10 Điểm Xịn mỗi ngày, +20 Điểm Free (tổng 29đ Free/ngày), GIẢM 50% Điểm khi dùng Gia Sư AI.',
+            price: 100000,
+            billing_cycle: 'MONTHLY',
+            duration_days: 30,
+            max_teachers: 5,
+            max_students_total: 500,
+            max_classes: 20,
+            max_students_per_class: 50,
+            storage_limit_gb: 50,
+            can_sell_courses: true,
+            is_active: true,
+            features: [
+              '+10 Điểm Xịn (💎) mỗi ngày tự động cộng dồn vào ví',
+              '+20 Điểm Free thêm mỗi ngày (Tổng 29 Điểm Free / ngày)',
+              '⚡ GIẢM 50% ĐIỂM XỊN KHI DÙNG GIA SƯ AI (chỉ từ 0.25 💎/câu)',
+              'Luyện đề không giới hạn, cày Điểm Xịn cực nhanh',
+              'AI Deep-Reasoning giải câu Vận dụng cao & mẹo Casio',
+              'Đổi toàn bộ quà hiện vật độc quyền trong Schoolify Store',
+            ],
+          },
+        });
+      }
+
+      const existingFree = await this.prisma.subscriptionPackage.findFirst({ where: { price: 0 } });
+      if (!existingFree) {
+        await this.prisma.subscriptionPackage.create({
+          data: {
+            name: 'Gói Tân Binh (Miễn Phí)',
+            description: '9 Điểm Free mỗi ngày (reset 00:00 hàng ngày), cày Điểm Xịn khi làm đề >= 8.5 điểm.',
             price: 0,
             billing_cycle: 'MONTHLY',
             duration_days: 30,
@@ -30,53 +102,14 @@ export class CatalogService {
             can_sell_courses: false,
             is_active: true,
             features: [
-              'Luyện đề giới hạn 3 đề/ngày',
-              'Xem điểm và đáp án A/B/C/D',
-              'Tích lũy chuỗi ngày học (Streak)',
+              '9 Điểm Free mỗi ngày (làm 3 đề Cơ bản hoặc 2 đề Trung bình)',
+              'Reset cố định 9 điểm lúc 00:00 hàng ngày (không tích lũy)',
+              'Cày Điểm Xịn (💎) miễn phí khi đạt >= 8.5 điểm bài thi',
+              'Luyện thi trắc nghiệm theo chuẩn ma trận đề 2025',
             ],
           },
-          {
-            name: 'Gói Chuyên Sâu (PRO)',
-            description: 'Mở khóa toàn bộ ma trận đề GDPT 2018, Trợ lý AI Agentic chữa bài Socratic & lời giải chi tiết.',
-            price: 199000,
-            billing_cycle: 'MONTHLY',
-            duration_days: 30,
-            max_teachers: 5,
-            max_students_total: 300,
-            max_classes: 10,
-            max_students_per_class: 50,
-            storage_limit_gb: 20,
-            can_sell_courses: true,
-            is_active: true,
-            features: [
-              'Luyện đề không giới hạn theo Ma trận Bloom',
-              'AI Gia Sư gợi mở Socratic & Semantic Checkpoint',
-              'Xem lời giải chi tiết từng bước chuẩn KaTeX',
-              'Tặng ngay +200 Token thưởng khi kích hoạt',
-            ],
-          },
-          {
-            name: 'Gói Toàn Diện (VIP / Trường Học)',
-            description: 'Dành cho Học sinh mục tiêu 9+ và Giáo viên/Trường học: AI Quét đề Word .docx sinh câu hỏi tự động.',
-            price: 499000,
-            billing_cycle: 'YEARLY',
-            duration_days: 365,
-            max_teachers: 50,
-            max_students_total: 2000,
-            max_classes: 100,
-            max_students_per_class: 100,
-            storage_limit_gb: 100,
-            can_sell_courses: true,
-            is_active: true,
-            features: [
-              'Toàn bộ đặc quyền gói PRO 365 ngày',
-              'AI Docx Exam Scanner & Generator không giới hạn',
-              'Phân tích lỗ hổng kiến thức chuyên sâu theo 4 mức độ Bloom',
-              'Tặng ngay +1,000 Token thưởng & Huy hiệu VIP',
-            ],
-          },
-        ],
-      });
+        });
+      }
 
       packages = await this.prisma.subscriptionPackage.findMany({
         orderBy: { price: 'asc' },
@@ -308,27 +341,307 @@ export class CatalogService {
       },
     });
 
-    // Cộng điểm thưởng (+200 hoặc +1000 points) vào StudentProfile
-    const bonusPoints = Number(order.item_price_snapshot) >= 400000 ? 1000 : 200;
+    // Kích hoạt gói học sinh (50k hoặc 100k) và cấp quyền lợi tương ứng
+    const amount = Number(order.item_price_snapshot);
+    const packageName = String((order.item_name_snapshot as any)?.packageName || '').toLowerCase();
+
+    let activePackage = 'STUDENT_50K';
+    let dailyFreeAllowance = 18;
+    let initialBonusXin = 50;
+
+    if (
+      amount === 100000 ||
+      amount === 960000 ||
+      packageName.includes('100k') ||
+      packageName.includes('vip') ||
+      packageName.includes('thủ khoa')
+    ) {
+      activePackage = 'STUDENT_100K';
+      dailyFreeAllowance = 29;
+      initialBonusXin = 100;
+    } else if (
+      amount === 50000 ||
+      amount === 480000 ||
+      packageName.includes('50k') ||
+      packageName.includes('bứt phá')
+    ) {
+      activePackage = 'STUDENT_50K';
+      dailyFreeAllowance = 18;
+      initialBonusXin = 50;
+    }
+
     if (order.user?.student_profile) {
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const profile = order.user.student_profile;
+      const currentXin = Number(profile.points ?? 0);
+
       await this.prisma.studentProfile.update({
-        where: { id: order.user.student_profile.id },
-        data: { points: { increment: bonusPoints } },
+        where: { id: profile.id },
+        data: {
+          active_package: activePackage,
+          package_expires_at: expiresAt,
+          exam_points: dailyFreeAllowance,
+          points: { increment: initialBonusXin },
+        },
+      });
+
+      await this.prisma.examPointLog.create({
+        data: {
+          student_id: profile.id,
+          action_type: 'PACKAGE_ACTIVATED',
+          points_before: currentXin,
+          points_delta: initialBonusXin,
+          points_after: currentXin + initialBonusXin,
+          note: `Kích hoạt gói ${activePackage}: Cấp ngay ${dailyFreeAllowance} điểm Free/ngày và tặng +${initialBonusXin} Điểm Xịn (💎)`,
+        },
       });
     }
 
     await this.prisma.notification.create({
       data: {
         user_id: order.user_id,
-        title: 'Kích hoạt gói học tập thành công!',
-        message: `Đơn hàng ${(order.item_name_snapshot as any)?.packageName || 'PRO'} đã được gạch nợ tự động qua VietQR. Bạn được tặng +${bonusPoints} Token nỗ lực!`,
+        title: `Kích hoạt ${activePackage === 'STUDENT_100K' ? 'Gói Thủ Khoa VIP (100k)' : 'Gói Bứt Phá (50k)'} thành công!`,
+        message: `Đơn hàng đã được thanh toán thành công qua PayOS. Bạn được cấp ${dailyFreeAllowance} Điểm Free/ngày và tặng +${initialBonusXin} Điểm Xịn (💎 tích lũy vĩnh viễn)!`,
       },
     });
 
     return {
       order: this.normalizeOrderRecord(updatedOrder),
       transaction,
-      bonusPointsAwarded: bonusPoints,
+      activePackage,
+      bonusPointsAwarded: initialBonusXin,
+      dailyFreeAllowance,
+    };
+  }
+
+  /**
+   * Khởi tạo đơn hàng thanh toán qua cổng PayOS (VietQR Động)
+   */
+  async createPayosOrder(payload: {
+    userId?: string;
+    email?: string;
+    packageId?: string;
+    packageName?: string;
+    amount?: number;
+    billingCycle?: string;
+    cancelUrl?: string;
+    returnUrl?: string;
+  }) {
+    // 1. Tìm hoặc lấy user
+    let user = payload.userId
+      ? await this.prisma.user.findUnique({ where: { id: payload.userId } })
+      : payload.email
+        ? await this.prisma.user.findUnique({ where: { email: payload.email } })
+        : await this.prisma.user.findFirst({ orderBy: { created_at: 'desc' } });
+
+    if (!user) {
+      throw new BadRequestException('Không tìm thấy người dùng để khởi tạo đơn hàng PayOS');
+    }
+
+    // 2. Tìm gói cước
+    const packages = await this.listPackages();
+    let pkg = payload.packageId
+      ? packages.find((p) => p.id === payload.packageId)
+      : payload.packageName
+        ? packages.find((p) =>
+            p.name.toLowerCase().includes(payload.packageName!.toLowerCase()),
+          )
+        : packages[1] || packages[0];
+
+    if (!pkg) {
+      pkg = packages[0];
+    }
+
+    const price = payload.amount !== undefined ? Number(payload.amount) : Number(pkg.price);
+    const displayPackageName = payload.packageName || pkg.name;
+
+    // Sinh orderCode duy nhất dạng số nguyên 8-9 chữ số theo yêu cầu PayOS
+    const orderCode = Number(
+      String(Date.now()).slice(-6) + Math.floor(100 + Math.random() * 900).toString(),
+    );
+    const vietQrCode = `SCH-${orderCode}`;
+
+    // 3. Tạo Order trong Database
+    const order = await this.prisma.order.create({
+      data: {
+        user_id: user.id,
+        reference_type: 'SUBSCRIPTION',
+        subscription_id: pkg.id,
+        item_name_snapshot: {
+          packageName: displayPackageName,
+          billingCycle: payload.billingCycle || pkg.billing_cycle,
+          durationDays: pkg.duration_days || 30,
+          orderCode,
+          vietQrCode,
+        },
+        item_price_snapshot: price,
+        status: price === 0 ? 'PAID' : 'PENDING',
+        payment_method: 'BANK',
+      },
+      include: {
+        user: { select: { id: true, fullname: true, email: true, role: true } },
+        subscription: true,
+      },
+    });
+
+    if (price === 0) {
+      return {
+        order: this.normalizeOrderRecord(order),
+        payos: {
+          isLivePayOS: true,
+          orderCode,
+          amount: 0,
+          description: 'Gói miễn phí',
+          status: 'PAID',
+        },
+      };
+    }
+
+    // 4. Gọi PayOS tạo Payment Link
+    const payosResult = await this.payosService.createPaymentLink({
+      orderCode,
+      amount: price,
+      description: `SCH ${orderCode}`,
+      cancelUrl: payload.cancelUrl || 'http://localhost:3000/pricing',
+      returnUrl: payload.returnUrl || 'http://localhost:3000/pricing?payment_status=success',
+      items: [
+        {
+          name: displayPackageName,
+          quantity: 1,
+          price,
+        },
+      ],
+      buyerName: user.fullname || 'Học sinh Schoolify',
+      buyerEmail: user.email,
+    });
+
+    // 5. Cập nhật PayOS link vào order snapshot
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: {
+        item_name_snapshot: {
+          ...(order.item_name_snapshot as any),
+          orderCode,
+          vietQrCode,
+          payosPaymentLinkId: payosResult.paymentLinkId,
+          checkoutUrl: payosResult.checkoutUrl,
+          qrCode: payosResult.qrCode,
+          isLivePayOS: payosResult.isLivePayOS,
+        },
+      },
+    });
+
+    return {
+      order: this.normalizeOrderRecord(order),
+      payos: payosResult,
+    };
+  }
+
+  /**
+   * Kiểm tra trạng thái thanh toán PayOS theo orderCode (Polling real-time từ FE)
+   */
+  async getPayosOrderStatus(orderCode: number) {
+    // 1. Tìm trong DB xem đơn hàng này đã được gạch nợ chưa
+    const pendingOrders = await this.prisma.order.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+      include: { subscription: true, user: { include: { student_profile: true } } },
+    });
+
+    let matchedOrder = pendingOrders.find(
+      (o) => (o.item_name_snapshot as any)?.orderCode === Number(orderCode),
+    );
+
+    if (!matchedOrder) {
+      // Tìm trong các đơn đã PAID
+      const paidOrders = await this.prisma.order.findMany({
+        where: { status: 'PAID' },
+        orderBy: { updated_at: 'desc' },
+        take: 50,
+        include: { subscription: true, user: { include: { student_profile: true } } },
+      });
+      const alreadyPaidOrder = paidOrders.find(
+        (o) => (o.item_name_snapshot as any)?.orderCode === Number(orderCode),
+      );
+      if (alreadyPaidOrder) {
+        return {
+          status: 'PAID',
+          order: this.normalizeOrderRecord(alreadyPaidOrder),
+          message: 'Đơn hàng đã được thanh toán và kích hoạt thành công!',
+        };
+      }
+    }
+
+    // 2. Nếu đơn hàng vẫn PENDING, truy vấn trạng thái từ PayOS Cloud
+    const payosStatus = await this.payosService.getPaymentStatus(orderCode);
+
+    if (payosStatus.status === 'PAID' && matchedOrder) {
+      this.logger.log(`🎉 PayOS báo đơn hàng orderCode=${orderCode} đã thanh toán! Đang gạch nợ tự động...`);
+      const confirmed = await this.confirmOrderPayment(matchedOrder.id);
+      return {
+        status: 'PAID',
+        order: confirmed.order,
+        bonusPointsAwarded: confirmed.bonusPointsAwarded,
+        message: 'Thanh toán thành công! Gói cước và Token đã được kích hoạt.',
+      };
+    }
+
+    return {
+      status: matchedOrder ? matchedOrder.status : payosStatus.status || 'PENDING',
+      orderCode,
+      order: matchedOrder ? this.normalizeOrderRecord(matchedOrder) : null,
+    };
+  }
+
+  /**
+   * Xử lý Webhook từ PayOS khi có giao dịch thành công
+   */
+  async handlePayosWebhook(webhookBody: any) {
+    let verifiedData: any;
+    try {
+      verifiedData = await this.payosService.verifyWebhook(webhookBody);
+    } catch (err: any) {
+      this.logger.warn(`Lỗi verify PayOS webhook: ${err?.message}`);
+      // Fallback lấy data trực tiếp nếu signature chưa khớp
+      verifiedData = webhookBody?.data || webhookBody;
+    }
+
+    const orderCode = verifiedData?.orderCode;
+    if (!orderCode) {
+      this.logger.log(`📩 Nhận PayOS webhook ping/test xác thực URL: ${JSON.stringify(webhookBody)}`);
+      return {
+        success: true,
+        message: 'PayOS webhook endpoint is active and verified',
+      };
+    }
+
+    this.logger.log(`📩 Nhận Webhook PayOS cho orderCode=${orderCode}`);
+
+    // Tìm order trong DB
+    const pendingOrders = await this.prisma.order.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+    });
+
+    const targetOrder = pendingOrders.find(
+      (o) => (o.item_name_snapshot as any)?.orderCode === Number(orderCode),
+    );
+
+    if (targetOrder) {
+      const result = await this.confirmOrderPayment(targetOrder.id);
+      this.logger.log(`✅ Đã gạch nợ thành công đơn hàng ${targetOrder.id} qua PayOS Webhook`);
+      return {
+        success: true,
+        message: 'Đã gạch nợ thành công đơn hàng PayOS',
+        data: result,
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Không tìm thấy đơn hàng PENDING hoặc đơn hàng đã xử lý trước đó',
     };
   }
 

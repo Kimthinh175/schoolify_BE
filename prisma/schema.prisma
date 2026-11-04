@@ -214,9 +214,12 @@ model StudentProfile {
   user_id               String    @unique
   date_of_birth         DateTime?
   grade_level           String?
-  points                Int       @default(0)
+  points                Float     @default(0)
   exam_points           Int       @default(9)
   last_daily_grant_date String?   @db.VarChar(20)
+  active_package        String?   @default("FREE")
+  package_expires_at    DateTime?
+
 
   user            User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
   enrollments     ClassEnrollment[]
@@ -579,6 +582,9 @@ model Question {
   bloom_level     BloomLevel?     @default(THONG_HIEU)
   question_format QuestionFormat? @default(SINGLE_CHOICE)
   type            QuestionType?   @default(MULTIPLE_CHOICE)
+  topic_tag       String?         // Chuyên đề / Dạng bài cụ thể (GDPT 2018)
+  cognitive_tag   String?         // Nhận biết | Thông hiểu | Vận dụng | Vận dụng cao
+  trap_tag        String?         // Bẫy sai lầm phổ biến (Trap Tag)
   title           String?
   question        String          @db.Text
   answer          String?         @db.Text
@@ -594,6 +600,7 @@ model Question {
   @@index([bank_id])
   @@index([lesson_id])
   @@index([subject, grade, bloom_level])
+  @@index([topic_tag])
   @@map("questions")
 }
 
@@ -805,17 +812,34 @@ model Notification {
 model SemanticCache {
   id               String   @id @default(uuid())
   query_text       String   @db.Text
-  query_vector     Float[]  // Vector embedding (384 dimensions from all-MiniLM-L6-v2)
+  query_vector     Float[]  // Vector embedding (1024 dimensions)
   response_text    String   @db.Text
   client_actions   Json?    // Array of Client Tool Actions (JSON)
+  emotion          String?  // Biểu cảm robot (happy, thinking, stunned...)
+  suggestions      Json?    // Array of string (Dynamic contextual suggestion chips)
   subject          String?  // e.g. "toan-hoc", "vat-ly"
   grade            Int?     // 10, 11, 12
   hit_count        Int      @default(1)
+  ttl_days         Int?     @default(7)
   last_accessed_at DateTime @default(now())
   created_at       DateTime @default(now())
 
   @@index([subject, grade])
   @@map("semantic_cache")
+}
+
+model ChatSession {
+  id         String   @id @default(uuid())
+  sessionKey String   @unique @map("session_key")
+  userId     String?  @map("user_id")
+  messages   Json     // Mảng tin nhắn ChatMessage[] (Sliding window 40 tin)
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([sessionKey])
+  @@map("chat_sessions")
 }
 
 model SemanticCheckpointLog {
@@ -841,9 +865,10 @@ model ExamPointLog {
   exam_title    String?  @db.VarChar(255)
   submission_id String?
   exam_score    Decimal? @db.Decimal(5, 2)
-  points_before Int
-  points_delta  Int
-  points_after  Int
+  points_before Float
+  points_delta  Float
+  points_after  Float
+
   note          String?  @db.Text
   created_at    DateTime @default(now())
 

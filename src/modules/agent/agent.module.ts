@@ -4,6 +4,7 @@ import { SemanticCheckpointService } from './services/semantic-checkpoint.servic
 import { SemanticCacheService } from './services/semantic-cache.service';
 import { AntigravityIpcBridgeService } from './services/antigravity-ipc-bridge.service';
 import { DocxExamGeneratorService } from './services/docx-exam-generator.service';
+import { ChatMemoryService } from './services/chat-memory.service';
 
 @Module({
   controllers: [AgentController],
@@ -12,12 +13,14 @@ import { DocxExamGeneratorService } from './services/docx-exam-generator.service
     SemanticCacheService,
     AntigravityIpcBridgeService,
     DocxExamGeneratorService,
+    ChatMemoryService,
   ],
   exports: [
     SemanticCheckpointService,
     SemanticCacheService,
     AntigravityIpcBridgeService,
     DocxExamGeneratorService,
+    ChatMemoryService,
   ],
 })
 export class AgentModule {}

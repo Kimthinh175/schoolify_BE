@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AgentChatDto } from '../dto/agent.dto';
+import { RobotEmotion, isRobotEmotion, inferEmotion } from '../constants/robot-emotion';
 
 export interface SemanticLogicResult {
   isCorrect: boolean;
@@ -14,6 +15,8 @@ export interface AgentResponseResult {
     type: string;
     payload: Record<string, any>;
   }>;
+  emotion?: RobotEmotion;
+  suggestions?: string[];
 }
 
 @Injectable()
@@ -293,22 +296,35 @@ export class AntigravityIpcBridgeService {
 
     const actions: Array<{ type: string; payload: Record<string, any> }> = [];
     let message = '';
+    let emotion: RobotEmotion = 'happy';
+    let suggestions: string[] = [];
 
     // Ưu tiên gửi thẳng yêu cầu chat vào phiên Antigravity đang thức qua Live IPC Bridge
     const jobId = `job-chat-${Date.now()}`;
     const liveChatRes = await this.requestLiveAntigravity<
-      AgentResponseResult & { reply?: string }
+      AgentResponseResult & { reply?: string; emotion?: string; suggestions?: string[] }
     >(
       jobId,
       'AGENT_CHAT',
-      { dto, detectedSubject, detectedGrade },
+      {
+        dto,
+        detectedSubject,
+        detectedGrade,
+        instruction:
+          'Trả về JSON: { "message": string, "actions": [...], "emotion": string, "suggestions": string[] } trong đó "emotion" BẮT BUỘC là 1 trong: default, happy, excited, wink, thinking, idea, love, celebrate, sad, angry, sleeping, surprised, stunned.',
+      },
       60000,
     );
     const liveMsg = liveChatRes?.message || liveChatRes?.reply;
     if (liveMsg) {
+      const parsedEmotion = isRobotEmotion(liveChatRes?.emotion)
+        ? liveChatRes.emotion
+        : undefined;
       return {
         message: liveMsg,
         actions: Array.isArray(liveChatRes?.actions) ? liveChatRes.actions : [],
+        emotion: parsedEmotion,
+        suggestions: Array.isArray(liveChatRes?.suggestions) ? liveChatRes.suggestions : [],
       };
     }
 
@@ -343,6 +359,7 @@ export class AntigravityIpcBridgeService {
           label: 'Xem Các Gói Học & Bảng Giá',
         },
       });
+      emotion = 'excited';
     }
     // Kịch bản 2: Học sinh muốn tạo đề thi / luyện đề theo ma trận
     else if (
@@ -353,6 +370,7 @@ export class AntigravityIpcBridgeService {
       text.includes('ma trận') ||
       text.includes('phòng thi')
     ) {
+      emotion = 'idea';
       const isHard =
         text.includes('khó') ||
         text.includes('vận dụng cao') ||
@@ -407,6 +425,7 @@ export class AntigravityIpcBridgeService {
       text.includes('nhập đề') ||
       text.includes('scan đề')
     ) {
+      emotion = 'idea';
       message = `Tớ đã sẵn sàng mở **Công cụ AI Quét Đề Thi (.docx)** cho bạn! Bạn chỉ cần tải lên file đề thi \`.docx\`, chọn số lượng câu hỏi muốn sinh thêm (5–50 câu), AI sẽ bóc tách ma trận kiến thức trong đề gốc và tự động biên soạn câu hỏi mới kèm lời giải KaTeX để lưu thẳng vào hệ thống nhé! 📄✨`;
 
       actions.push({
@@ -435,6 +454,7 @@ export class AntigravityIpcBridgeService {
       text.includes('vip') ||
       text.includes('vietqr')
     ) {
+      emotion = 'wink';
       const targetPlan = text.includes('vip') ? 'VIP' : 'PRO';
       message = `Schoolify cung cấp 3 gói đồng hành linh hoạt:\n- **Gói Cơ Bản (0đ)**: Luyện đề tiêu chuẩn hàng ngày.\n- **Gói Chuyên Sâu PRO (199.000đ/tháng)**: Mở khóa toàn bộ Ma trận đề GDPT 2018, AI Gia Sư gợi mở Socratic & tặng +200 Token.\n- **Gói Toàn Diện VIP (499.000đ/năm)**: Đặc quyền 365 ngày + AI Quét đề Word & +1,000 Token.\n\nTớ đã chuẩn bị sẵn thao tác chuyển đến trang Bảng Giá và chọn gói **${targetPlan}** giúp bạn nhé! 💳`;
 
@@ -463,6 +483,7 @@ export class AntigravityIpcBridgeService {
       text.includes('checkpoint') ||
       text.includes('kiểm tra câu trả lời')
     ) {
+      emotion = 'thinking';
       message = `Tớ có thể chấm điểm câu hỏi Tự luận / Điền từ ngắn bằng công nghệ đối soát ngữ nghĩa AI.\n\nBạn có thể bấm nút bên dưới để xem ví dụ kiểm thử ngay nhé! 🧠✅`;
 
       actions.push({
@@ -483,6 +504,7 @@ export class AntigravityIpcBridgeService {
       text.includes('bảng vàng')
     ) {
       const isLeaderboard = text.includes('xếp hạng') || text.includes('bảng vàng');
+      emotion = isLeaderboard ? 'celebrate' : 'happy';
       const targetPath = isLeaderboard ? '/student/leaderboard' : '/student/history';
       message = isLeaderboard
         ? `Tớ sẽ đưa bạn tới **Bảng Vàng Xếp Hạng Học Sinh** để xem thứ hạng Chuỗi Ngày Học (Streak) và điểm nỗ lực Token nhé! 🏆`
@@ -508,6 +530,7 @@ export class AntigravityIpcBridgeService {
       text.includes('cực trị') ||
       text.includes('quang hợp')
     ) {
+      emotion = 'thinking';
       message = `Theo phương pháp gợi mở (**Socratic Method**), tớ sẽ không đưa ngay đáp án cuối cùng mà gợi mở tư duy từng bước cho bạn:\n\n1. **Bước 1 (Nhận diện)**: Xác định tập xác định $D$ và các dữ kiện biến thiên cốt lõi trong đề bài.\n2. **Bước 2 (Công cụ)**: Áp dụng điều kiện cần (ví dụ: $y' = 0$ với bài toán cực trị hoặc định luật bảo toàn tương ứng) để lập phương trình.\n3. **Bước 3 (Kiểm chứng)**: Lập bảng biến thiên hoặc đối chiếu điều kiện để kết luận.\n\nBạn thử tính Bước 1 và Bước 2 xem kết quả trung gian ra bao nhiêu rồi nhắn cho tớ nhé! 💡`;
 
       actions.push({
@@ -519,25 +542,18 @@ export class AntigravityIpcBridgeService {
         },
       });
     }
-    // Kịch bản 8: Mặc định đàm thoại sư phạm đa năng
+    // Kịch bản 8: Mặc định đàm thoại sư phạm đa năng (tự nhiên, không văn mẫu menu)
     else {
-      message = `Chào bạn! Tớ là **Trợ lý AI Schoolify** 🤖✨. Tớ có thể hỗ trợ bạn trực tiếp trên giao diện:\n\n1. 🎯 **Tạo đề thi ma trận tự động**: Ví dụ *"Tạo đề Toán lớp 12 mức độ khó"*.\n2. 💡 **Gợi mở Socratic từng bước**: Ví dụ *"Gợi ý bước giải bài toán cực trị hàm số"*.\n3. 🏫 **Giải đáp thắc mắc về Schoolify**: Ví dụ *"Nền tảng Schoolify là gì?"*.\n4. 📄 **AI Quét đề Word (.docx)**: Phân tích file đề và sinh câu hỏi mới cho Giáo viên/Admin.\n5. 💳 **Tư vấn & chọn gói học Pro/VIP**: Tự động điều hướng và chọn gói phù hợp.\n\nBạn hãy chọn một hành động nhanh bên dưới hoặc nhập yêu cầu của mình nhé!`;
-
-      actions.push({
-        type: 'CONFIGURE_EXAM_MATRIX',
-        payload: {
-          subject: 'Toán học',
-          grade: 12,
-          bloomRatio: { NHAN_BIET: 30, THONG_HIEU: 40, VAN_DUNG: 20, VAN_DUNG_CAO: 10 },
-          durationMinutes: 45,
-          totalQuestions: 10,
-        },
-      });
+      emotion = 'happy';
+      message = `Tớ đã nắm được ý của bạn! Bạn cần tớ hỗ trợ chi tiết về bài tập, tạo ma trận đề thi phân hóa GDPT 2018, hay hướng dẫn các tính năng trên Schoolify nè? Nhắn cho tớ bất cứ điều gì bạn đang quan tâm nhé! 😊`;
+      suggestions = ['Tạo đề thi thích ứng ngay', 'Gợi ý giải bài tập Socratic', 'Xem các gói học sinh'];
     }
 
     return {
       message,
       actions,
+      emotion: emotion || inferEmotion(message, actions),
+      suggestions,
     };
   }
 

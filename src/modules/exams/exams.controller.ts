@@ -20,6 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { ExamsService } from './exams.service';
 import {
+  AdminAdjustPointsDto,
   DailyClaimPointsDto,
   GenerateMatrixExamDto,
   SettleExamPointsDto,
@@ -34,10 +35,29 @@ export class ExamsController {
   constructor(private readonly examsService: ExamsService) {}
 
   @Post('matrix-generate')
-  @ApiOperation({ summary: 'Sinh đề thi ngẫu nhiên theo ma trận Bloom & Chương' })
+  @ApiOperation({
+    summary:
+      'Sinh đề thi ngẫu nhiên theo ma trận Bloom & Chương (Kiểm tra điểm năng lượng tại Backend - Chống 0đ tạo đề)',
+  })
   @ApiResponse({ status: 200, description: 'Tạo đề thi thành công' })
-  async generateMatrixExam(@Body() dto: GenerateMatrixExamDto) {
-    const data = await this.examsService.generateMatrixExam(dto);
+  @ApiResponse({
+    status: 400,
+    description: 'Không đủ điểm làm đề thi (INSUFFICIENT_EXAM_POINTS) hoặc dữ liệu không hợp lệ',
+  })
+  async generateMatrixExam(@Req() req: any, @Body() dto: GenerateMatrixExamDto) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId =
+      authUser?.id ||
+      req.user?.id ||
+      dto.userId ||
+      (req?.headers?.['x-user-id'] as string) ||
+      null;
+    const userRole =
+      authUser?.role ||
+      req.user?.role ||
+      (req?.headers?.['x-user-role'] as string) ||
+      undefined;
+    const data = await this.examsService.generateMatrixExam(userId, dto, userRole);
     return {
       success: true,
       message: 'Sinh đề thi ma trận thành công',
@@ -217,6 +237,34 @@ export class ExamsController {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
     const userId = authUser?.id || req.user?.id || dto.userId || null;
     const data = await this.examsService.settleExamSubmissionPoints(userId, dto);
+    return {
+      success: true,
+      message: data.message,
+      data,
+    };
+  }
+
+  @Post('points/admin-adjust')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Dành riêng cho ADMIN: Điều chỉnh trực tiếp số điểm Tia Sáng và Ngọc Tri Thức của bản thân hoặc học sinh',
+  })
+  async adminAdjustPoints(@Req() req: any, @Body() dto: AdminAdjustPointsDto) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userRole =
+      authUser?.role ||
+      req.user?.role ||
+      (req?.headers?.['x-user-role'] as string) ||
+      undefined;
+    const userId =
+      authUser?.id ||
+      req.user?.id ||
+      (req?.headers?.['x-user-id'] as string) ||
+      null;
+
+    const data = await this.examsService.adminAdjustPoints(userId, userRole, dto);
     return {
       success: true,
       message: data.message,

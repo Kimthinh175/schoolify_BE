@@ -8,6 +8,7 @@ import {
 import { randomBytes, createHmac } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import {
+  AdminAdjustPointsDto,
   DailyClaimPointsDto,
   GenerateMatrixExamDto,
   SettleExamPointsDto,
@@ -255,54 +256,242 @@ export class ExamsService {
     return generateSecureAttemptToken();
   }
 
-  /**
-   * Sinh đề thi theo ma trận Bloom & Chương
-   */
-  async generateMatrixExam(dto: GenerateMatrixExamDto) {
-    const { subject, grade, totalQuestions, durationMinutes } = dto;
+  mapBloomToCognitive(bloom: any): string {
+    switch (bloom) {
+      case 'NHAN_BIET':
+        return 'Nhận biết';
+      case 'THONG_HIEU':
+        return 'Thông hiểu';
+      case 'VAN_DUNG':
+        return 'Vận dụng';
+      case 'VAN_DUNG_CAO':
+        return 'Vận dụng cao';
+      default:
+        return 'Thông hiểu';
+    }
+  }
 
-    // 1. Tìm câu hỏi từ DB theo môn học và lớp
-    const questions = await this.prisma.question.findMany({
-      where: {
-        subject: subject,
-        grade: grade,
-      },
+  mapChapterToTopic(chapterId: number | null | undefined, subject: string | null | undefined): string {
+    const s = (subject || 'toan-hoc').toLowerCase();
+    const c = chapterId || 1;
+    if (s.includes('toan')) {
+      const mathTopics: Record<number, string> = {
+        1: 'Ứng dụng đạo hàm khảo sát đồ thị',
+        2: 'Tọa độ vectơ trong không gian',
+        3: 'Mức độ phân tán mẫu số liệu',
+        4: 'Nguyên hàm & Tích phân',
+        5: 'Phương pháp tọa độ không gian',
+        6: 'Xác suất có điều kiện',
+      };
+      return mathTopics[c] || 'Khảo sát hàm số & Đồ thị';
+    }
+    if (s.includes('tin')) {
+      const itTopics: Record<number, string> = {
+        1: 'Mạng máy tính & Internet',
+        2: 'Cơ sở dữ liệu & SQL',
+        3: 'Giải thuật & Cấu trúc dữ liệu',
+        4: 'An toàn thông tin & Đạo đức AI',
+      };
+      return itTopics[c] || 'Cơ sở dữ liệu & SQL';
+    }
+    return `Chuyên đề Chương ${c}`;
+  }
+
+  getTrapTagByContext(bloom: any, subject: string | null | undefined): string {
+    const s = (subject || '').toLowerCase();
+    if (s.includes('toan')) {
+      if (bloom === 'VAN_DUNG_CAO') return 'Bẫy cực trị chứa tham số m & điều kiện tồn tại';
+      if (bloom === 'VAN_DUNG') return 'Quên điều kiện xác định mẫu số & căn thức';
+      if (bloom === 'THONG_HIEU') return 'Nhầm dấu đạo hàm y\' tại điểm cực trị';
+      return 'Quên tập xác định D của hàm số';
+    }
+    if (s.includes('tin')) {
+      if (bloom === 'VAN_DUNG' || bloom === 'VAN_DUNG_CAO') return 'Lỗi cú pháp SQL JOIN & điều kiện WHERE';
+      return 'Nhầm lẫn khóa chính và khóa ngoại quan hệ';
+    }
+    return 'Nhầm lẫn giả thiết hoặc tính toán';
+  }
+
+  /**
+   * Sinh đề thi theo ma trận Bloom & Chương (Có kiểm tra điểm năng lượng tại Backend)
+   */
+  async generateMatrixExam(
+    userId: string | null,
+    dto: GenerateMatrixExamDto,
+    userRole?: string,
+  ) {
+    const {
+      subject,
+      grade,
+      totalQuestions,
+      durationMinutes,
+      topicTag,
+      targetDifficulty,
+      chapterId,
+      level,
+    } = dto;
+
+    // 0. BẢO MẬT & KIỂM TRA ĐIỂM NĂNG LƯỢNG TẠI BACKEND (SERVER-SIDE POINT ENFORCEMENT)
+    // - Giáo viên (TEACHER), Quản trị viên (ADMIN / SUPER_ADMIN) hoặc cờ skipPointCheck được miễn phí kiểm tra điểm
+    // - Học sinh (STUDENT, USER) hoặc Khách (GUEST) bắt buộc phải có đủ điểm làm đề (Cơ bản: 3đ, Trung bình: 4đ, Giỏi: 9đ)
+    const normRole = String(userRole || '').trim().toUpperCase();
+    const isPrivileged =
+      normRole === 'ADMIN' ||
+      normRole === 'SUPER_ADMIN' ||
+      normRole === 'TEACHER' ||
+      dto.skipPointCheck === true;
+
+    if (!isPrivileged) {
+      const effectiveUserId = userId || dto.userId || null;
+      const profile = await this.getOrInitStudentProfile(
+        effectiveUserId,
+        grade ? Number(grade) : 12,
+      );
+      const levelInfo = this.normalizeExamLevel(level || 'BASIC');
+      const currentPoints = Number(profile.exam_points ?? 0);
+
+      if (currentPoints < levelInfo.costPoints) {
+        throw new BadRequestException({
+          success: false,
+          errorCode: 'INSUFFICIENT_EXAM_POINTS',
+          message: `Không đủ điểm làm đề! Đề cấp độ ${levelInfo.label} cần ${levelInfo.costPoints} điểm, nhưng bạn hiện chỉ còn ${currentPoints} điểm. Hãy quay lại vào ngày mai để nhận điểm mới hoặc nâng cấp gói học sinh!`,
+          data: {
+            level: levelInfo.code,
+            levelLabel: levelInfo.label,
+            requiredPoints: levelInfo.costPoints,
+            currentPoints,
+            shortfallPoints: levelInfo.costPoints - currentPoints,
+            quotaByLevel: this.computeQuotaByLevel(currentPoints),
+          },
+        });
+      }
+
+      // Nếu client yêu cầu trừ điểm luôn khi sinh đề
+      if (dto.deductPoints) {
+        const pointsAfter = currentPoints - levelInfo.costPoints;
+        await this.prisma.studentProfile.update({
+          where: { id: profile.id },
+          data: { exam_points: pointsAfter },
+        });
+
+        await this.prisma.examPointLog.create({
+          data: {
+            student_id: profile.id,
+            action_type: 'START_EXAM',
+            exam_level: levelInfo.code,
+            exam_title: `Đề thi ${dto.subject || 'Toán học'} - Cấp độ ${levelInfo.label}`,
+            points_before: currentPoints,
+            points_delta: -levelInfo.costPoints,
+            points_after: pointsAfter,
+            note: `Trừ ${levelInfo.costPoints} điểm khi tạo đề thi cấp độ ${levelInfo.label}`,
+          },
+        });
+      }
+    }
+
+    const whereClause: any = {
+      subject: subject || 'toan-hoc',
+      grade: grade ? Number(grade) : 12,
+    };
+
+    if (chapterId) {
+      whereClause.chapter_id = Number(chapterId);
+    }
+
+    if (topicTag && topicTag !== 'ALL') {
+      whereClause.topic_tag = { contains: topicTag, mode: 'insensitive' };
+    }
+
+    if (targetDifficulty && targetDifficulty !== 'ALL') {
+      const diffToBloomMap: Record<string, BloomLevel> = {
+        EASY: BloomLevel.NHAN_BIET,
+        MEDIUM: BloomLevel.THONG_HIEU,
+        HARD: BloomLevel.VAN_DUNG,
+        VERY_HARD: BloomLevel.VAN_DUNG_CAO,
+      };
+      if (diffToBloomMap[targetDifficulty]) {
+        whereClause.bloom_level = diffToBloomMap[targetDifficulty];
+      }
+    }
+
+    // 1. Tìm câu hỏi từ DB theo tiêu chí lọc
+    let questions = await this.prisma.question.findMany({
+      where: whereClause,
       include: {
         answers: true,
       },
-      take: totalQuestions * 2, // Lấy dư để bốc ngẫu nhiên
+      take: Math.max(10, (totalQuestions || 10) * 3),
     });
 
-    // Nếu DB chưa có câu hỏi nào, trả về mock cấu trúc chuẩn
+    // Fallback: nếu bộ lọc quá hẹp dẫn đến không đủ số câu, mở rộng lấy thêm cùng môn và khối lớp
+    const targetCount = Math.max(1, Number(totalQuestions || 10));
+    if (questions.length < targetCount) {
+      const fallbackQuestions = await this.prisma.question.findMany({
+        where: {
+          subject: subject || 'toan-hoc',
+          grade: grade ? Number(grade) : 12,
+        },
+        include: {
+          answers: true,
+        },
+        take: targetCount * 2,
+      });
+      const existingIds = new Set(questions.map((q) => q.id));
+      for (const q of fallbackQuestions) {
+        if (!existingIds.has(q.id)) {
+          questions.push(q);
+          existingIds.add(q.id);
+        }
+      }
+    }
+
     let selectedQuestions = questions;
-    if (questions.length > totalQuestions) {
-      // Shuffle & pick
-      selectedQuestions = questions.sort(() => 0.5 - Math.random()).slice(0, totalQuestions);
+    if (questions.length > targetCount) {
+      selectedQuestions = [...questions].sort(() => 0.5 - Math.random()).slice(0, targetCount);
     }
 
     const sessionId = `SES-${Date.now()}`;
-    const examTitle = `Đề Luyện Thi Ma Trận ${subject.toUpperCase()} - Khối ${grade}`;
+    const examTitle = `Đề Luyện Thi Ma Trận ${(subject || 'TOÁN').toUpperCase()} - Khối ${grade || 12}`;
 
     return {
       sessionId,
       examTitle,
       subjectSlug: subject,
-      grade,
-      durationMinutes,
+      grade: grade ? Number(grade) : 12,
+      durationMinutes: durationMinutes || 45,
       totalQuestions: selectedQuestions.length,
-      questions: selectedQuestions.map((q, idx) => ({
-        id: q.id,
-        orderIndex: idx + 1,
-        questionFormat: q.question_format || QuestionFormat.SINGLE_CHOICE,
-        bloomLevel: q.bloom_level || BloomLevel.THONG_HIEU,
-        content: q.question,
-        points: Number(q.default_points || 0.25),
-        answers: q.answers.map((a, aIdx) => ({
-          id: a.id,
-          label: a.sub_label || String.fromCharCode(65 + aIdx), // A, B, C, D
-          content: a.content,
-        })),
-      })),
+      questions: selectedQuestions.map((q, idx) => {
+        const cognitiveTag = q.cognitive_tag || this.mapBloomToCognitive(q.bloom_level);
+        const topic = q.topic_tag || this.mapChapterToTopic(q.chapter_id, q.subject);
+        const trapTag = q.trap_tag || this.getTrapTagByContext(q.bloom_level, q.subject);
+
+        const correctAns = q.answers.find((a) => a.is_answer);
+        const correctChoice = correctAns
+          ? (correctAns.sub_label || String.fromCharCode(65 + q.answers.indexOf(correctAns)))
+          : 'A';
+
+        return {
+          id: q.id,
+          orderIndex: idx + 1,
+          questionFormat: q.question_format || QuestionFormat.SINGLE_CHOICE,
+          bloomLevel: q.bloom_level || BloomLevel.THONG_HIEU,
+          topicTag: topic,
+          cognitiveTag,
+          trapTag,
+          chapterId: q.chapter_id || 1,
+          title: q.title || `Câu ${idx + 1} (${cognitiveTag}): ${topic}`,
+          content: q.question,
+          explanation: q.explanation || '',
+          points: Number(q.default_points || 0.25),
+          correctChoice,
+          answers: q.answers.map((a, aIdx) => ({
+            id: a.id,
+            label: a.sub_label || String.fromCharCode(65 + aIdx), // A, B, C, D
+            content: a.content,
+            isAnswer: a.is_answer,
+          })),
+        };
+      }),
     };
   }
 
@@ -502,16 +691,30 @@ export class ExamsService {
         correctCount + wrongCount,
     );
 
+    const userRole = (studentProfile as any)?.role || '';
+    const isTeacherOrAdmin = userRole === 'TEACHER' || userRole === 'SUPER_ADMIN';
+
+    // Anti-Cheat: Chấm điểm thực tế từ cơ sở dữ liệu nếu có câu hỏi được tìm thấy
+    const gradedFromDb = details.length > 0;
     let score = Number(((correctCount / totalQuestions) * 10).toFixed(2));
-    if (scoreOverride !== undefined && scoreOverride !== null && !Number.isNaN(Number(scoreOverride))) {
-      score = Number(Number(scoreOverride).toFixed(2));
-    } else if (
-      snapshotData?.originalExam &&
-      typeof snapshotData.originalExam.finalScore === 'number'
-    ) {
-      score = Number(Number(snapshotData.originalExam.finalScore).toFixed(2));
-    } else if (snapshotData && typeof snapshotData.score === 'number') {
-      score = Number(Number(snapshotData.score).toFixed(2));
+
+    if (gradedFromDb) {
+      // Khi đã chấm được trực tiếp từ DB: chỉ cho phép giáo viên/admin can thiệp điểm số thủ công
+      if (isTeacherOrAdmin && scoreOverride !== undefined && scoreOverride !== null && !Number.isNaN(Number(scoreOverride))) {
+        score = Math.max(0, Math.min(10, Number(Number(scoreOverride).toFixed(2))));
+      }
+    } else {
+      // Nếu là đề local/offline chưa đồng bộ câu hỏi vào DB
+      if (scoreOverride !== undefined && scoreOverride !== null && !Number.isNaN(Number(scoreOverride))) {
+        score = Math.max(0, Math.min(10, Number(Number(scoreOverride).toFixed(2))));
+      } else if (
+        snapshotData?.originalExam &&
+        typeof snapshotData.originalExam.finalScore === 'number'
+      ) {
+        score = Math.max(0, Math.min(10, Number(Number(snapshotData.originalExam.finalScore).toFixed(2))));
+      } else if (snapshotData && typeof snapshotData.score === 'number') {
+        score = Math.max(0, Math.min(10, Number(Number(snapshotData.score).toFixed(2))));
+      }
     }
 
     const resolvedTitle =
@@ -1100,9 +1303,10 @@ export class ExamsService {
   }
 
   normalizeExamLevel(rawLevel?: string): {
-    code: 'BASIC' | 'MEDIUM' | 'ADVANCED';
+    code: 'BASIC' | 'MEDIUM' | 'ADVANCED' | 'PROVINCIAL' | 'NATIONAL';
     label: string;
     costPoints: number;
+    rewardPoints: number;
     maxDailyExams: number;
   } {
     const norm = String(rawLevel || 'BASIC')
@@ -1110,37 +1314,71 @@ export class ExamsService {
       .toUpperCase();
 
     if (
-      norm === 'ADVANCED' ||
-      norm === 'HARD' ||
-      norm === 'VERY_HARD' ||
-      norm === 'GIOI' ||
-      norm === 'GIỎI' ||
-      norm === 'EXCELLENT' ||
-      norm === 'PROVINCIAL_EXCELLENT' ||
-      norm === 'NATIONAL_EXCELLENT' ||
-      norm === 'OLYMPIAD' ||
-      norm === 'VAN_DUNG' ||
-      norm === 'VAN_DUNG_CAO'
+      norm.includes('NATIONAL') ||
+      norm.includes('QUOC_GIA') ||
+      norm.includes('QUỐC GIA') ||
+      norm.includes('OLYMPIAD') ||
+      norm.includes('HSG_QUOC_GIA')
     ) {
       return {
-        code: 'ADVANCED',
-        label: 'Giỏi',
-        costPoints: EXAM_LEVEL_COSTS.ADVANCED, // 9đ -> 1 bài
+        code: 'NATIONAL',
+        label: 'Cấp Quốc Gia / HSG',
+        costPoints: EXAM_LEVEL_COSTS.ADVANCED,
+        rewardPoints: 20, // +20 mức quốc gia khi > 8.5
         maxDailyExams: 1,
       };
     }
 
     if (
-      norm === 'MEDIUM' ||
-      norm === 'INTERMEDIATE' ||
-      norm === 'TRUNG_BINH' ||
-      norm === 'TRUNG BÌNH' ||
-      norm === 'THONG_HIEU'
+      norm.includes('PROVINCIAL') ||
+      norm.includes('TINH') ||
+      norm.includes('TỈNH') ||
+      norm.includes('DGNL') ||
+      norm.includes('ĐGNL') ||
+      norm.includes('DGTD') ||
+      norm.includes('ĐGTD') ||
+      norm.includes('HSG_TINH')
+    ) {
+      return {
+        code: 'PROVINCIAL',
+        label: 'Cấp Tỉnh / ĐGNL',
+        costPoints: EXAM_LEVEL_COSTS.ADVANCED,
+        rewardPoints: 10, // +10 mức tỉnh khi > 8.5
+        maxDailyExams: 1,
+      };
+    }
+
+    if (
+      norm.includes('ADVANCED') ||
+      norm.includes('HARD') ||
+      norm.includes('VERY_HARD') ||
+      norm.includes('GIOI') ||
+      norm.includes('GIỎI') ||
+      norm.includes('EXCELLENT') ||
+      norm.includes('VAN_DUNG') ||
+      norm.includes('VAN_DUNG_CAO')
+    ) {
+      return {
+        code: 'ADVANCED',
+        label: 'Giỏi',
+        costPoints: EXAM_LEVEL_COSTS.ADVANCED, // 9đ -> 1 bài
+        rewardPoints: 5, // +5 mức giỏi khi > 8.5
+        maxDailyExams: 1,
+      };
+    }
+
+    if (
+      norm.includes('MEDIUM') ||
+      norm.includes('INTERMEDIATE') ||
+      norm.includes('TRUNG_BINH') ||
+      norm.includes('TRUNG BÌNH') ||
+      norm.includes('THONG_HIEU')
     ) {
       return {
         code: 'MEDIUM',
         label: 'Trung bình',
         costPoints: EXAM_LEVEL_COSTS.MEDIUM, // 4đ -> 2 bài (8đ, dư 1đ)
+        rewardPoints: 3, // +3 mức trung bình khi > 8.5
         maxDailyExams: 2,
       };
     }
@@ -1149,6 +1387,7 @@ export class ExamsService {
       code: 'BASIC',
       label: 'Cơ bản',
       costPoints: EXAM_LEVEL_COSTS.BASIC, // 3đ -> 3 bài
+      rewardPoints: 2, // +2 mức cơ bản khi > 8.5
       maxDailyExams: 3,
     };
   }
@@ -1256,7 +1495,32 @@ export class ExamsService {
   }
 
   /**
-   * Lấy hoặc khởi tạo StudentProfile, đồng thời tự động kiểm tra & phát 9 điểm đầu ngày mới
+   * Xác định hạn mức Điểm Free và Điểm Xịn hàng ngày dựa trên Gói học sinh
+   * - FREE: 9đ Free / ngày, 0đ Xịn / ngày
+   * - STUDENT_50K: 18đ Free / ngày (9 free + 9 gói), +5đ Xịn / ngày (tích lũy)
+   * - STUDENT_100K: 29đ Free / ngày (9 free + 20 gói), +10đ Xịn / ngày (tích lũy), giảm 50% Điểm AI
+   */
+  getPackageQuota(profile: any): {
+    dailyFreeAllowance: number;
+    dailyXinPoints: number;
+    activePackage: string;
+    hasAi50PercentDiscount: boolean;
+  } {
+    let pkg = String(profile?.active_package || 'FREE').toUpperCase();
+    if (profile?.package_expires_at && new Date(profile.package_expires_at).getTime() < Date.now()) {
+      pkg = 'FREE';
+    }
+    if (pkg === 'STUDENT_100K') {
+      return { dailyFreeAllowance: 29, dailyXinPoints: 10, activePackage: 'STUDENT_100K', hasAi50PercentDiscount: true };
+    }
+    if (pkg === 'STUDENT_50K') {
+      return { dailyFreeAllowance: 18, dailyXinPoints: 5, activePackage: 'STUDENT_50K', hasAi50PercentDiscount: false };
+    }
+    return { dailyFreeAllowance: 9, dailyXinPoints: 0, activePackage: 'FREE', hasAi50PercentDiscount: false };
+  }
+
+  /**
+   * Lấy hoặc khởi tạo StudentProfile, đồng thời tự động kiểm tra & phát điểm đầu ngày mới theo gói
    */
   async getOrInitStudentProfile(userId: string | null, grade?: number) {
     const today = this.getTodayDateStringVN();
@@ -1283,23 +1547,25 @@ export class ExamsService {
           });
         }
         if (userExists) {
+          const pkgInfo = this.getPackageQuota(null);
           profile = await this.prisma.studentProfile.create({
             data: {
               user_id: userId,
               grade_level: grade ? `Lớp ${grade}` : 'Lớp 12',
-              points: 100,
-              exam_points: DAILY_EXAM_POINT_ALLOWANCE,
+              points: 10,
+              exam_points: pkgInfo.dailyFreeAllowance,
+              active_package: 'FREE',
               last_daily_grant_date: today,
             },
           });
           await this.prisma.examPointLog.create({
             data: {
               student_id: profile.id,
-              action_type: 'DAILY_GRANT',
+              action_type: 'DAILY_GRANT_FREE',
               points_before: 0,
-              points_delta: DAILY_EXAM_POINT_ALLOWANCE,
-              points_after: DAILY_EXAM_POINT_ALLOWANCE,
-              note: `Phát ${DAILY_EXAM_POINT_ALLOWANCE} điểm làm đề hàng ngày (${today})`,
+              points_delta: pkgInfo.dailyFreeAllowance,
+              points_after: pkgInfo.dailyFreeAllowance,
+              note: `Phát ${pkgInfo.dailyFreeAllowance} điểm làm đề Free hàng ngày (${today})`,
             },
           });
           return profile;
@@ -1315,6 +1581,7 @@ export class ExamsService {
       });
 
       if (!guestUser) {
+        const pkgInfo = this.getPackageQuota(null);
         guestUser = await this.prisma.user.create({
           data: {
             email: guestEmail,
@@ -1323,8 +1590,9 @@ export class ExamsService {
             student_profile: {
               create: {
                 grade_level: grade ? `Lớp ${grade}` : 'Lớp 12',
-                points: 100,
-                exam_points: DAILY_EXAM_POINT_ALLOWANCE,
+                points: 10,
+                exam_points: pkgInfo.dailyFreeAllowance,
+                active_package: 'FREE',
                 last_daily_grant_date: today,
               },
             },
@@ -1335,11 +1603,11 @@ export class ExamsService {
           await this.prisma.examPointLog.create({
             data: {
               student_id: guestUser.student_profile.id,
-              action_type: 'DAILY_GRANT',
+              action_type: 'DAILY_GRANT_FREE',
               points_before: 0,
-              points_delta: DAILY_EXAM_POINT_ALLOWANCE,
-              points_after: DAILY_EXAM_POINT_ALLOWANCE,
-              note: `Khởi tạo & phát ${DAILY_EXAM_POINT_ALLOWANCE} điểm làm đề hàng ngày (${today})`,
+              points_delta: pkgInfo.dailyFreeAllowance,
+              points_after: pkgInfo.dailyFreeAllowance,
+              note: `Khởi tạo & phát ${pkgInfo.dailyFreeAllowance} điểm làm đề Free hàng ngày (${today})`,
             },
           });
         }
@@ -1348,13 +1616,18 @@ export class ExamsService {
       profile = guestUser.student_profile;
     }
 
-    // Kiểm tra nếu sang ngày mới -> Reset cố định về 9 điểm
+    // Kiểm tra nếu sang ngày mới -> Reset điểm Free theo gói và cấp Điểm Xịn nếu có gói
     if (profile && profile.last_daily_grant_date !== today) {
-      const pointsBefore = Number(profile.exam_points ?? 0);
+      const pkgInfo = this.getPackageQuota(profile);
+      const freeBefore = Number(profile.exam_points ?? 0);
+      const xinBefore = Number(profile.points ?? 0);
+      const newXinPoints = Number((xinBefore + pkgInfo.dailyXinPoints).toFixed(2));
+
       profile = await this.prisma.studentProfile.update({
         where: { id: profile.id },
         data: {
-          exam_points: DAILY_EXAM_POINT_ALLOWANCE,
+          exam_points: pkgInfo.dailyFreeAllowance,
+          points: newXinPoints,
           last_daily_grant_date: today,
         },
       });
@@ -1362,13 +1635,26 @@ export class ExamsService {
       await this.prisma.examPointLog.create({
         data: {
           student_id: profile.id,
-          action_type: 'DAILY_GRANT',
-          points_before: pointsBefore,
-          points_delta: DAILY_EXAM_POINT_ALLOWANCE - pointsBefore,
-          points_after: DAILY_EXAM_POINT_ALLOWANCE,
-          note: `Phát ${DAILY_EXAM_POINT_ALLOWANCE} điểm năng lượng làm đề đầu ngày mới (${today})`,
+          action_type: 'DAILY_GRANT_FREE',
+          points_before: freeBefore,
+          points_delta: pkgInfo.dailyFreeAllowance - freeBefore,
+          points_after: pkgInfo.dailyFreeAllowance,
+          note: `Reset & phát ${pkgInfo.dailyFreeAllowance} điểm làm đề Free hàng ngày (${today}) cho gói ${pkgInfo.activePackage}`,
         },
       });
+
+      if (pkgInfo.dailyXinPoints > 0) {
+        await this.prisma.examPointLog.create({
+          data: {
+            student_id: profile.id,
+            action_type: 'DAILY_GRANT_XIN',
+            points_before: xinBefore,
+            points_delta: pkgInfo.dailyXinPoints,
+            points_after: newXinPoints,
+            note: `Cấp +${pkgInfo.dailyXinPoints} Điểm Xịn (💎) tích lũy mỗi ngày từ gói ${pkgInfo.activePackage} (${today})`,
+          },
+        });
+      }
     }
 
     return profile;
@@ -1380,7 +1666,8 @@ export class ExamsService {
   async getExamPointBalance(userId: string | null) {
     const today = this.getTodayDateStringVN();
     const profile = await this.getOrInitStudentProfile(userId);
-    const currentPoints = Number(profile.exam_points ?? DAILY_EXAM_POINT_ALLOWANCE);
+    const pkgInfo = this.getPackageQuota(profile);
+    const currentPoints = Number(profile.exam_points ?? pkgInfo.dailyFreeAllowance);
 
     const startOfToday = new Date(`${today}T00:00:00+07:00`);
     const todayLogs = await this.prisma.examPointLog.findMany({
@@ -1409,7 +1696,10 @@ export class ExamsService {
       studentProfileId: profile.id,
       currentPoints,
       diamonds: Number(profile.points ?? 0),
-      dailyAllowance: DAILY_EXAM_POINT_ALLOWANCE,
+      activePackage: pkgInfo.activePackage,
+      dailyAllowance: pkgInfo.dailyFreeAllowance,
+      dailyXinAllowance: pkgInfo.dailyXinPoints,
+      hasAi50PercentDiscount: pkgInfo.hasAi50PercentDiscount,
       lastDailyGrantDate: profile.last_daily_grant_date || today,
       alreadyClaimedToday,
       quotaByLevel: this.computeQuotaByLevel(currentPoints),
@@ -1437,7 +1727,7 @@ export class ExamsService {
   }
 
   /**
-   * API 2: Điểm danh nhận 9 điểm hàng ngày (Mỗi ngày tuyệt đối chỉ được nhận 1 lần duy nhất)
+   * API 2: Điểm danh nhận điểm hàng ngày (Mỗi ngày tuyệt đối chỉ được nhận 1 lần duy nhất)
    */
   async claimDailyExamPoints(userId: string | null, dto: DailyClaimPointsDto) {
     const today = this.getTodayDateStringVN();
@@ -1471,8 +1761,7 @@ export class ExamsService {
     const updated = await this.prisma.studentProfile.update({
       where: { id: profile.id },
       data: {
-        exam_points: { increment: 9 },
-        points: { increment: 9 },
+        points: { increment: 1 },
         last_daily_grant_date: today,
       },
     });
@@ -1482,9 +1771,9 @@ export class ExamsService {
         student_id: profile.id,
         action_type: 'DAILY_CHECKIN',
         points_before: Number(profile.points ?? 0),
-        points_delta: 9,
+        points_delta: 1,
         points_after: Number(updated.points ?? 0),
-        note: `Điểm danh chuyên cần (${today}): Nhận +9 Kim Cương (💎)`,
+        note: `Điểm danh chuyên cần (${today}): Nhận +1 Kim Cương (💎)`,
       },
     });
 
@@ -1493,12 +1782,12 @@ export class ExamsService {
       alreadyClaimedToday: true,
       grantDate: today,
       dailyAllowance: 9,
-      pointsDelta: 9,
+      pointsDelta: 1,
       previousPoints: before,
       currentPoints: updated.exam_points,
       diamonds: Number(updated.points ?? 0),
       quotaByLevel: this.computeQuotaByLevel(updated.exam_points),
-      message: `Điểm danh thành công ngày ${today}! Bạn đã nhận +9 Kim Cương (💎) hôm nay.`,
+      message: `Điểm danh thành công ngày ${today}! Bạn đã nhận +1 Kim Cương (💎) hôm nay.`,
     };
   }
 
@@ -1518,7 +1807,7 @@ export class ExamsService {
       throw new BadRequestException({
         success: false,
         errorCode: 'INSUFFICIENT_EXAM_POINTS',
-        message: `Không đủ điểm làm đề! Đề cấp độ ${levelInfo.label} cần ${levelInfo.costPoints} điểm, nhưng bạn hiện chỉ còn ${currentPoints} điểm. Hãy làm bài đạt 8.5+ (+1đ) hoặc 10đ (+2đ), hoặc quay lại vào ngày mai để nhận 9 điểm mới!`,
+        message: `Không đủ điểm làm đề! Đề cấp độ ${levelInfo.label} cần ${levelInfo.costPoints} điểm, nhưng bạn hiện chỉ còn ${currentPoints} điểm. Hãy quay lại vào ngày mai để nhận điểm mới hoặc nâng cấp gói học sinh!`,
         data: {
           level: levelInfo.code,
           levelLabel: levelInfo.label,
@@ -1571,11 +1860,14 @@ export class ExamsService {
   }
 
   /**
-   * API 4: Tính thưởng / phạt điểm sau khi hoàn thành bài thi dựa trên điểm số (thang 10):
-   * - Dưới 5đ (< 5.0): -1đ
-   * - Từ 5đ đến dưới 8.5đ (5.0 <= score < 8.5): 0đ (không thay đổi)
-   * - Từ 8.5đ đến 9.9đ (8.5 <= score < 10.0): +1đ
-   * - Đạt 10đ (score >= 10.0): +2đ
+   * API 4: Tính thưởng / phạt điểm sau khi hoàn thành bài thi:
+   * - Điểm Free: < 5.0đ: -1đ (min 0) | >= 5.0đ: 0đ (không đổi, không tích lũy)
+   * - Điểm Xịn (💎): Cày Free khi điểm >= 8.5đ theo 5 cấp độ bài thi:
+   *   + Cơ bản: +2 💎
+   *   + Trung bình: +3 💎
+   *   + Giỏi: +5 💎
+   *   + Cấp Tỉnh / ĐGNL: +10 💎
+   *   + Cấp Quốc Gia / HSG: +20 💎
    */
   async settleExamSubmissionPoints(userId: string | null, dto: SettleExamPointsDto) {
     const effectiveUserId = userId || dto.userId || null;
@@ -1584,14 +1876,14 @@ export class ExamsService {
     const score = Number(rawScore.toFixed(2));
     const levelInfo = this.normalizeExamLevel(dto.level);
 
-    let workingPoints = Number(profile.exam_points ?? 0);
-    const initialPoints = workingPoints;
+    let workingFreePoints = Number(profile.exam_points ?? 0);
+    const initialFreePoints = workingFreePoints;
     let entryCostDeducted = 0;
 
     // Nếu client yêu cầu trừ cả phí mở đề trong cùng lúc nộp bài
     if (dto.deductEntryCost) {
       entryCostDeducted = levelInfo.costPoints;
-      const afterEntry = Math.max(0, workingPoints - entryCostDeducted);
+      const afterEntry = Math.max(0, workingFreePoints - entryCostDeducted);
       await this.prisma.examPointLog.create({
         data: {
           student_id: profile.id,
@@ -1599,74 +1891,97 @@ export class ExamsService {
           exam_level: levelInfo.code,
           exam_title: dto.examTitle || `Đề thi cấp độ ${levelInfo.label}`,
           submission_id: dto.submissionId || null,
-          points_before: workingPoints,
-          points_delta: -(workingPoints - afterEntry),
+          points_before: workingFreePoints,
+          points_delta: -(workingFreePoints - afterEntry),
           points_after: afterEntry,
           note: `Trừ ${entryCostDeducted} điểm phí làm đề cấp độ ${levelInfo.label}`,
         },
       });
-      workingPoints = afterEntry;
+      workingFreePoints = afterEntry;
     }
 
-    let scorePointDelta = 0;
+    // Nếu điểm >= 8.5 -> Thưởng Điểm Xịn (💎) tích lũy vĩnh viễn theo chuẩn 5 cấp độ!
+    let rewardXinPoints = 0;
+    if (score >= 8.5) {
+      rewardXinPoints = levelInfo.rewardPoints; // +2 Cơ bản, +3 Trung bình, +5 Giỏi, +10 Tỉnh, +20 Quốc gia
+    }
+
+    let scoreFreeDelta = 0;
     let actionType = 'SCORE_NEUTRAL_5_TO_8_5';
-    let tierLabel = 'Từ 5.0 - 8.5 điểm (Không thay đổi: 0đ)';
-    let explanation = `Bạn đạt ${score}/10 điểm (nằm trong khoảng 5.0 - 8.5đ) nên số điểm làm đề giữ nguyên không đổi (0đ).`;
+    let tierLabel = 'Từ 5.0 - 8.5 điểm (Không thay đổi)';
+    let explanation = `Bạn đạt ${score}/10 điểm. Điểm làm đề Free giữ nguyên.`;
 
     if (score < 5.0) {
-      scorePointDelta = -1;
+      scoreFreeDelta = -1;
       actionType = 'SCORE_PENALTY_UNDER_5';
-      tierLabel = 'Dưới 5.0 điểm (-1đ)';
-      explanation = `Bài thi đạt ${score}/10 điểm (dưới 5.0đ) nên bị trừ 1 điểm năng lượng (-1đ). Hãy ôn kỹ lại lời giải để gỡ điểm ở bài sau nhé!`;
-    } else if (score >= 10.0) {
-      scorePointDelta = 2;
-      actionType = 'SCORE_REWARD_10';
-      tierLabel = 'Điểm 10 tuyệt đối (+2đ)';
-      explanation = `Xuất sắc! Bạn đạt điểm tuyệt đối ${score}/10 và được thưởng nóng +2 điểm làm đề (+2đ)!`;
+      tierLabel = 'Dưới 5.0 điểm (-1đ Free)';
+      explanation = `Bài thi đạt ${score}/10 điểm (dưới 5.0đ) nên bị trừ 1 điểm Free (-1đ). Hãy ôn kỹ lại lời giải để gỡ điểm ở bài sau nhé!`;
     } else if (score >= 8.5) {
-      scorePointDelta = 1;
-      actionType = 'SCORE_REWARD_8_5_TO_9_9';
-      tierLabel = 'Từ 8.5 - 9.9 điểm (+1đ)';
-      explanation = `Tuyệt vời! Bạn đạt ${score}/10 điểm (mốc 8.5 - 9.9đ) và được thưởng thêm +1 điểm làm đề (+1đ)!`;
+      actionType = score >= 10.0 ? 'SCORE_REWARD_10_XIN' : 'SCORE_REWARD_8_5_XIN';
+      tierLabel = `Đạt ${score}/10đ (+${rewardXinPoints} 💎 Điểm Xịn)`;
+      explanation = `Xuất sắc! Bạn đạt ${score}/10 điểm cấp độ ${levelInfo.label} và được thưởng nóng +${rewardXinPoints} Điểm Xịn (💎 tích lũy vĩnh viễn)!`;
     }
 
-    const finalPoints = Math.max(0, workingPoints + scorePointDelta);
+    const finalFreePoints = Math.max(0, workingFreePoints + scoreFreeDelta);
+    const xinBefore = Number(profile.points ?? 0);
+    const finalXinPoints = Number((xinBefore + rewardXinPoints).toFixed(2));
 
     const updatedProfile = await this.prisma.studentProfile.update({
       where: { id: profile.id },
       data: {
-        exam_points: finalPoints,
+        exam_points: finalFreePoints,
+        points: finalXinPoints,
       },
     });
 
-    const log = await this.prisma.examPointLog.create({
-      data: {
-        student_id: profile.id,
-        action_type: actionType,
-        exam_level: levelInfo.code,
-        exam_title: dto.examTitle || `Kết quả bài thi (${score}/10)`,
-        submission_id: dto.submissionId || null,
-        exam_score: score,
-        points_before: workingPoints,
-        points_delta: scorePointDelta,
-        points_after: finalPoints,
-        note: explanation,
-      },
-    });
+    if (rewardXinPoints > 0) {
+      await this.prisma.examPointLog.create({
+        data: {
+          student_id: profile.id,
+          action_type: actionType,
+          exam_level: levelInfo.code,
+          exam_title: dto.examTitle || `Thưởng Điểm Xịn bài thi (${score}/10)`,
+          submission_id: dto.submissionId || null,
+          exam_score: score,
+          points_before: xinBefore,
+          points_delta: rewardXinPoints,
+          points_after: finalXinPoints,
+          note: explanation,
+        },
+      });
+    } else if (scoreFreeDelta !== 0) {
+      await this.prisma.examPointLog.create({
+        data: {
+          student_id: profile.id,
+          action_type: actionType,
+          exam_level: levelInfo.code,
+          exam_title: dto.examTitle || `Kết quả bài thi (${score}/10)`,
+          submission_id: dto.submissionId || null,
+          exam_score: score,
+          points_before: workingFreePoints,
+          points_delta: scoreFreeDelta,
+          points_after: finalFreePoints,
+          note: explanation,
+        },
+      });
+    }
 
     return {
-      logId: log.id,
+      logId: dto.submissionId || null,
       submissionId: dto.submissionId || null,
       examLevel: levelInfo.code,
       examLevelLabel: levelInfo.label,
       score,
       tierCode: actionType,
       tierLabel,
-      pointsBefore: initialPoints,
+      pointsBefore: initialFreePoints,
       entryCostDeducted,
-      scorePointDelta,
-      netPointDelta: finalPoints - initialPoints,
+      scorePointDelta: scoreFreeDelta,
+      rewardXinPoints,
+      netPointDelta: finalFreePoints - initialFreePoints,
       currentPoints: updatedProfile.exam_points,
+      diamonds: updatedProfile.points,
+      currentXinPoints: updatedProfile.points,
       quotaByLevel: this.computeQuotaByLevel(updatedProfile.exam_points),
       message: explanation,
     };
@@ -1725,6 +2040,71 @@ export class ExamsService {
         limit: safeLimit,
         totalPages: Math.ceil(total / safeLimit),
       },
+    };
+  }
+
+  /**
+   * API 6: Quản trị viên tự điều chỉnh số điểm của bản thân hoặc học sinh
+   * - Hỗ trợ cả điểm Tia Sáng (exam_points) và Điểm Xịn / Ngọc Tri Thức (points)
+   */
+  async adminAdjustPoints(
+    currentUserId: string | null,
+    currentUserRole: string | undefined,
+    dto: AdminAdjustPointsDto,
+  ) {
+    const normRole = String(currentUserRole || '').trim().toUpperCase();
+    const isAdmin =
+      normRole === 'ADMIN' ||
+      normRole === 'SUPER_ADMIN' ||
+      normRole === 'PRINCIPAL';
+
+    if (!isAdmin) {
+      throw new ForbiddenException(
+        'Từ chối truy cập! Chỉ người dùng có vai trò Quản Trị Viên (ADMIN / SUPER_ADMIN) mới có quyền điều chỉnh điểm trực tiếp.',
+      );
+    }
+
+    const targetUserId = dto.userId || currentUserId || null;
+    const profile = await this.getOrInitStudentProfile(targetUserId);
+
+    const updateData: any = {};
+    if (dto.examPoints !== undefined && dto.examPoints !== null) {
+      updateData.exam_points = Math.max(0, Number(dto.examPoints));
+    }
+    if (dto.diamonds !== undefined && dto.diamonds !== null) {
+      updateData.points = Math.max(0, Number(dto.diamonds));
+    }
+
+    const updatedProfile = await this.prisma.studentProfile.update({
+      where: { id: profile.id },
+      data: updateData,
+    });
+
+    const deltaPoints =
+      dto.examPoints !== undefined && dto.examPoints !== null
+        ? Number(updatedProfile.exam_points) - Number(profile.exam_points ?? 0)
+        : 0;
+
+    await this.prisma.examPointLog.create({
+      data: {
+        student_id: profile.id,
+        action_type: 'ADMIN_MANUAL_ADJUST',
+        points_before: Number(profile.exam_points ?? 0),
+        points_delta: deltaPoints,
+        points_after: Number(updatedProfile.exam_points),
+        note:
+          dto.note ||
+          `Quản trị viên ${currentUserId || ''} điều chỉnh số điểm ngoài client`,
+      },
+    });
+
+    return {
+      studentProfileId: updatedProfile.id,
+      userId: targetUserId,
+      currentPoints: Number(updatedProfile.exam_points),
+      diamonds: Number(updatedProfile.points ?? 0),
+      quotaByLevel: this.computeQuotaByLevel(Number(updatedProfile.exam_points)),
+      message: `Đã cập nhật: ${updatedProfile.exam_points} Tia Sáng ✨ | ${updatedProfile.points} Ngọc Tri Thức 💎`,
     };
   }
 }

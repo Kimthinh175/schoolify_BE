@@ -7,9 +7,8 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { GoogleLoginDto, SendOtpDto, VerifyOtpDto } from './dto/google-login.dto';
 
-const GOOGLE_CLIENT_ID =
-  process.env.GOOGLE_CLIENT_ID ||
-  '511595808378-ibkrl21ad899r4dmd2v7pit5ejhalgg6.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 
 interface OtpRecord {
   otp: string;
@@ -19,7 +18,7 @@ interface OtpRecord {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
+  private readonly googleClient = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
   private readonly otpStore = new Map<string, OtpRecord>();
 
   constructor(
@@ -250,7 +249,11 @@ export class AuthService {
 
   sanitizeUser(user: any) {
     const { password_hash, ...sanitized } = user;
-    return sanitized;
+    return {
+      ...sanitized,
+      avatarUrl: user.avatar_url,
+      avatar: user.avatar_url,
+    };
   }
 }
 

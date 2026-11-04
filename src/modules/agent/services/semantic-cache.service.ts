@@ -140,19 +140,21 @@ export class SemanticCacheService implements OnModuleInit {
   }
 
   /**
-   * Tra cứu câu trả lời trong Semantic Cache theo độ tương đồng ngữ nghĩa
-   * Ngưỡng mặc định: threshold = 0.92
+   * Tra cứu câu trả lời trong Semantic Cache theo độ tương đồng ngữ nghĩa (Chuẩn cho-cong-nghe)
+   * Ngưỡng mặc định: threshold = 0.96 (rất chặt chẽ, chính xác)
    */
   async findInCache(
     queryText: string,
     subject?: string,
     grade?: number,
-    threshold = 0.92,
+    threshold = 0.96,
   ): Promise<{
     hit: boolean;
     similarity?: number;
     responseText?: string;
     clientActions?: any;
+    emotion?: string;
+    suggestions?: string[];
     cachedQuery?: string;
   }> {
     try {
@@ -202,6 +204,8 @@ export class SemanticCacheService implements OnModuleInit {
           similarity: Number(maxSim.toFixed(4)),
           responseText: bestMatch.response_text,
           clientActions: bestMatch.client_actions,
+          emotion: bestMatch.emotion || undefined,
+          suggestions: (bestMatch.suggestions as string[]) || undefined,
           cachedQuery: bestMatch.query_text,
         };
       }
@@ -214,7 +218,7 @@ export class SemanticCacheService implements OnModuleInit {
   }
 
   /**
-   * Lưu một cặp query-response mới vào Semantic Cache
+   * Lưu một cặp query-response mới vào Semantic Cache (kèm emotion, suggestions và TTL 7 ngày)
    */
   async saveToCache(
     queryText: string,
@@ -222,6 +226,9 @@ export class SemanticCacheService implements OnModuleInit {
     clientActions?: any,
     subject?: string,
     grade?: number,
+    emotion?: string,
+    suggestions?: string[],
+    ttlDays = 7,
   ): Promise<void> {
     try {
       const queryVector = await this.getEmbedding(queryText);
@@ -230,13 +237,16 @@ export class SemanticCacheService implements OnModuleInit {
           query_text: queryText,
           query_vector: queryVector,
           response_text: responseText,
-          client_actions: clientActions || null,
+          client_actions: clientActions || undefined,
+          emotion: emotion || null,
+          suggestions: suggestions && suggestions.length > 0 ? (suggestions as any) : undefined,
           subject: subject || null,
           grade: grade || null,
           hit_count: 1,
+          ttl_days: ttlDays,
         },
       });
-      this.logger.log(`💾 Đã lưu vào Semantic Cache: "${queryText.slice(0, 50)}..."`);
+      this.logger.log(`💾 Đã lưu vào Semantic Cache: "${queryText.slice(0, 50)}..." (emotion: ${emotion || 'none'})`);
     } catch (err: any) {
       this.logger.warn('Không thể lưu vào Semantic Cache:', err);
     }

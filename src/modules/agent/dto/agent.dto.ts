@@ -74,6 +74,21 @@ export class AgentChatDto {
   })
   @IsOptional()
   context?: Record<string, any>;
+
+  @ApiPropertyOptional({
+    description: 'Lịch sử hội thoại nhiều lượt (Multi-turn Context)',
+  })
+  @IsOptional()
+  @IsArray()
+  history?: any[];
+
+  @ApiPropertyOptional({
+    description: 'ID người dùng học sinh (để kiểm tra và trừ Điểm Xịn)',
+    example: 'usr-student-01',
+  })
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
 
 export class DocxScanGenerateDto {
@@ -168,3 +183,66 @@ export class SaveGeneratedQuestionsDto {
   @IsNumber()
   grade?: number;
 }
+
+export class AgentChatResponseDataDto {
+  @ApiProperty({ description: 'Nguồn sinh câu trả lời', example: 'ANTIGRAVITY_AGENT' })
+  source: string;
+
+  @ApiProperty({
+    description: 'Nội dung phản hồi từ AI',
+    example: 'Chào bạn! Tớ là Trợ lý AI Schoolify...',
+  })
+  message: string;
+
+  @ApiProperty({ description: 'Danh sách thao tác điều hướng hoặc tương tác giao diện', example: [] })
+  actions: any[];
+
+  @ApiPropertyOptional({
+    description: 'Biểu cảm robot kèm câu trả lời (1 trong 13 trạng thái)',
+    enum: [
+      'default',
+      'happy',
+      'excited',
+      'wink',
+      'thinking',
+      'idea',
+      'love',
+      'celebrate',
+      'sad',
+      'angry',
+      'sleeping',
+      'surprised',
+      'stunned',
+    ],
+    example: 'thinking',
+  })
+  emotion?: string;
+
+  @ApiPropertyOptional({
+    description: 'Thời gian duy trì biểu cảm (ms, 1000 - 15000)',
+    example: 4000,
+    default: 4000,
+  })
+  emotionDurationMs?: number;
+
+  @ApiPropertyOptional({ description: 'Chi tiết điểm và token tiêu thụ' })
+  pointUsage?: any;
+
+  @ApiPropertyOptional({
+    description: 'Danh sách 2-3 gợi ý hành động ngữ cảnh tiếp theo (Dynamic Suggestions)',
+    example: ['Tạo đề Toán 12 mức độ khó', 'Gợi ý giải bài tập Socratic'],
+  })
+  suggestions?: string[];
+}
+
+export class AgentChatResponseDto {
+  @ApiProperty({ example: true })
+  success: boolean;
+
+  @ApiPropertyOptional()
+  pointUsage?: any;
+
+  @ApiProperty({ type: () => AgentChatResponseDataDto })
+  data: AgentChatResponseDataDto;
+}
+

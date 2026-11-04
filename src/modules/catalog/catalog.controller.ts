@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CatalogService } from './catalog.service';
 
@@ -71,6 +71,39 @@ export class CatalogController {
       data,
     };
   }
+
+  @Post('payos/create-payment-link')
+  @ApiOperation({ summary: 'Khởi tạo link thanh toán VietQR động qua cổng PayOS' })
+  async createPayosPaymentLink(@Body() body: any) {
+    const data = await this.catalogService.createPayosOrder(body);
+    return {
+      success: true,
+      message: 'Khởi tạo link thanh toán PayOS thành công',
+      data,
+    };
+  }
+
+  @Get('payos/order-status/:orderCode')
+  @ApiOperation({ summary: 'Kiểm tra trạng thái thanh toán PayOS real-time theo orderCode' })
+  async getPayosOrderStatus(@Param('orderCode') orderCode: string) {
+    const data = await this.catalogService.getPayosOrderStatus(Number(orderCode));
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Post('payos/webhook')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Webhook nhận thông báo thanh toán tự động từ PayOS' })
+  async handlePayosWebhook(@Body() body: any) {
+    const data = await this.catalogService.handlePayosWebhook(body);
+    return {
+      success: true,
+      data,
+    };
+  }
+
 
   @Get('orders')
   @ApiOperation({ summary: 'Danh sách lịch sử đơn hàng & giao dịch' })

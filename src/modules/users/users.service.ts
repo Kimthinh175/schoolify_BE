@@ -164,22 +164,21 @@ export class UsersService {
         profile_type: data.profile_type || 'STUDENT',
       });
     } else {
-      const shouldUpdateAvatar = Boolean(
-        data.avatarUrl &&
-          (!user.avatar_url ||
-            user.avatar_url.includes('googleusercontent.com') ||
-            user.avatar_url === data.avatarUrl),
-      );
-      const needUpdate =
-        !user.google_id ||
-        (data.avatarUrl && user.avatar_url !== data.avatarUrl && shouldUpdateAvatar);
+      // Quy tắc nghiệp vụ: Chỉ lấy avatar của Google khi login lần đầu nếu người dùng chưa có avatar.
+      // Nếu người dùng đã có avatar (từ lần login đầu hoặc đã tự đổi avatar sau đó trong profile),
+      // TUYỆT ĐỐI KHÔNG ghi đè bằng avatar Google nữa.
+      const isFirstTimeGoogle = !user.google_id;
+      const hasNoAvatar = !user.avatar_url || user.avatar_url.trim() === '';
+      const shouldTakeGoogleAvatar = isFirstTimeGoogle && hasNoAvatar && Boolean(data.avatarUrl);
+
+      const needUpdate = isFirstTimeGoogle || shouldTakeGoogleAvatar;
 
       if (needUpdate) {
         user = await this.prisma.user.update({
           where: { id: user.id },
           data: {
             google_id: user.google_id || data.googleId,
-            avatar_url: shouldUpdateAvatar ? data.avatarUrl : user.avatar_url,
+            ...(shouldTakeGoogleAvatar ? { avatar_url: data.avatarUrl } : {}),
             last_login_at: new Date(),
           },
           include: {
@@ -263,6 +262,8 @@ export class UsersService {
     return {
       ...u,
       name: u.fullname,
+      avatarUrl: u.avatar_url,
+      avatar: u.avatar_url,
       appRole,
       schoolName,
       points: u.student_profile?.points ?? 0,
