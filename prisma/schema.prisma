@@ -137,6 +137,19 @@ enum SubmissionStatus {
   RETURNED
 }
 
+enum QuestionIssueType {
+  WRONG_ANSWER
+  KATEX_ERROR
+  TYPO_CONTENT
+  MATRIX_MISMATCH
+  OTHER
+}
+
+enum QuestionBugReportStatus {
+  PENDING
+  RESOLVED
+}
+
 // ----------------------------------------------------
 // CORE & USER MODELS
 // ----------------------------------------------------
@@ -164,9 +177,11 @@ model User {
   orders_purchased        Order[]                @relation("OrderBuyer")
   orders_sold             Order[]                @relation("OrderSeller")
   schools_owned           School[]               @relation("SchoolOwner")
-  created_packages        SubscriptionPackage[]
-  question_banks          QuestionBank[]
-  store_items             StoreItem[]
+  created_packages           SubscriptionPackage[]
+  question_banks             QuestionBank[]
+  store_items                StoreItem[]
+  question_reports_submitted QuestionBugReport[]   @relation("QuestionReportReporter")
+  question_reports_resolved  QuestionBugReport[]   @relation("QuestionReportResolver")
 
   @@index([google_id])
   @@map("users")
@@ -876,5 +891,32 @@ model ExamPointLog {
 
   @@index([student_id, created_at])
   @@map("exam_point_logs")
+}
+
+model QuestionBugReport {
+  id               String                  @id @default(uuid())
+  question_id      String                  @db.VarChar(255)
+  question_title   String                  @db.VarChar(500)
+  subject_name     String                  @default("Toán Học") @db.VarChar(120)
+  question_snippet String?                 @db.Text
+  issue_type       QuestionIssueType       @default(OTHER)
+  issue_type_label String?                 @db.VarChar(255)
+  description      String                  @db.Text
+  reporter_id      String?
+  reporter_name    String                  @default("Học sinh luyện thi") @db.VarChar(255)
+  status           QuestionBugReportStatus @default(PENDING)
+  admin_note       String?                 @db.Text
+  resolved_by_id   String?
+  resolved_at      DateTime?
+  created_at       DateTime                @default(now())
+  updated_at       DateTime                @updatedAt
+
+  reporter    User? @relation("QuestionReportReporter", fields: [reporter_id], references: [id], onDelete: SetNull)
+  resolved_by User? @relation("QuestionReportResolver", fields: [resolved_by_id], references: [id], onDelete: SetNull)
+
+  @@index([status, created_at])
+  @@index([question_id])
+  @@index([reporter_id])
+  @@map("question_bug_reports")
 }
 

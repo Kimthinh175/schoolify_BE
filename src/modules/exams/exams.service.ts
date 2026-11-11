@@ -9,14 +9,21 @@ import { randomBytes, createHmac } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import {
   AdminAdjustPointsDto,
+  CreateQuestionBugReportDto,
   DailyClaimPointsDto,
   GenerateMatrixExamDto,
   SettleExamPointsDto,
   StartExamWithPointsDto,
   SubmitExamDto,
   SyncOfflineSubmissionsDto,
+  UpdateQuestionBugReportStatusDto,
 } from './dto/exam.dto';
-import { BloomLevel, QuestionFormat } from '@prisma/client';
+import {
+  BloomLevel,
+  QuestionBugReportStatus,
+  QuestionFormat,
+  QuestionIssueType,
+} from '@prisma/client';
 
 export const DAILY_EXAM_POINT_ALLOWANCE = 9;
 export const EXAM_LEVEL_COSTS = {
@@ -1155,13 +1162,7 @@ export class ExamsService {
         question: questionText,
         explanation: payload.explanation || 'Lời giải chi tiết theo chuẩn GDPT 2018.',
         bloom_level: (payload.bloomLevel as any) || 'THONG_HIEU',
-        question_format: (
-          payload.questionFormat === 'TRUE_FALSE_GROUP'
-            ? 'TRUE_FALSE'
-            : payload.questionFormat === 'MULTIPLE_CHOICE'
-              ? 'MULTI_CHOICE'
-              : payload.questionFormat || 'SINGLE_CHOICE'
-        ) as any,
+        question_format: this.normalizeQuestionFormat(payload.questionFormat),
         type: 'SINGLE_CHOICE',
         answers: {
           create: (
@@ -1225,11 +1226,28 @@ export class ExamsService {
         ...(payload.explanation !== undefined ? { explanation: payload.explanation } : {}),
         ...(payload.bloomLevel !== undefined ? { bloom_level: payload.bloomLevel as any } : {}),
         ...(payload.questionFormat !== undefined
-          ? { question_format: payload.questionFormat as any }
+          ? { question_format: this.normalizeQuestionFormat(payload.questionFormat) }
           : {}),
       },
       include: { answers: true },
     });
+  }
+
+  private normalizeQuestionFormat(rawFormat?: string): QuestionFormat {
+    const normalized = String(rawFormat || 'SINGLE_CHOICE').toUpperCase();
+    if (normalized === 'TRUE_FALSE_GROUP' || normalized === 'TRUE_FALSE') {
+      return QuestionFormat.TRUE_FALSE;
+    }
+    if (normalized === 'MULTIPLE_CHOICE' || normalized === 'MULTI_CHOICE') {
+      return QuestionFormat.MULTI_CHOICE;
+    }
+    if (normalized === 'SHORT_ANSWER') {
+      return QuestionFormat.SHORT_ANSWER;
+    }
+    if (normalized === 'ESSAY') {
+      return QuestionFormat.ESSAY;
+    }
+    return QuestionFormat.SINGLE_CHOICE;
   }
 
   /**
@@ -2106,6 +2124,212 @@ export class ExamsService {
       quotaByLevel: this.computeQuotaByLevel(Number(updatedProfile.exam_points)),
       message: `Đã cập nhật: ${updatedProfile.exam_points} Tia Sáng ✨ | ${updatedProfile.points} Ngọc Tri Thức 💎`,
     };
+  }
+
+  // ============================================================================
+  // QUESTION BUG REPORTS (Báo cáo sai sót câu hỏi từ phòng thi)
+  // ============================================================================
+
+  private readonly issueTypeLabelMap: Record<QuestionIssueType, string> = {
+    WRONG_ANSWER: 'Sai đáp án chuẩn',
+    KATEX_ERROR: 'Lỗi công thức KaTeX / Hiển thị',
+    TYPO_CONTENT: 'Lỗi chính tả / Đề bài thiếu dữ kiện',
+    MATRIX_MISMATCH: 'Độ khó không khớp ma trận Bloom',
+    OTHER: 'Vấn đề khảo thí khác',
+  };
+
+  private formatQuestionBugReport(row: any) {
+    const issueType = (row.issue_type || 'OTHER') as QuestionIssueType;
+    return {
+      id: row.id,
+      questionId: row.question_id,
+      questionTitle: row.question_title,
+      subjectName: row.subject_name || 'Toán Học',
+      questionSnippet: row.question_snippet || undefined,
+      issueType,
+      issueTypeLabel:
+        row.issue_type_label || this.issueTypeLabelMap[issueType] || 'Vấn đề khảo thí khác',
+      description: row.description,
+      reportedAt:
+        row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+      studentName: row.reporter?.fullname || row.reporter_name || 'Học sinh luyện thi',
+      reporterId: row.reporter_id || null,
+      status: row.status as 'PENDING' | 'RESOLVED',
+      adminNote: row.admin_note || null,
+      resolvedAt:
+        row.resolved_at instanceof Date ? row.resolved_at.toISOString() : row.resolved_at || null,
+      resolvedByName: row.resolved_by?.fullname || null,
+    };
+  }
+
+  private assertCanModerateBugReports(authUser: AuthenticatedExamUser | null) {
+    if (!authUser) return;
+    const allowedRoles = [
+      'SUPER_ADMIN',
+      'ADMIN',
+      'TEACHER',
+      'PRINCIPAL',
+      'VICE_PRINCIPAL',
+      'HEAD_OF_DEPARTMENT',
+      'STAFF',
+    ];
+    const hasPermission =
+      allowedRoles.includes(authUser.role) ||
+      authUser.isTeacher ||
+      authUser.schoolRoles.some((r) => allowedRoles.includes(r.toUpperCase()));
+
+    if (!hasPermission) {
+      throw new ForbiddenException(
+        'Chỉ Quản trị viên hoặc Giáo viên mới có quyền duyệt / xóa báo cáo sai sót câu hỏi.',
+      );
+    }
+  }
+
+  private async resolveExistingUserId(candidateId?: string | null): Promise<string | null> {
+    if (!candidateId) return null;
+    const found = await this.prisma.user.findUnique({
+      where: { id: candidateId },
+      select: { id: true },
+    });
+    return found?.id || null;
+  }
+
+  async createQuestionBugReport(
+    authUser: AuthenticatedExamUser | null,
+    dto: CreateQuestionBugReportDto,
+  ) {
+    const reporterId = await this.resolveExistingUserId(authUser?.id);
+    const issueType = dto.issueType as QuestionIssueType;
+    const issueTypeLabel =
+      dto.issueTypeLabel?.trim() || this.issueTypeLabelMap[issueType] || 'Vấn đề khảo thí khác';
+
+    const created = await this.prisma.questionBugReport.create({
+      data: {
+        question_id: dto.questionId.trim(),
+        question_title: dto.questionTitle.trim(),
+        subject_name: dto.subjectName?.trim() || 'Toán Học',
+        question_snippet: dto.questionContentSnippet?.trim() || null,
+        issue_type: issueType,
+        issue_type_label: issueTypeLabel,
+        description:
+          dto.description?.trim() || 'Học sinh báo cáo lỗi đề thi từ phòng thi khảo thí.',
+        reporter_id: reporterId,
+        reporter_name:
+          dto.studentName?.trim() || authUser?.fullname?.trim() || 'Học sinh luyện thi',
+        status: QuestionBugReportStatus.PENDING,
+      },
+      include: {
+        reporter: { select: { id: true, fullname: true } },
+        resolved_by: { select: { id: true, fullname: true } },
+      },
+    });
+
+    return this.formatQuestionBugReport(created);
+  }
+
+  async listQuestionBugReports(params: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = Number.isFinite(params.page) && (params.page ?? 0) > 0 ? Number(params.page) : 1;
+    const limit =
+      Number.isFinite(params.limit) && (params.limit ?? 0) > 0
+        ? Math.min(Number(params.limit), 200)
+        : 100;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    const normStatus = String(params.status || '').trim().toUpperCase();
+    if (normStatus === 'PENDING' || normStatus === 'RESOLVED') {
+      where.status = normStatus as QuestionBugReportStatus;
+    }
+
+    const q = params.search?.trim();
+    if (q) {
+      where.OR = [
+        { question_title: { contains: q, mode: 'insensitive' } },
+        { subject_name: { contains: q, mode: 'insensitive' } },
+        { issue_type_label: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+        { reporter_name: { contains: q, mode: 'insensitive' } },
+        { question_id: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    const [rows, total, pendingCount, resolvedCount] = await Promise.all([
+      this.prisma.questionBugReport.findMany({
+        where,
+        orderBy: [{ status: 'asc' }, { created_at: 'desc' }],
+        skip,
+        take: limit,
+        include: {
+          reporter: { select: { id: true, fullname: true } },
+          resolved_by: { select: { id: true, fullname: true } },
+        },
+      }),
+      this.prisma.questionBugReport.count({ where }),
+      this.prisma.questionBugReport.count({ where: { status: QuestionBugReportStatus.PENDING } }),
+      this.prisma.questionBugReport.count({ where: { status: QuestionBugReportStatus.RESOLVED } }),
+    ]);
+
+    return {
+      items: rows.map((row) => this.formatQuestionBugReport(row)),
+      total,
+      pendingCount,
+      resolvedCount,
+      page,
+      limit,
+    };
+  }
+
+  async updateQuestionBugReportStatus(
+    id: string,
+    authUser: AuthenticatedExamUser | null,
+    dto: UpdateQuestionBugReportStatusDto,
+  ) {
+    this.assertCanModerateBugReports(authUser);
+
+    const existing = await this.prisma.questionBugReport.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException(`Không tìm thấy báo cáo câu hỏi với mã ${id}`);
+    }
+
+    const nextStatus = dto.status as QuestionBugReportStatus;
+    const isResolved = nextStatus === QuestionBugReportStatus.RESOLVED;
+    const resolverId = isResolved ? await this.resolveExistingUserId(authUser?.id) : null;
+
+    const updated = await this.prisma.questionBugReport.update({
+      where: { id },
+      data: {
+        status: nextStatus,
+        admin_note: dto.adminNote !== undefined ? dto.adminNote.trim() || null : existing.admin_note,
+        resolved_by_id: isResolved ? resolverId : null,
+        resolved_at: isResolved ? new Date() : null,
+      },
+      include: {
+        reporter: { select: { id: true, fullname: true } },
+        resolved_by: { select: { id: true, fullname: true } },
+      },
+    });
+
+    return this.formatQuestionBugReport(updated);
+  }
+
+  async deleteQuestionBugReport(id: string, authUser: AuthenticatedExamUser | null) {
+    this.assertCanModerateBugReports(authUser);
+
+    const existing = await this.prisma.questionBugReport.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Không tìm thấy báo cáo câu hỏi với mã ${id}`);
+    }
+
+    await this.prisma.questionBugReport.delete({ where: { id } });
+    return { id, deleted: true };
   }
 }
 

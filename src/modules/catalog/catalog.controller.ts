@@ -72,6 +72,17 @@ export class CatalogController {
     };
   }
 
+  @Patch('orders/:id/cancel')
+  @ApiOperation({ summary: 'Hủy đơn hàng đang chờ thanh toán (PENDING -> CANCELLED)' })
+  async cancelOrder(@Param('id') id: string, @Body() body?: { reason?: string }) {
+    const data = await this.catalogService.cancelOrder(id, body?.reason);
+    return {
+      success: true,
+      message: 'Đã hủy đơn hàng thành công',
+      data,
+    };
+  }
+
   @Post('payos/create-payment-link')
   @ApiOperation({ summary: 'Khởi tạo link thanh toán VietQR động qua cổng PayOS' })
   async createPayosPaymentLink(@Body() body: any) {

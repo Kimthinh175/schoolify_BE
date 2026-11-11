@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, IsNumber, IsArray, IsObject, ValidateNested } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsNumber, IsArray, IsObject, ValidateNested, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ChapterRatioDto {
@@ -327,6 +327,63 @@ export class AdminAdjustPointsDto {
   @IsOptional()
   @IsString()
   note?: string;
+}
+
+export class CreateQuestionBugReportDto {
+  @ApiProperty({ example: 'q-toan-12-001', description: 'ID câu hỏi bị báo cáo' })
+  @IsString()
+  @IsNotEmpty()
+  questionId: string;
+
+  @ApiProperty({ example: 'Câu 12: Cực trị hàm số bậc ba', description: 'Tiêu đề hoặc mã hiển thị của câu hỏi' })
+  @IsString()
+  @IsNotEmpty()
+  questionTitle: string;
+
+  @ApiPropertyOptional({ example: 'Toán Học' })
+  @IsOptional()
+  @IsString()
+  subjectName?: string;
+
+  @ApiPropertyOptional({ description: 'Đoạn nội dung câu hỏi trích dẫn' })
+  @IsOptional()
+  @IsString()
+  questionContentSnippet?: string;
+
+  @ApiProperty({
+    example: 'WRONG_ANSWER',
+    enum: ['WRONG_ANSWER', 'KATEX_ERROR', 'TYPO_CONTENT', 'MATRIX_MISMATCH', 'OTHER'],
+  })
+  @IsString()
+  @IsIn(['WRONG_ANSWER', 'KATEX_ERROR', 'TYPO_CONTENT', 'MATRIX_MISMATCH', 'OTHER'])
+  issueType: 'WRONG_ANSWER' | 'KATEX_ERROR' | 'TYPO_CONTENT' | 'MATRIX_MISMATCH' | 'OTHER';
+
+  @ApiPropertyOptional({ example: 'Sai đáp án chuẩn' })
+  @IsOptional()
+  @IsString()
+  issueTypeLabel?: string;
+
+  @ApiPropertyOptional({ example: 'Đáp án đúng phải là C thay vì A' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({ example: 'Nguyễn Văn A' })
+  @IsOptional()
+  @IsString()
+  studentName?: string;
+}
+
+export class UpdateQuestionBugReportStatusDto {
+  @ApiProperty({ example: 'RESOLVED', enum: ['PENDING', 'RESOLVED'] })
+  @IsString()
+  @IsIn(['PENDING', 'RESOLVED'])
+  status: 'PENDING' | 'RESOLVED';
+
+  @ApiPropertyOptional({ example: 'Đã kiểm tra và cập nhật lại đáp án C.' })
+  @IsOptional()
+  @IsString()
+  adminNote?: string;
 }
 
 
