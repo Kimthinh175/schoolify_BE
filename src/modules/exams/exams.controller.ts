@@ -21,12 +21,14 @@ import {
 import { ExamsService } from './exams.service';
 import {
   AdminAdjustPointsDto,
+  CreateQuestionBugReportDto,
   DailyClaimPointsDto,
   GenerateMatrixExamDto,
   SettleExamPointsDto,
   StartExamWithPointsDto,
   SubmitExamDto,
   SyncOfflineSubmissionsDto,
+  UpdateQuestionBugReportStatusDto,
 } from './dto/exam.dto';
 
 @ApiTags('Exams & Practice (Khảo thí & Luyện thi)')
@@ -415,6 +417,81 @@ export class ExamsController {
     const data = await this.examsService.listTemplates();
     return {
       success: true,
+      data,
+    };
+  }
+
+  @Post('question-reports')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Học sinh gửi báo cáo sai sót câu hỏi cho Ban Khảo thí' })
+  @ApiResponse({ status: 201, description: 'Gửi báo cáo sai sót câu hỏi thành công' })
+  async createQuestionBugReport(@Req() req: any, @Body() dto: CreateQuestionBugReportDto) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const data = await this.examsService.createQuestionBugReport(authUser, dto);
+    return {
+      success: true,
+      message: 'Đã gửi báo cáo sai sót câu hỏi cho Ban Khảo thí thành công!',
+      data,
+    };
+  }
+
+  @Get('question-reports')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Danh sách báo cáo sai sót câu hỏi (lọc theo trạng thái & từ khóa)' })
+  @ApiQuery({ name: 'status', required: false, enum: ['ALL', 'PENDING', 'RESOLVED'] })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 100 })
+  async listQuestionBugReports(
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('page') page = '1',
+    @Query('limit') limit = '100',
+  ) {
+    const data = await this.examsService.listQuestionBugReports({
+      status,
+      search,
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
+    });
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Patch('question-reports/:id/status')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin/Giáo viên đánh dấu đã xử lý hoặc mở lại báo cáo câu hỏi' })
+  @ApiResponse({ status: 200, description: 'Cập nhật trạng thái báo cáo thành công' })
+  async updateQuestionBugReportStatus(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateQuestionBugReportStatusDto,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const data = await this.examsService.updateQuestionBugReportStatus(id, authUser, dto);
+    return {
+      success: true,
+      message:
+        dto.status === 'RESOLVED'
+          ? 'Đã đánh dấu báo cáo là đã xử lý!'
+          : 'Đã mở lại báo cáo để kiểm tra thêm!',
+      data,
+    };
+  }
+
+  @Delete('question-reports/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Xóa báo cáo sai sót câu hỏi' })
+  @ApiResponse({ status: 200, description: 'Xóa báo cáo thành công' })
+  async deleteQuestionBugReport(@Req() req: any, @Param('id') id: string) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const data = await this.examsService.deleteQuestionBugReport(id, authUser);
+    return {
+      success: true,
+      message: 'Đã xóa báo cáo sai sót câu hỏi thành công!',
       data,
     };
   }

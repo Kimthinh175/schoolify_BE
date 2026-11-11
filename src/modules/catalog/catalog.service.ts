@@ -323,6 +323,10 @@ export class CatalogService {
       throw new NotFoundException(`Không tìm thấy đơn hàng ID=${orderId}`);
     }
 
+    if (order.status === 'CANCELLED') {
+      throw new BadRequestException('Đơn hàng đã bị hủy, không thể xác nhận thanh toán.');
+    }
+
     const updatedOrder = await this.prisma.order.update({
       where: { id: orderId },
       data: { status: 'PAID' },
@@ -411,6 +415,58 @@ export class CatalogService {
       activePackage,
       bonusPointsAwarded: initialBonusXin,
       dailyFreeAllowance,
+    };
+  }
+
+  /**
+   * Hủy đơn hàng đang chờ thanh toán (PENDING -> CANCELLED).
+   * Đơn đã PAID được giữ nguyên làm chứng từ kế toán, không cho phép hủy.
+   */
+  async cancelOrder(orderId: string, reason?: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        user: { select: { id: true, fullname: true, email: true } },
+        subscription: true,
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Không tìm thấy đơn hàng ID=${orderId}`);
+    }
+
+    if (order.status === 'PAID') {
+      throw new BadRequestException('Đơn hàng đã thanh toán thành công, không thể hủy.');
+    }
+
+    if (order.status === 'CANCELLED') {
+      return {
+        order: this.normalizeOrderRecord(order),
+      };
+    }
+
+    const cleanReason = typeof reason === 'string' && reason.trim() ? reason.trim() : undefined;
+    const prevSnapshot =
+      order.item_name_snapshot && typeof order.item_name_snapshot === 'object'
+        ? (order.item_name_snapshot as Record<string, any>)
+        : { packageName: String(order.item_name_snapshot || order.subscription?.name || 'Gói Luyện Thi Schoolify') };
+
+    const updatedOrder = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: 'CANCELLED',
+        item_name_snapshot: cleanReason
+          ? { ...prevSnapshot, cancelReason: cleanReason }
+          : prevSnapshot,
+      },
+      include: {
+        user: { select: { id: true, fullname: true, email: true } },
+        subscription: true,
+      },
+    });
+
+    return {
+      order: this.normalizeOrderRecord(updatedOrder),
     };
   }
 
@@ -668,6 +724,7 @@ export class CatalogService {
       item_price_snapshot: Number(order.item_price_snapshot || 0),
       status: order.status || 'PAID',
       payment_method: order.payment_method || 'BANK',
+      cancel_reason: typeof snap === 'object' && snap?.cancelReason ? String(snap.cancelReason) : null,
       created_at: order.created_at,
     };
   }
