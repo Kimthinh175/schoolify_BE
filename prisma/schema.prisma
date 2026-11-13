@@ -109,18 +109,18 @@ enum QuestionType {
 }
 
 enum QuestionFormat {
-  SINGLE_CHOICE  // Trắc nghiệm 4 chọn 1 (0.25đ/câu)
-  MULTI_CHOICE   // Chọn nhiều đáp án đúng
-  TRUE_FALSE     // Đúng/Sai 4 ý con a, b, c, d
-  SHORT_ANSWER   // Điền số / Trả lời ngắn
-  ESSAY          // Tự luận theo barem điểm
+  SINGLE_CHOICE // Trắc nghiệm 4 chọn 1 (0.25đ/câu)
+  MULTI_CHOICE // Chọn nhiều đáp án đúng
+  TRUE_FALSE // Đúng/Sai 4 ý con a, b, c, d
+  SHORT_ANSWER // Điền số / Trả lời ngắn
+  ESSAY // Tự luận theo barem điểm
 }
 
 enum BloomLevel {
-  NHAN_BIET       // Nhận biết (Easy)
-  THONG_HIEU      // Thông hiểu (Medium)
-  VAN_DUNG        // Vận dụng (Hard)
-  VAN_DUNG_CAO    // Vận dụng cao (Very Hard)
+  NHAN_BIET // Nhận biết (Easy)
+  THONG_HIEU // Thông hiểu (Medium)
+  VAN_DUNG // Vận dụng (Hard)
+  VAN_DUNG_CAO // Vận dụng cao (Very Hard)
 }
 
 enum StoreItemType {
@@ -135,6 +135,54 @@ enum SubmissionStatus {
   SUBMITTED
   GRADED
   RETURNED
+}
+
+enum ForumPostStatus {
+  DRAFT
+  PENDING
+  PUBLISHED
+  HIDDEN
+  REJECTED
+  DELETED
+}
+
+enum ForumCommentStatus {
+  ACTIVE
+  HIDDEN
+  FLAGGED
+  DELETED
+}
+
+enum ForumTargetType {
+  POST
+  COMMENT
+}
+
+enum ForumReactionType {
+  LIKE
+  UPVOTE
+  DOWNVOTE
+  HELPFUL
+  LOVE
+  HAHA
+}
+
+enum ForumReportReason {
+  SPAM
+  INAPPROPRIATE
+  HARASSMENT
+  COPYRIGHT
+  WRONG_SUBJECT
+  OFFENSIVE_LANGUAGE
+  MISINFORMATION
+  OTHER
+}
+
+enum ForumReportStatus {
+  PENDING
+  REVIEWING
+  RESOLVED
+  REJECTED
 }
 
 // ----------------------------------------------------
@@ -167,6 +215,13 @@ model User {
   created_packages        SubscriptionPackage[]
   question_banks          QuestionBank[]
   store_items             StoreItem[]
+  forum_posts             ForumPost[]            @relation("ForumPostAuthor")
+  forum_comments          ForumComment[]         @relation("ForumCommentAuthor")
+  forum_replies_received  ForumComment[]         @relation("ForumCommentReplyToUser")
+  forum_reactions         ForumReaction[]
+  forum_reports_submitted ForumReport[]          @relation("ForumReportReporter")
+  forum_reports_resolved  ForumReport[]          @relation("ForumReportResolver")
+  forum_bookmarks         ForumBookmark[]
 
   @@index([google_id])
   @@map("users")
@@ -219,7 +274,6 @@ model StudentProfile {
   last_daily_grant_date String?   @db.VarChar(20)
   active_package        String?   @default("FREE")
   package_expires_at    DateTime?
-
 
   user            User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
   enrollments     ClassEnrollment[]
@@ -299,6 +353,7 @@ model School {
   courses        Course[]
   question_banks QuestionBank[]
   subscriptions  SchoolSubscription[]
+  forum_posts    ForumPost[]
 
   @@index([owner_id])
   @@map("schools")
@@ -400,9 +455,10 @@ model Category {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  parent   Category?  @relation("CategoryHierarchy", fields: [parent_id], references: [id], onDelete: SetNull)
-  children Category[] @relation("CategoryHierarchy")
-  courses  Course[]
+  parent      Category?   @relation("CategoryHierarchy", fields: [parent_id], references: [id], onDelete: SetNull)
+  children    Category[]  @relation("CategoryHierarchy")
+  courses     Course[]
+  forum_posts ForumPost[]
 
   @@index([parent_id])
   @@map("categories")
@@ -576,15 +632,15 @@ model Question {
   id              String          @id @default(uuid())
   bank_id         String?
   lesson_id       String?
-  chapter_id      Int?            // Chương SGK
-  subject         String?         // "toan-hoc", "vat-ly"...
-  grade           Int?            // Khối 1 - 12
+  chapter_id      Int? // Chương SGK
+  subject         String? // "toan-hoc", "vat-ly"...
+  grade           Int? // Khối 1 - 12
   bloom_level     BloomLevel?     @default(THONG_HIEU)
   question_format QuestionFormat? @default(SINGLE_CHOICE)
   type            QuestionType?   @default(MULTIPLE_CHOICE)
-  topic_tag       String?         // Chuyên đề / Dạng bài cụ thể (GDPT 2018)
-  cognitive_tag   String?         // Nhận biết | Thông hiểu | Vận dụng | Vận dụng cao
-  trap_tag        String?         // Bẫy sai lầm phổ biến (Trap Tag)
+  topic_tag       String? // Chuyên đề / Dạng bài cụ thể (GDPT 2018)
+  cognitive_tag   String? // Nhận biết | Thông hiểu | Vận dụng | Vận dụng cao
+  trap_tag        String? // Bẫy sai lầm phổ biến (Trap Tag)
   title           String?
   question        String          @db.Text
   answer          String?         @db.Text
@@ -605,13 +661,13 @@ model Question {
 }
 
 model Answer {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   question_id String
-  content     String   @db.Text
-  explain     String?  @db.Text
-  img_url     String?  @db.Text
-  is_answer   Boolean  @default(false)
-  sub_label   String?  // 'a', 'b', 'c', 'd' (dành cho Đúng/Sai 4 ý con)
+  content     String  @db.Text
+  explain     String? @db.Text
+  img_url     String? @db.Text
+  is_answer   Boolean @default(false)
+  sub_label   String? // 'a', 'b', 'c', 'd' (dành cho Đúng/Sai 4 ý con)
 
   question           Question           @relation(fields: [question_id], references: [id], onDelete: Cascade)
   submission_answers SubmissionAnswer[]
@@ -641,7 +697,7 @@ model ExamSubmission {
   submitted_at       DateTime?
   graded_at          DateTime?
   teacher_notes      String?          @db.Text
-  snapshot_data      Json?            // JSONB: Lưu trọn vẹn toàn bộ bài thi + lời giải để FE mở modal tức thì
+  snapshot_data      Json? // JSONB: Lưu trọn vẹn toàn bộ bài thi + lời giải để FE mở modal tức thì
 
   student StudentProfile     @relation(fields: [student_id], references: [id], onDelete: Cascade)
   bank    QuestionBank?      @relation(fields: [bank_id], references: [id], onDelete: SetNull)
@@ -658,16 +714,16 @@ model ExamSubmission {
 }
 
 model SubmissionAnswer {
-  id                 String   @id @default(uuid())
-  submission_id      String
-  question_id        String
-  selected_answer_id String?
-  student_text_answer String? @db.Text // Điền số / Trả lời ngắn / Tự luận
-  sub_answers_json   Json?    // JSONB: Lưu lựa chọn a: true, b: false... của câu Đúng/Sai 4 ý
-  text_answer        String?  @db.Text
-  is_correct         Boolean?
-  points_earned      Decimal? @db.Decimal(5, 2)
-  teacher_feedback   String?  @db.Text
+  id                  String   @id @default(uuid())
+  submission_id       String
+  question_id         String
+  selected_answer_id  String?
+  student_text_answer String?  @db.Text // Điền số / Trả lời ngắn / Tự luận
+  sub_answers_json    Json? // JSONB: Lưu lựa chọn a: true, b: false... của câu Đúng/Sai 4 ý
+  text_answer         String?  @db.Text
+  is_correct          Boolean?
+  points_earned       Decimal? @db.Decimal(5, 2)
+  teacher_feedback    String?  @db.Text
 
   submission      ExamSubmission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
   question        Question       @relation(fields: [question_id], references: [id], onDelete: Cascade)
@@ -812,13 +868,13 @@ model Notification {
 model SemanticCache {
   id               String   @id @default(uuid())
   query_text       String   @db.Text
-  query_vector     Float[]  // Vector embedding (1024 dimensions)
+  query_vector     Float[] // Vector embedding (1024 dimensions)
   response_text    String   @db.Text
-  client_actions   Json?    // Array of Client Tool Actions (JSON)
-  emotion          String?  // Biểu cảm robot (happy, thinking, stunned...)
-  suggestions      Json?    // Array of string (Dynamic contextual suggestion chips)
-  subject          String?  // e.g. "toan-hoc", "vat-ly"
-  grade            Int?     // 10, 11, 12
+  client_actions   Json? // Array of Client Tool Actions (JSON)
+  emotion          String? // Biểu cảm robot (happy, thinking, stunned...)
+  suggestions      Json? // Array of string (Dynamic contextual suggestion chips)
+  subject          String? // e.g. "toan-hoc", "vat-ly"
+  grade            Int? // 10, 11, 12
   hit_count        Int      @default(1)
   ttl_days         Int?     @default(7)
   last_accessed_at DateTime @default(now())
@@ -832,7 +888,7 @@ model ChatSession {
   id         String   @id @default(uuid())
   sessionKey String   @unique @map("session_key")
   userId     String?  @map("user_id")
-  messages   Json     // Mảng tin nhắn ChatMessage[] (Sliding window 40 tin)
+  messages   Json // Mảng tin nhắn ChatMessage[] (Sliding window 40 tin)
   expiresAt  DateTime @map("expires_at")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
@@ -869,8 +925,8 @@ model ExamPointLog {
   points_delta  Float
   points_after  Float
 
-  note          String?  @db.Text
-  created_at    DateTime @default(now())
+  note       String?  @db.Text
+  created_at DateTime @default(now())
 
   student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
 
@@ -878,3 +934,156 @@ model ExamPointLog {
   @@map("exam_point_logs")
 }
 
+// ----------------------------------------------------
+// FORUM / COMMUNITY DISCUSSION & MODERATION
+// ----------------------------------------------------
+
+model ForumPost {
+  id                  String          @id @default(uuid())
+  author_id           String
+  school_id           String?
+  category_id         String?
+  title               String          @db.VarChar(500)
+  slug                String?         @unique @db.VarChar(550)
+  content             String          @db.Text // Nội dung gốc Markdown + LaTeX ($...$ inline, $$...$$ block)
+  content_format      String          @default("MARKDOWN_LATEX") @db.VarChar(30) // MARKDOWN_LATEX | PLAIN_TEXT | HTML
+  content_plain       String?         @db.Text // Bản text đã lược bỏ công thức -> phục vụ tìm kiếm / preview / SEO
+  has_math            Boolean         @default(false) // true nếu content chứa công thức LaTeX -> FE bật KaTeX/MathJax
+  subject             String?         @db.VarChar(120) // e.g. "Toán Học", "Vật Lý", "toan-hoc"...
+  grade               Int?            @default(12) // Khối 10, 11, 12
+  chapter_id          Int? // Chương SGK (đồng bộ với Question.chapter_id)
+  chapter_name        String?         @db.VarChar(255) // Tên chương snapshot: "Chương 1: Ứng dụng đạo hàm..."
+  tags                Json? // Mảng nhãn chủ đề: ["Đạo hàm", "Đơn điệu", "Lớp 12"]
+  thumbnail_url       String?         @db.Text
+  attachments         Json? // Mảng URL ảnh đề bài / tài liệu đính kèm
+  views_count         Int             @default(0)
+  likes_count         Int             @default(0)
+  comments_count      Int             @default(0)
+  bookmarks_count     Int             @default(0) // Số lượt lưu bài (ForumBookmark)
+  is_solved           Boolean         @default(false)
+  is_pinned           Boolean         @default(false)
+  is_locked           Boolean         @default(false)
+  accepted_comment_id String?
+  status              ForumPostStatus @default(PUBLISHED)
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+
+  author    User            @relation("ForumPostAuthor", fields: [author_id], references: [id], onDelete: Cascade)
+  school    School?         @relation(fields: [school_id], references: [id], onDelete: SetNull)
+  category  Category?       @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  comments  ForumComment[]
+  reactions ForumReaction[]
+  reports   ForumReport[]
+  bookmarks ForumBookmark[]
+
+  @@index([author_id])
+  @@index([school_id])
+  @@index([category_id])
+  @@index([subject, grade])
+  @@index([subject, grade, chapter_id])
+  @@index([status, is_pinned, created_at])
+  @@index([is_solved])
+  @@map("forum_posts")
+}
+
+model ForumComment {
+  id               String             @id @default(uuid())
+  post_id          String
+  author_id        String
+  parent_id        String? // null = Bình luận gốc (Cấp 1); khác null = Trả lời lồng (Cấp 2)
+  reply_to_user_id String? // Người dùng được phản hồi trực tiếp (@mention) trong chuỗi cấp 2
+  depth            Int                @default(1) // 1: Cấp 1 (Root comment), 2: Cấp 2 (Nested reply - tối đa 2 cấp)
+  content          String             @db.Text // Nội dung thảo luận / lời giải (hỗ trợ LaTeX)
+  attachments      Json? // Ảnh chụp bài giải hoặc file đính kèm
+  likes_count      Int                @default(0)
+  replies_count    Int                @default(0) // Số lượng phản hồi cấp 2 của bình luận gốc
+  is_accepted      Boolean            @default(false) // Đánh dấu câu trả lời đúng / lời giải hay nhất (Best Answer)
+  is_edited        Boolean            @default(false)
+  status           ForumCommentStatus @default(ACTIVE)
+  created_at       DateTime           @default(now())
+  updated_at       DateTime           @updatedAt
+
+  post          ForumPost       @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  author        User            @relation("ForumCommentAuthor", fields: [author_id], references: [id], onDelete: Cascade)
+  reply_to_user User?           @relation("ForumCommentReplyToUser", fields: [reply_to_user_id], references: [id], onDelete: SetNull)
+  parent        ForumComment?   @relation("ForumCommentReplies", fields: [parent_id], references: [id], onDelete: Cascade)
+  replies       ForumComment[]  @relation("ForumCommentReplies")
+  reactions     ForumReaction[]
+  reports       ForumReport[]
+
+  @@index([post_id, parent_id, created_at])
+  @@index([parent_id])
+  @@index([author_id])
+  @@index([reply_to_user_id])
+  @@index([status])
+  @@map("forum_comments")
+}
+
+model ForumReaction {
+  id            String            @id @default(uuid())
+  user_id       String
+  target_type   ForumTargetType   @default(POST) // POST | COMMENT
+  post_id       String?
+  comment_id    String?
+  reaction_type ForumReactionType @default(LIKE) // LIKE | UPVOTE | DOWNVOTE | HELPFUL | LOVE | HAHA
+  created_at    DateTime          @default(now())
+  updated_at    DateTime          @updatedAt
+
+  user    User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post    ForumPost?    @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  comment ForumComment? @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, post_id])
+  @@unique([user_id, comment_id])
+  @@index([post_id, reaction_type])
+  @@index([comment_id, reaction_type])
+  @@index([user_id])
+  @@map("forum_reactions")
+}
+
+model ForumReport {
+  id                String            @id @default(uuid())
+  reporter_id       String
+  target_type       ForumTargetType   @default(POST) // POST | COMMENT
+  post_id           String?
+  comment_id        String?
+  reason            ForumReportReason @default(OTHER)
+  description       String?           @db.Text
+  evidence_urls     Json? // Mảng URL ảnh chụp bằng chứng vi phạm
+  status            ForumReportStatus @default(PENDING)
+  resolved_by_id    String?
+  admin_note        String?           @db.Text
+  moderation_action String?           @db.VarChar(100) // NONE | HIDE_CONTENT | DELETE_CONTENT | WARN_USER | BAN_USER
+  resolved_at       DateTime?
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+
+  reporter    User          @relation("ForumReportReporter", fields: [reporter_id], references: [id], onDelete: Cascade)
+  resolved_by User?         @relation("ForumReportResolver", fields: [resolved_by_id], references: [id], onDelete: SetNull)
+  post        ForumPost?    @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  comment     ForumComment? @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+
+  @@index([status, created_at])
+  @@index([target_type, status])
+  @@index([post_id])
+  @@index([comment_id])
+  @@index([reporter_id])
+  @@index([resolved_by_id])
+  @@map("forum_reports")
+}
+
+model ForumBookmark {
+  id         String   @id @default(uuid())
+  user_id    String
+  post_id    String
+  note       String?  @db.Text // Ghi chú cá nhân khi lưu bài (VD: "Ôn lại dạng này trước thi")
+  created_at DateTime @default(now())
+
+  user User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post ForumPost @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, post_id]) // Mỗi user chỉ lưu 1 bài viết 1 lần (toggle bookmark)
+  @@index([user_id, created_at]) // Lấy danh sách "Bài đã lưu" theo thời gian
+  @@index([post_id])
+  @@map("forum_bookmarks")
+}
