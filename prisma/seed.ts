@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument */
 import {
   PrismaClient,
+  Prisma,
   BloomLevel,
   QuestionFormat,
   QuestionType,
@@ -57,6 +58,11 @@ interface SeedForumPostDef {
       content: string;
       likes_count: number;
     };
+  };
+  extra_comment?: {
+    author_type: 'ADMIN' | 'TEACHER' | 'STUDENT';
+    content: string;
+    likes_count: number;
   };
 }
 
@@ -152,9 +158,21 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Vì $[f(x)]^2 = |f(x)|^2 \\ge 0$ nên em không cần dấu giá trị tuyệt đối nhé. Khai triển $(x^2 - 2x)^2 = x^4 - 4x^3 + 4x^2$ rồi lấy nguyên hàm ta được $V = \\pi \\left[ \\frac{x^5}{5} - x^4 + \\frac{4x^3}{3} \\right]_0^2 = \\frac{16\\pi}{15}$.',
+        'Vì $[f(x)]^2 = |f(x)|^2 \\ge 0$ nên em không cần dấu giá trị tuyệt đối nhé. Khai triển $(x^2 - 2x)^2 = x^4 - 4x^3 + 4x^2$ rồi lấy nguyên hàm ta được:\n$$V = \\pi \\left[ \\frac{x^5}{5} - x^4 + \\frac{4x^3}{3} \\right]_0^2 = \\pi \\left( \\frac{32}{5} - 16 + \\frac{32}{3} \\right) = \\frac{16\\pi}{15}$$',
       is_accepted: true,
       likes_count: 19,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Dạ thầy ơi, nếu đề bài đổi thành tính diện tích hình phẳng $S = \\int_0^2 |x^2 - 2x| \\,dx$ thì trên đoạn $[0; 2]$ biểu thức $x^2 - 2x \\le 0$ nên phá trị tuyệt đối thành $\\int_0^2 (2x - x^2) \\,dx = \\frac{4}{3}$ đúng không ạ?',
+        likes_count: 8,
+      },
+    },
+    extra_comment: {
+      author_type: 'ADMIN',
+      content:
+        'Mẹo kiểm tra nhanh bằng Casio: Nhập $\\int_0^2 (X^2 - 2X)^2 \\,dX$ ra $\\frac{16}{15} \\approx 1{,}0667$, sau đó nhân thêm $\\pi$ để tránh quên hằng số $\\pi$ ở đáp án trắc nghiệm nhé!',
+      likes_count: 11,
     },
   },
 
@@ -180,9 +198,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Đường thẳng $IH$ đi qua $H(1; -1; 3)$ và nhận $\\vec{n}_P = (2; -1; 2)$ làm vectơ chỉ phương nên có phương trình $I(1 + 2t; -1 - t; 3 + 2t)$. Do $I \\in (Oxy) \\implies z_I = 0 \\iff 3 + 2t = 0 \\iff t = -\\frac{3}{2}$, suy ra ngay $I(-2; \\frac{1}{2}; 0)$ và $R = IH = \\frac{9}{2}$ nhé!',
+        'Đường thẳng $IH$ đi qua $H(1; -1; 3)$ và nhận $\\vec{n}_P = (2; -1; 2)$ làm vectơ chỉ phương nên có phương trình tham số:\n$$I(1 + 2t;\\; -1 - t;\\; 3 + 2t)$$\nDo $I \\in (Oxy) \\implies z_I = 0 \\iff 3 + 2t = 0 \\iff t = -\\frac{3}{2}$, suy ra ngay $I\\left(-2; \\frac{1}{2}; 0\\right)$ và $R = IH = |t| \\cdot |\\vec{n}_P| = \\frac{3}{2} \\cdot 3 = \\frac{9}{2}$ nhé!',
       is_accepted: true,
       likes_count: 16,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Công thức $R = |t| \\cdot |\\vec{n}_P| = \\frac{3}{2} \\cdot \\sqrt{2^2 + (-1)^2 + 2^2} = \\frac{9}{2}$ quá nhanh luôn ạ, đỡ phải tính lại khoảng cách từ $I$ đến $H$!',
+        likes_count: 7,
+      },
     },
   },
 
@@ -208,9 +232,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Em viết rõ 2 họ nghiệm $x = \\frac{\\pi}{4} + k\\pi$ và $x = \\frac{7\\pi}{12} + k\\pi$ ($k \\in \\mathbb{Z}$). Vì $0 < x < 2\\pi$, mỗi họ nghiệm có chu kỳ $\\pi$ sẽ cho đúng $2$ nghiệm ứng với $k \\in \\{0, 1\\}$, tổng cộng có $4$ nghiệm phân biệt.',
+        'Em viết rõ 2 họ nghiệm:\n$$\\begin{bmatrix} 2x - \\frac{\\pi}{3} = \\frac{\\pi}{6} + k2\\pi \\\\ 2x - \\frac{\\pi}{3} = \\frac{5\\pi}{6} + k2\\pi \\end{bmatrix} \\iff \\begin{bmatrix} x = \\frac{\\pi}{4} + k\\pi \\\\ x = \\frac{7\\pi}{12} + k\\pi \\end{bmatrix} \\quad (k \\in \\mathbb{Z})$$\nVì $0 < x < 2\\pi$, mỗi họ nghiệm có chu kỳ $\\pi$ sẽ cho đúng $2$ nghiệm ứng với $k \\in \\{0, 1\\}$, tổng cộng có $4$ nghiệm phân biệt.',
       is_accepted: true,
       likes_count: 14,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Dạ vậy tổng các nghiệm trên $(0; 2\\pi)$ sẽ là $\\left(\\frac{\\pi}{4} + \\frac{5\\pi}{4}\\right) + \\left(\\frac{7\\pi}{12} + \\frac{19\\pi}{12}\\right) = \\frac{11\\pi}{3}$. Em cảm ơn thầy!',
+        likes_count: 6,
+      },
     },
   },
 
@@ -236,9 +266,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        "Chính xác! Với $m = 1$, ta có $f(x) = 4 > 0, \\forall x \\in \\mathbb{R}$ (thỏa mãn). Với $m \\ne 1$, điều kiện là $\\begin{cases} m - 1 > 0 \\\\ \\Delta' = (m-1)^2 - (m-1)(m+3) < 0 \\end{cases} \\iff m > 1$. Gộp lại đáp án là $m \\ge 1$ (rất nhiều bạn quên lấy dấu bằng tại $m=1$).",
+        "Chính xác! Với $m = 1$, ta có $f(x) = 4 > 0, \\forall x \\in \\mathbb{R}$ (thỏa mãn). Với $m \\ne 1$, điều kiện là:\n$$\\begin{cases} m - 1 > 0 \\\\ \\Delta' = (m-1)^2 - (m-1)(m+3) = -4(m-1) < 0 \\end{cases} \\iff m > 1$$\nGộp cả hai trường hợp lại ta được đáp án chuẩn là $m \\ge 1$ (rất nhiều bạn quên lấy dấu bằng tại $m=1$).",
       is_accepted: true,
       likes_count: 21,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Đúng cái bẫy $m = 1$ em vừa bị sai trong bài kiểm tra 15 phút luôn ạ! Nhớ quy tắc hễ hệ số $a$ có tham số là phải xét $a = 0$ đầu tiên.',
+        likes_count: 9,
+      },
     },
   },
 
@@ -264,9 +300,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Khi dãn đẳng áp, khí thực hiện công lên môi trường nên $A = -p\\Delta V = -nR\\Delta T = -2 \\cdot 8{,}31 \\cdot 150 = -2493\\text{ J}$. Nhiệt lượng khí nhận vào là $Q = nC_p\\Delta T = \\frac{5}{2}nR\\Delta T = 6232{,}5\\text{ J}$, suy ra $\\Delta U = Q + A = \\frac{3}{2}nR\\Delta T = 3739{,}5\\text{ J}$.',
+        'Khi dãn đẳng áp, khí thực hiện công lên môi trường nên:\n$$A = -p\\Delta V = -nR\\Delta T = -2 \\cdot 8{,}31 \\cdot (450 - 300) = -2493\\text{ J}$$\nNhiệt lượng khí nhận vào là $Q = nC_p\\Delta T = \\frac{5}{2}nR\\Delta T = 6232{,}5\\text{ J}$, suy ra độ biến thiên nội năng $\\Delta U = Q + A = \\frac{3}{2}nR\\Delta T = 3739{,}5\\text{ J}$.',
       is_accepted: true,
       likes_count: 24,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Dạ vậy tỉ số giữa công mà chất khí thực hiện và nhiệt lượng nhận vào trong quá trình đẳng áp của khí lưỡng nguyên tử luôn là $\\frac{|A|}{Q} = \\frac{nR\\Delta T}{\\frac{5}{2}nR\\Delta T} = \\frac{2}{5} = 40\\%$ phải không thầy?',
+        likes_count: 10,
+      },
     },
   },
 
@@ -292,9 +334,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Ta có từ thông ban đầu $\\Phi_1 = NBS\\cos 60^\\circ = 100 \\cdot 0{,}2 \\cdot (20 \\times 10^{-4}) \\cdot 0{,}5 = 0{,}02\\text{ Wb}$ và $\\Phi_2 = 0$. Vậy $|e_c| = \\left|\\frac{\\Phi_2 - \\Phi_1}{\\Delta t}\\right| = \\frac{0{,}02}{0{,}05} = 0{,}4\\text{ V}$ nhé!',
+        'Ta đổi đơn vị diện tích $S = 20 \\times 10^{-4}\\text{ m}^2$. Từ thông ban đầu qua khung dây là:\n$$\\Phi_1 = NBS\\cos 60^\\circ = 100 \\cdot 0{,}2 \\cdot (20 \\times 10^{-4}) \\cdot 0{,}5 = 0{,}02\\text{ Wb}$$\nKhi $B$ giảm về $0$ thì $\\Phi_2 = 0$, suy ra $|e_c| = \\left|\\frac{\\Phi_2 - \\Phi_1}{\\Delta t}\\right| = \\frac{0{,}02}{0{,}05} = 0{,}4\\text{ V}$ nhé!',
       is_accepted: true,
       likes_count: 15,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Nếu đề cho góc giữa mặt phẳng khung dây và $\\vec{B}$ là $30^\\circ$ thì góc hợp bởi pháp tuyến $\\vec{n}$ và $\\vec{B}$ vẫn là $\\alpha = 90^\\circ - 30^\\circ = 60^\\circ$ đúng không thầy?',
+        likes_count: 6,
+      },
     },
   },
 
@@ -320,9 +368,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Đổi $m = 0{,}25\\text{ kg}$, ta có $\\omega = \\sqrt{\\frac{k}{m}} = \\sqrt{\\frac{100}{0{,}25}} = 20\\text{ rad/s}$. Thay vào hệ thức độc lập: $A = \\sqrt{x^2 + \\left(\\frac{v}{\\omega}\\right)^2} = \\sqrt{3^2 + \\left(\\frac{80}{20}\\right)^2} = 5\\text{ cm}$.',
+        'Đổi $m = 0{,}25\\text{ kg}$, ta có $\\omega = \\sqrt{\\frac{k}{m}} = \\sqrt{\\frac{100}{0{,}25}} = 20\\text{ rad/s}$. Thay vào hệ thức độc lập thời gian:\n$$A = \\sqrt{x^2 + \\left(\\frac{v}{\\omega}\\right)^2} = \\sqrt{3^2 + \\left(\\frac{80}{20}\\right)^2} = \\sqrt{9 + 16} = 5\\text{ cm}$$',
       is_accepted: true,
       likes_count: 18,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Từ $A = 5\\text{ cm} = 0{,}05\\text{ m}$ em tính luôn được cơ năng $W = \\frac{1}{2}kA^2 = \\frac{1}{2} \\cdot 100 \\cdot 0{,}05^2 = 0{,}125\\text{ J}$. Em cảm ơn thầy ạ!',
+        likes_count: 7,
+      },
     },
   },
 
@@ -341,10 +395,23 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     chapter_id: 3,
     chapter_name: 'Chương 3: Động lực học',
     tags: ['Định luật Newton', 'Mặt phẳng nghiêng', 'Ma sát', 'Lớp 10'],
-    is_solved: false,
+    is_solved: true,
     views_count: 180,
     likes_count: 16,
     author_type: 'STUDENT',
+    root_comment: {
+      author_type: 'TEACHER',
+      content:
+        'Chiếu phương trình $\\vec{P} + \\vec{N} + \\vec{F}_{mst} = m\\vec{a}$ lên trục $Oy$ vuông góc mặt nghiêng ta được $N = mg\\cos\\alpha \\implies F_{mst} = \\mu_t mg\\cos\\alpha$. Chiếu lên trục $Ox$ dọc theo mặt nghiêng:\n$$mg\\sin\\alpha - \\mu_t mg\\cos\\alpha = ma \\implies a = g(\\sin 30^\\circ - \\frac{\\sqrt{3}}{6}\\cos 30^\\circ) = 9{,}8 \\cdot \\left(\\frac{1}{2} - \\frac{1}{4}\\right) = 2{,}45\\text{ m/s}^2$$',
+      is_accepted: true,
+      likes_count: 14,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Hay quá thầy ơi, khối lượng $m = 2\\text{ kg}$ tự triệt tiêu ở cả hai vế nên gia tốc trượt $a$ không phụ thuộc vào khối lượng vật!',
+        likes_count: 5,
+      },
+    },
   },
 
   // 11. HÓA HỌC 12 - ESTE & LIPIT
@@ -369,9 +436,21 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Đúng rồi em! Ester hai chức no, mạch hở có công thức chung $\\text{C}_n\\text{H}_{2n-2}\\text{O}_4$ (độ bất bão hòa $k = 2$ do có $2$ nhóm $-\\text{COO}-$), nên khi đốt cháy luôn có $n_{\\text{CO}_2} - n_{\\text{H}_2\\text{O}} = n_E$ và $n_{\\text{NaOH phản ứng}} = 2n_E$.',
+        'Đúng rồi em! Ester hai chức no, mạch hở có công thức chung $\\text{C}_n\\text{H}_{2n-2}\\text{O}_4$ (độ bất bão hòa $k = 2$ do có $2$ nhóm $-\\text{COO}-$), nên khi đốt cháy luôn có:\n$$n_{\\text{CO}_2} - n_{\\text{H}_2\\text{O}} = n_E \\quad \\text{và} \\quad n_{\\text{NaOH phản ứng}} = 2n_E$$',
       is_accepted: true,
       likes_count: 27,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Nếu quy đổi hỗn hợp $E$ về chất đầu dãy $(\\text{COOCH}_3)_2$ và các nhóm $\\text{CH}_2$ thì $n_{(\\text{COOCH}_3)_2} = n_E$ luôn đúng phải không thầy?',
+        likes_count: 11,
+      },
+    },
+    extra_comment: {
+      author_type: 'ADMIN',
+      content:
+        'Bổ sung bảo toàn nguyên tố Oxi khi đốt cháy ester $2$ chức: $4n_E + 2n_{\\text{O}_2} = 2n_{\\text{CO}_2} + n_{\\text{H}_2\\text{O}}$ giúp lập phương trình thứ hai cực nhanh!',
+      likes_count: 13,
     },
   },
 
@@ -397,9 +476,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Ta có $E^\\circ_{\\text{pin}} = 0{,}34 - (-0{,}76) = 1{,}10\\text{ V}$. Ở bài điện phân, số mol electron trao đổi là $n_e = \\frac{It}{F} = \\frac{1{,}93 \\times 1000}{96500} = 0{,}02\\text{ mol}$, suy ra $n_{\\text{Cu}} = \\frac{1}{2}n_e = 0{,}01\\text{ mol} \\implies m_{\\text{Cu}} = 0{,}64\\text{ g}$.',
+        'Ta có $E^\\circ_{\\text{pin}} = 0{,}34 - (-0{,}76) = 1{,}10\\text{ V}$. Ở bài điện phân, số mol electron trao đổi tính theo định luật Faraday:\n$$n_e = \\frac{It}{F} = \\frac{1{,}93 \\times 1000}{96500} = 0{,}02\\text{ mol} \\implies n_{\\text{Cu}} = \\frac{1}{2}n_e = 0{,}01\\text{ mol} \\implies m_{\\text{Cu}} = 0{,}64\\text{ g}$$',
       is_accepted: true,
       likes_count: 17,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Dạ ở anode (cực dương) có phản ứng $2\\text{H}_2\\text{O} \\to \\text{O}_2 + 4\\text{H}^+ + 4e$ nên số mol khí $\\text{O}_2$ thoát ra là $n_{\\text{O}_2} = \\frac{n_e}{4} = 0{,}005\\text{ mol}$ đúng không thầy?',
+        likes_count: 8,
+      },
     },
   },
 
@@ -425,9 +510,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Hằng số cân bằng $K_C$ **chỉ phụ thuộc vào bản chất phản ứng và nhiệt độ $T$**, không phụ thuộc vào áp suất hay nồng độ ban đầu nhé! Khi tăng áp suất, cân bằng chuyển dịch theo chiều thuận (giảm số mol khí từ $4$ xuống $2$), nhưng tỉ số $K_C$ ở trạng thái cân bằng mới vẫn giữ nguyên.',
+        'Hằng số cân bằng $K_C$ **chỉ phụ thuộc vào bản chất phản ứng và nhiệt độ $T$**, không phụ thuộc vào áp suất hay nồng độ ban đầu nhé! Khi tăng áp suất, cân bằng chuyển dịch theo chiều thuận (giảm số mol khí từ $4$ xuống $2$), nhưng tỉ số $K_C = \\frac{[\\text{NH}_3]^2}{[\\text{N}_2][\\text{H}_2]^3}$ ở trạng thái cân bằng mới vẫn giữ nguyên.',
       is_accepted: true,
       likes_count: 16,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Còn vì phản ứng tỏa nhiệt ($\\Delta_r H^\\circ_{298} < 0$) nên nếu tăng nhiệt độ $T$ thì cân bằng dịch chuyển theo chiều nghịch và $K_C$ giảm xuống ạ!',
+        likes_count: 7,
+      },
     },
   },
 
@@ -446,10 +537,23 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     chapter_id: 5,
     chapter_name: 'Chương 5: Năng lượng hóa học',
     tags: ['Enthalpy', 'Nhiệt hóa học', 'GDPT 2018', 'Lớp 10'],
-    is_solved: false,
+    is_solved: true,
     views_count: 190,
     likes_count: 18,
     author_type: 'STUDENT',
+    root_comment: {
+      author_type: 'TEACHER',
+      content:
+        'Mẹo cực dễ nhớ nhé em:\n- Với **nhiệt tạo thành ($\\Delta_f H^\\circ_{298}$)**: Đúng định nghĩa độ biến thiên $\\Delta = \\text{Sau} - \\text{Đầu} = \\sum \\Delta_f H^\\circ_{298}(\\text{sản phẩm}) - \\sum \\Delta_f H^\\circ_{298}(\\text{chất đầu})$.\n- Với **năng lượng liên kết ($E_b$)**: Phá vỡ liên kết chất đầu cần **thu nhiệt** ($+E_b$), hình thành liên kết sản phẩm **tỏa nhiệt** ($-E_b$), nên $\\Delta_r H^\\circ_{298} = \\sum E_b(\\text{đầu}) - \\sum E_b(\\text{sau})$. Lưu ý công thức $E_b$ chỉ áp dụng cho các chất ở thể khí $(g)$!',
+      is_accepted: true,
+      likes_count: 15,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Hiểu bản chất phá liên kết thu nhiệt ($+$) và tạo liên kết tỏa nhiệt ($-$) là không bao giờ nhầm thứ tự $\\sum E_b(\\text{đầu}) - \\sum E_b(\\text{sau})$ nữa. Em cảm ơn thầy!',
+        likes_count: 6,
+      },
+    },
   },
 
   // 15. TIN HỌC 12 - ĐỘ PHỨC TẠP THUẬT TOÁN & AI/MẠNG
@@ -474,9 +578,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Giả sử $n = 2^k \\implies k = \\log_2 n$. Sau mỗi bước chia đôi, kích thước miền tìm kiếm giảm từ $2^k \\to 2^{k-1} \\to \\dots \\to 2^0 = 1$ sau đúng $k$ bước. Mỗi bước tốn $\\mathcal{O}(1)$ phép so sánh nên tổng thời gian là $T(n) = k \\cdot c + c_0 = \\mathcal{O}(\\log_2 n)$.',
+        'Giả sử $n = 2^k \\implies k = \\log_2 n$. Sau mỗi bước chia đôi, kích thước miền tìm kiếm giảm từ $2^k \\to 2^{k-1} \\to \\dots \\to 2^0 = 1$ sau đúng $k$ bước. Mỗi bước tốn $\\mathcal{O}(1)$ phép so sánh nên tổng thời gian là:\n$$T(n) = T(1) + \\sum_{i=1}^{k} c = c_0 + c \\log_2 n = \\mathcal{O}(\\log_2 n)$$',
       is_accepted: true,
       likes_count: 22,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Còn với Merge Sort thì mỗi tầng đệ quy tốn $\\mathcal{O}(n)$ để trộn và có $\\log_2 n$ tầng nên $T(n) = 2T(n/2) + \\mathcal{O}(n) = \\mathcal{O}(n \\log_2 n)$ đúng không thầy?',
+        likes_count: 9,
+      },
     },
   },
 
@@ -502,9 +612,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Em duy trì mảng `tail[len]` lưu giá trị kết thúc **nhỏ nhất** của một dãy con tăng độ dài `len`. Vì mảng `tail` luôn đơn điệu tăng nghiêm ngặt ($tail[1] < tail[2] < \\dots < tail[L]$), với mỗi $a_i$ ta chỉ tốn $\\mathcal{O}(\\log_2 L)$ để tìm vị trí cập nhật bằng tìm kiếm nhị phân.',
+        'Em duy trì mảng `tail[len]` lưu giá trị kết thúc **nhỏ nhất** của một dãy con tăng độ dài `len`. Vì mảng `tail` luôn đơn điệu tăng nghiêm ngặt ($tail[1] < tail[2] < \\dots < tail[L]$), với mỗi $a_i$ ta chỉ tốn $\\mathcal{O}(\\log_2 L)$ để tìm vị trí đầu tiên $tail[pos] \\ge a_i$ bằng chặt nhị phân, tổng thời gian là $\\sum_{i=1}^n \\mathcal{O}(\\log_2 i) = \\mathcal{O}(n \\log_2 n)$.',
       is_accepted: true,
       likes_count: 19,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Nếu đề yêu cầu dãy con không giảm ($a_j \\le a_i$) thì mình chỉ cần đổi `lower_bound` ($\\ge a_i$) thành `upper_bound` ($> a_i$) là xong đúng không thầy?',
+        likes_count: 8,
+      },
     },
   },
 
@@ -523,10 +639,23 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     chapter_id: 1,
     chapter_name: 'Chủ đề A: Máy tính và xã hội tri thức - Biểu diễn thông tin',
     tags: ['Hệ nhị phân', 'Mã bù 2', 'Biểu diễn số', 'Lớp 10'],
-    is_solved: false,
+    is_solved: true,
     views_count: 175,
     likes_count: 15,
     author_type: 'STUDENT',
+    root_comment: {
+      author_type: 'TEACHER',
+      content:
+        'Trên $n = 8\\text{ bit}$ có tổng cộng $2^8 = 256$ tổ hợp bit, được chia đôi: $128$ tổ hợp có bit dấu $b_7 = 0$ (gồm số $0$ và các số dương $1 \\dots 127$) và $128$ tổ hợp có bit dấu $b_7 = 1$ (biểu diễn từ $-1$ đến $-128$). Công thức trọng số tổng quát của mã bù $2$ là:\n$$V = -b_{n-1} \\cdot 2^{n-1} + \\sum_{i=0}^{n-2} b_i \\cdot 2^i$$\nVì số $0$ (`00000000`) đã chiếm mất $1$ vị trí bên nhánh không âm nên nhánh dương chỉ tới $2^{n-1} - 1 = 127$, còn `10000000` ứng với $-1 \\cdot 2^7 + 0 = -128$.',
+      is_accepted: true,
+      likes_count: 14,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Công thức trọng số $V = -b_7 \\cdot 2^7 + \\sum_{i=0}^6 b_i \\cdot 2^i$ giải thích quá rõ ràng vì sao `11111111` bằng $-128 + 127 = -1$ luôn ạ!',
+        likes_count: 6,
+      },
+    },
   },
 
   // 18. TIẾNG ANH 12 - CẤU TRÚC ĐẢO NGỮ (INVERSION FORMULAS)
@@ -551,9 +680,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Đúng rồi em! Với `Not until`, ta không đảo ở mệnh đề phụ ngay sau `until` mà đảo ở mệnh đề chính phía sau theo công thức: $\\text{Not until} + (S + V) / \\text{Time} + \\mathbf{\\text{did} + S + V_{\\text{bare-inf}}}$. Ví dụ: *"Not until he graduated did he realize the value of time."*',
+        'Đúng rồi em! Với `Not until` và `Only when / Only after`, ta không đảo ở mệnh đề phụ ngay sau đó mà đảo ở mệnh đề chính phía sau theo công thức:\n$$\\text{Not until / Only when} + (S_1 + V_1) + \\mathbf{\\text{Aux} + S_2 + V_{\\text{bare-inf}}}$$\nVí dụ: *"Not until he graduated did he realize the value of time."*',
       is_accepted: true,
       likes_count: 23,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Dạ em nhớ rồi ạ: nhóm `Not until / Only when / Only by` luôn đảo ngữ ở vế thứ hai ($\\text{Aux} + S_2 + V_{\\text{bare-inf}}$)!',
+        likes_count: 9,
+      },
     },
   },
 
@@ -579,9 +714,15 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     root_comment: {
       author_type: 'TEACHER',
       content:
-        'Hoàn toàn chính xác! Do phía trước có cụm `"the only stone citadel"` và động từ `remain` là nội động từ mang nghĩa chủ động, nên đáp án chuẩn là **`to remain`**. Nếu dùng cho câu bị động thì ta dùng $\\text{to be } + V_{\\text{p.p}}$ nhé!',
+        'Hoàn toàn chính xác! Do phía trước có cụm `"the only stone citadel"` và động từ `remain` là nội động từ mang nghĩa chủ động, nên đáp án chuẩn là **`to remain`**. Nếu dùng cho câu bị động (ví dụ *"the first heritage site to be recognized by UNESCO"*) thì ta dùng $\\text{to be } + V_{\\text{p.p}}$ nhé!',
       is_accepted: true,
       likes_count: 15,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Dạ ngoài `the first/last/only` thì khi danh từ đứng sau so sánh nhất ($\\text{the} + \\text{ Adj}_{\\text{est}} / \\text{most Adj} + N$) mình cũng rút gọn bằng $\\text{to } V_{\\text{inf}}$ luôn đúng không ạ?',
+        likes_count: 7,
+      },
     },
   },
 
@@ -600,10 +741,23 @@ const FORUM_SEED_TOPICS: SeedForumPostDef[] = [
     chapter_id: 8,
     chapter_name: 'Unit 8: New Ways to Learn - Conditional Sentences',
     tags: ['Câu điều kiện', 'Mixed Conditionals', 'Lớp 10'],
-    is_solved: false,
+    is_solved: true,
     views_count: 195,
     likes_count: 19,
     author_type: 'STUDENT',
+    root_comment: {
+      author_type: 'TEACHER',
+      content:
+        'Bảng tổng hợp của em rất chuẩn! Công thức đảo ngữ $3$ loại câu điều kiện (bỏ `If`, đưa trợ động từ lên đầu câu) như sau:\n- **Đảo ngữ loại 1:** $\\text{Should} + S + V_{\\text{bare-inf}},\\; S + \\text{will/can} + V_{\\text{inf}}$\n- **Đảo ngữ loại 2:** $\\text{Were} + S + (\\text{to } V_{\\text{inf}} / \\text{Adj / N}),\\; S + \\text{would} + V_{\\text{inf}}$\n- **Đảo ngữ loại 3:** $\\text{Had} + S + V_{\\text{p.p}},\\; S + \\text{would have } V_{\\text{p.p}}$ (Cụm $\\text{Had it not been for} + N = \\text{Without / But for} + N$: *"Nếu không nhờ có..."*).',
+      is_accepted: true,
+      likes_count: 16,
+      nested_reply: {
+        author_type: 'STUDENT',
+        content:
+          'Bộ 3 từ khóa đầu câu $\\text{Should}$ (loại 1) – $\\text{Were}$ (loại 2) – $\\text{Had}$ (loại 3) cực kỳ dễ nhận diện trong bài trắc nghiệm luôn ạ!',
+        likes_count: 6,
+      },
+    },
   },
 ];
 
@@ -709,13 +863,18 @@ async function seedForumData(
   };
 
   let createdOrUpdatedPosts = 0;
+  let totalCommentsSeeded = 0;
+  let totalReactionsSeeded = 0;
+  let totalReportsSeeded = 0;
 
   for (let idx = 0; idx < FORUM_SEED_TOPICS.length; idx++) {
     const topic = FORUM_SEED_TOPICS[idx];
     const authorId = resolveAuthorId(topic.author_type);
     const hasRoot = Boolean(topic.root_comment);
     const hasNested = Boolean(topic.root_comment?.nested_reply);
-    const commentsCount = (hasRoot ? 1 : 0) + (hasNested ? 1 : 0);
+    const hasExtra = Boolean(topic.extra_comment);
+    const commentsCount =
+      (hasRoot ? 1 : 0) + (hasNested ? 1 : 0) + (hasExtra ? 1 : 0);
 
     const post = await prisma.forumPost.upsert({
       where: { slug: topic.slug },
@@ -737,7 +896,7 @@ async function seedForumData(
         comments_count: commentsCount,
         bookmarks_count: idx < 5 ? 1 : 0,
         status: ForumPostStatus.PUBLISHED,
-      },
+      } as unknown as Prisma.ForumPostUncheckedUpdateInput,
       create: {
         author_id: authorId,
         title: topic.title,
@@ -758,17 +917,23 @@ async function seedForumData(
         comments_count: commentsCount,
         bookmarks_count: idx < 5 ? 1 : 0,
         status: ForumPostStatus.PUBLISHED,
-      },
+      } as unknown as Prisma.ForumPostUncheckedCreateInput,
     });
 
     createdOrUpdatedPosts++;
 
-    // Nếu bài viết chưa có bình luận thì tạo bình luận 2 cấp + reaction + bookmark mẫu
+    // Nếu bài viết chưa đủ số lượng bình luận mẫu thì làm mới & tạo đầy đủ bình luận 2 cấp + thảo luận phụ
     const existingCommentCount = await prisma.forumComment.count({
       where: { post_id: post.id },
     });
 
-    if (existingCommentCount === 0 && topic.root_comment) {
+    if (existingCommentCount < commentsCount && topic.root_comment) {
+      if (existingCommentCount > 0) {
+        await prisma.forumComment.deleteMany({
+          where: { post_id: post.id },
+        });
+      }
+
       const rootAuthorId = resolveAuthorId(topic.root_comment.author_type);
       const rootComment = await prisma.forumComment.create({
         data: {
@@ -783,6 +948,7 @@ async function seedForumData(
           status: ForumCommentStatus.ACTIVE,
         },
       });
+      totalCommentsSeeded++;
 
       let nestedReplyId: string | null = null;
       if (topic.root_comment.nested_reply) {
@@ -803,6 +969,25 @@ async function seedForumData(
           },
         });
         nestedReplyId = nestedReply.id;
+        totalCommentsSeeded++;
+      }
+
+      if (topic.extra_comment) {
+        const extraAuthorId = resolveAuthorId(topic.extra_comment.author_type);
+        await prisma.forumComment.create({
+          data: {
+            post_id: post.id,
+            author_id: extraAuthorId,
+            parent_id: null,
+            depth: 1,
+            content: topic.extra_comment.content,
+            likes_count: topic.extra_comment.likes_count,
+            replies_count: 0,
+            is_accepted: false,
+            status: ForumCommentStatus.ACTIVE,
+          },
+        });
+        totalCommentsSeeded++;
       }
 
       if (topic.root_comment.is_accepted) {
@@ -812,35 +997,58 @@ async function seedForumData(
         });
       }
 
-      // Tạo tương tác mẫu (ForumReaction & ForumReport) cho bài hỏi Toán 12 số 2
-      if (
-        topic.slug === 'hoi-bai-toan-12-tim-m-de-ham-so-bac-ba-dong-bien' &&
-        nestedReplyId
-      ) {
-        await prisma.forumReaction.createMany({
-          data: [
-            {
-              user_id: teacherUserId,
-              target_type: ForumTargetType.POST,
-              post_id: post.id,
-              reaction_type: ForumReactionType.LIKE,
-            },
-            {
-              user_id: studentUserId,
-              target_type: ForumTargetType.COMMENT,
-              comment_id: rootComment.id,
-              reaction_type: ForumReactionType.HELPFUL,
-            },
-            {
-              user_id: teacherUserId,
-              target_type: ForumTargetType.COMMENT,
-              comment_id: nestedReplyId,
-              reaction_type: ForumReactionType.LOVE,
-            },
-          ],
-          skipDuplicates: true,
-        });
+      // Tạo lượt vote / cảm xúc mẫu (ForumReaction) cho cả bài đăng và lời giải của 20 câu hỏi
+      const reactionRows: {
+        user_id: string;
+        target_type: ForumTargetType;
+        post_id?: string;
+        comment_id?: string;
+        reaction_type: ForumReactionType;
+      }[] = [
+        {
+          user_id: teacherUserId,
+          target_type: ForumTargetType.POST,
+          post_id: post.id,
+          reaction_type: ForumReactionType.LIKE,
+        },
+        {
+          user_id: adminUserId,
+          target_type: ForumTargetType.POST,
+          post_id: post.id,
+          reaction_type:
+            idx % 2 === 0 ? ForumReactionType.HELPFUL : ForumReactionType.LOVE,
+        },
+        {
+          user_id: studentUserId,
+          target_type: ForumTargetType.COMMENT,
+          comment_id: rootComment.id,
+          reaction_type: ForumReactionType.HELPFUL,
+        },
+        {
+          user_id: adminUserId,
+          target_type: ForumTargetType.COMMENT,
+          comment_id: rootComment.id,
+          reaction_type: ForumReactionType.LIKE,
+        },
+      ];
 
+      if (nestedReplyId) {
+        reactionRows.push({
+          user_id: teacherUserId,
+          target_type: ForumTargetType.COMMENT,
+          comment_id: nestedReplyId,
+          reaction_type: ForumReactionType.LOVE,
+        });
+      }
+
+      const reactionRes = await prisma.forumReaction.createMany({
+        data: reactionRows,
+        skipDuplicates: true,
+      });
+      totalReactionsSeeded += reactionRes.count;
+
+      // Tạo dữ liệu báo cáo kiểm duyệt mẫu (ForumReport) đa dạng trạng thái
+      if (idx === 1 && nestedReplyId) {
         await prisma.forumReport.create({
           data: {
             reporter_id: studentUserId,
@@ -849,38 +1057,94 @@ async function seedForumData(
             comment_id: nestedReplyId,
             reason: ForumReportReason.OTHER,
             description:
-              'Báo cáo thử nghiệm luồng kiểm duyệt bình luận diễn đàn.',
+              'Báo cáo thử nghiệm luồng kiểm duyệt bình luận diễn đàn (Toán 12 - Khảo sát hàm số).',
             status: ForumReportStatus.RESOLVED,
             resolved_by_id: teacherUserId,
-            admin_note: 'Nội dung hợp lệ, đóng báo cáo thử nghiệm.',
+            admin_note: 'Nội dung thảo luận hợp lệ, đóng báo cáo thử nghiệm.',
             moderation_action: 'NONE',
             resolved_at: new Date(),
           },
         });
+        totalReportsSeeded++;
+      } else if (idx === 5) {
+        await prisma.forumReport.create({
+          data: {
+            reporter_id: studentUserId,
+            target_type: ForumTargetType.COMMENT,
+            post_id: post.id,
+            comment_id: rootComment.id,
+            reason: ForumReportReason.MISINFORMATION,
+            description:
+              'Nhờ thầy cô kiểm tra lại trường hợp biên m = 1 của bất phương trình bậc hai.',
+            status: ForumReportStatus.REJECTED,
+            resolved_by_id: adminUserId,
+            admin_note:
+              'Lời giải của giáo viên đã xét đầy đủ trường hợp m = 1 (f(x) = 4 > 0), báo cáo được bác bỏ.',
+            moderation_action: 'NONE',
+            resolved_at: new Date(),
+          },
+        });
+        totalReportsSeeded++;
+      } else if (idx === 9) {
+        await prisma.forumReport.create({
+          data: {
+            reporter_id: teacherUserId,
+            target_type: ForumTargetType.POST,
+            post_id: post.id,
+            reason: ForumReportReason.SPAM,
+            description:
+              'Kiểm tra tính năng báo cáo bài viết trùng lặp chuyên đề Động lực học Vật Lý 10.',
+            status: ForumReportStatus.REVIEWING,
+          },
+        });
+        totalReportsSeeded++;
+      } else if (idx === 14 && nestedReplyId) {
+        await prisma.forumReport.create({
+          data: {
+            reporter_id: studentUserId,
+            target_type: ForumTargetType.COMMENT,
+            post_id: post.id,
+            comment_id: nestedReplyId,
+            reason: ForumReportReason.INAPPROPRIATE,
+            description:
+              'Báo cáo mẫu đang chờ quản trị viên kiểm duyệt trên chuyên đề Tin Học 12.',
+            status: ForumReportStatus.PENDING,
+          },
+        });
+        totalReportsSeeded++;
       }
     }
 
     // Lưu Bookmark mẫu cho 5 bài đầu tiên
     if (idx < 5) {
-      await prisma.forumBookmark.upsert({
-        where: {
-          user_id_post_id: {
+      const bookmarkDelegate = (
+        prisma as unknown as {
+          forumBookmark?: {
+            upsert: (args: Record<string, unknown>) => Promise<unknown>;
+          };
+        }
+      ).forumBookmark;
+      if (bookmarkDelegate) {
+        await bookmarkDelegate.upsert({
+          where: {
+            user_id_post_id: {
+              user_id: studentUserId,
+              post_id: post.id,
+            },
+          },
+          update: {},
+          create: {
             user_id: studentUserId,
             post_id: post.id,
+            note: `Ôn tập chuyên đề ${topic.subject} Lớp ${topic.grade} (${topic.chapter_name})`,
           },
-        },
-        update: {},
-        create: {
-          user_id: studentUserId,
-          post_id: post.id,
-          note: `Ôn tập chuyên đề ${topic.subject} Lớp ${topic.grade} (${topic.chapter_name})`,
-        },
-      });
+        });
+      }
     }
   }
 
   console.log(
-    `✅ Đã khởi tạo xong ${createdOrUpdatedPosts} chủ đề Diễn Đàn chuẩn GDPT 2018 (kèm bài Nội quy ghim đầu trang, công thức KaTeX & Bookmark)!`,
+    `✅ Đã khởi tạo xong ${createdOrUpdatedPosts} chủ đề Diễn Đàn chuẩn GDPT 2018 (${totalCommentsSeeded} lời giải/thảo luận KaTeX, ${totalReactionsSeeded} lượt vote & ${totalReportsSeeded} báo cáo mẫu)!`,
   );
 }
 
