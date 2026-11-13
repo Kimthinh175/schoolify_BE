@@ -137,6 +137,54 @@ enum SubmissionStatus {
   RETURNED
 }
 
+enum ForumPostStatus {
+  DRAFT
+  PENDING
+  PUBLISHED
+  HIDDEN
+  REJECTED
+  DELETED
+}
+
+enum ForumCommentStatus {
+  ACTIVE
+  HIDDEN
+  FLAGGED
+  DELETED
+}
+
+enum ForumTargetType {
+  POST
+  COMMENT
+}
+
+enum ForumReactionType {
+  LIKE
+  UPVOTE
+  DOWNVOTE
+  HELPFUL
+  LOVE
+  HAHA
+}
+
+enum ForumReportReason {
+  SPAM
+  INAPPROPRIATE
+  HARASSMENT
+  COPYRIGHT
+  WRONG_SUBJECT
+  OFFENSIVE_LANGUAGE
+  MISINFORMATION
+  OTHER
+}
+
+enum ForumReportStatus {
+  PENDING
+  REVIEWING
+  RESOLVED
+  REJECTED
+}
+
 // ----------------------------------------------------
 // CORE & USER MODELS
 // ----------------------------------------------------
@@ -167,6 +215,12 @@ model User {
   created_packages        SubscriptionPackage[]
   question_banks          QuestionBank[]
   store_items             StoreItem[]
+  forum_posts             ForumPost[]            @relation("ForumPostAuthor")
+  forum_comments          ForumComment[]         @relation("ForumCommentAuthor")
+  forum_replies_received  ForumComment[]         @relation("ForumCommentReplyToUser")
+  forum_reactions         ForumReaction[]
+  forum_reports_submitted ForumReport[]          @relation("ForumReportReporter")
+  forum_reports_resolved  ForumReport[]          @relation("ForumReportResolver")
 
   @@index([google_id])
   @@map("users")
@@ -299,6 +353,7 @@ model School {
   courses        Course[]
   question_banks QuestionBank[]
   subscriptions  SchoolSubscription[]
+  forum_posts    ForumPost[]
 
   @@index([owner_id])
   @@map("schools")
@@ -400,9 +455,10 @@ model Category {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  parent   Category?  @relation("CategoryHierarchy", fields: [parent_id], references: [id], onDelete: SetNull)
-  children Category[] @relation("CategoryHierarchy")
-  courses  Course[]
+  parent      Category?   @relation("CategoryHierarchy", fields: [parent_id], references: [id], onDelete: SetNull)
+  children    Category[]  @relation("CategoryHierarchy")
+  courses     Course[]
+  forum_posts ForumPost[]
 
   @@index([parent_id])
   @@map("categories")
@@ -877,4 +933,135 @@ model ExamPointLog {
   @@index([student_id, created_at])
   @@map("exam_point_logs")
 }
+
+// ----------------------------------------------------
+// FORUM / COMMUNITY DISCUSSION & MODERATION
+// ----------------------------------------------------
+
+model ForumPost {
+  id                  String          @id @default(uuid())
+  author_id           String
+  school_id           String?
+  category_id         String?
+  title               String          @db.VarChar(500)
+  slug                String?         @unique @db.VarChar(550)
+  content             String          @db.Text
+  subject             String?         @db.VarChar(120) // e.g. "Toán Học", "Vật Lý", "toan-hoc"...
+  grade               Int?            @default(12)     // Khối 10, 11, 12
+  tags                Json?                            // Mảng nhãn chủ đề: ["Đạo hàm", "Đơn điệu", "Lớp 12"]
+  thumbnail_url       String?         @db.Text
+  attachments         Json?                            // Mảng URL ảnh đề bài / tài liệu đính kèm
+  views_count         Int             @default(0)
+  likes_count         Int             @default(0)
+  comments_count      Int             @default(0)
+  is_solved           Boolean         @default(false)
+  is_pinned           Boolean         @default(false)
+  is_locked           Boolean         @default(false)
+  accepted_comment_id String?
+  status              ForumPostStatus @default(PUBLISHED)
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+
+  author    User            @relation("ForumPostAuthor", fields: [author_id], references: [id], onDelete: Cascade)
+  school    School?         @relation(fields: [school_id], references: [id], onDelete: SetNull)
+  category  Category?       @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  comments  ForumComment[]
+  reactions ForumReaction[]
+  reports   ForumReport[]
+
+  @@index([author_id])
+  @@index([school_id])
+  @@index([category_id])
+  @@index([subject, grade])
+  @@index([status, is_pinned, created_at])
+  @@index([is_solved])
+  @@map("forum_posts")
+}
+
+model ForumComment {
+  id               String             @id @default(uuid())
+  post_id          String
+  author_id        String
+  parent_id        String?            // null = Bình luận gốc (Cấp 1); khác null = Trả lời lồng (Cấp 2)
+  reply_to_user_id String?            // Người dùng được phản hồi trực tiếp (@mention) trong chuỗi cấp 2
+  depth            Int                @default(1) // 1: Cấp 1 (Root comment), 2: Cấp 2 (Nested reply - tối đa 2 cấp)
+  content          String             @db.Text    // Nội dung thảo luận / lời giải (hỗ trợ LaTeX)
+  attachments      Json?                          // Ảnh chụp bài giải hoặc file đính kèm
+  likes_count      Int                @default(0)
+  replies_count    Int                @default(0) // Số lượng phản hồi cấp 2 của bình luận gốc
+  is_accepted      Boolean            @default(false) // Đánh dấu câu trả lời đúng / lời giải hay nhất (Best Answer)
+  is_edited        Boolean            @default(false)
+  status           ForumCommentStatus @default(ACTIVE)
+  created_at       DateTime           @default(now())
+  updated_at       DateTime           @updatedAt
+
+  post          ForumPost       @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  author        User            @relation("ForumCommentAuthor", fields: [author_id], references: [id], onDelete: Cascade)
+  reply_to_user User?           @relation("ForumCommentReplyToUser", fields: [reply_to_user_id], references: [id], onDelete: SetNull)
+  parent        ForumComment?   @relation("ForumCommentReplies", fields: [parent_id], references: [id], onDelete: Cascade)
+  replies       ForumComment[]  @relation("ForumCommentReplies")
+  reactions     ForumReaction[]
+  reports       ForumReport[]
+
+  @@index([post_id, parent_id, created_at])
+  @@index([parent_id])
+  @@index([author_id])
+  @@index([reply_to_user_id])
+  @@index([status])
+  @@map("forum_comments")
+}
+
+model ForumReaction {
+  id            String            @id @default(uuid())
+  user_id       String
+  target_type   ForumTargetType   @default(POST) // POST | COMMENT
+  post_id       String?
+  comment_id    String?
+  reaction_type ForumReactionType @default(LIKE) // LIKE | UPVOTE | DOWNVOTE | HELPFUL | LOVE | HAHA
+  created_at    DateTime          @default(now())
+  updated_at    DateTime          @updatedAt
+
+  user    User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post    ForumPost?    @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  comment ForumComment? @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, post_id])
+  @@unique([user_id, comment_id])
+  @@index([post_id, reaction_type])
+  @@index([comment_id, reaction_type])
+  @@index([user_id])
+  @@map("forum_reactions")
+}
+
+model ForumReport {
+  id                String            @id @default(uuid())
+  reporter_id       String
+  target_type       ForumTargetType   @default(POST) // POST | COMMENT
+  post_id           String?
+  comment_id        String?
+  reason            ForumReportReason @default(OTHER)
+  description       String?           @db.Text
+  evidence_urls     Json?                             // Mảng URL ảnh chụp bằng chứng vi phạm
+  status            ForumReportStatus @default(PENDING)
+  resolved_by_id    String?
+  admin_note        String?           @db.Text
+  moderation_action String?           @db.VarChar(100) // NONE | HIDE_CONTENT | DELETE_CONTENT | WARN_USER | BAN_USER
+  resolved_at       DateTime?
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+
+  reporter    User          @relation("ForumReportReporter", fields: [reporter_id], references: [id], onDelete: Cascade)
+  resolved_by User?         @relation("ForumReportResolver", fields: [resolved_by_id], references: [id], onDelete: SetNull)
+  post        ForumPost?    @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  comment     ForumComment? @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+
+  @@index([status, created_at])
+  @@index([target_type, status])
+  @@index([post_id])
+  @@index([comment_id])
+  @@index([reporter_id])
+  @@index([resolved_by_id])
+  @@map("forum_reports")
+}
+
 

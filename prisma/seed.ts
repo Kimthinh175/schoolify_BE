@@ -1,4 +1,17 @@
-import { PrismaClient, BloomLevel, QuestionFormat, QuestionType, SystemRole } from '@prisma/client';
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call */
+import {
+  PrismaClient,
+  BloomLevel,
+  QuestionFormat,
+  QuestionType,
+  SystemRole,
+  ForumPostStatus,
+  ForumCommentStatus,
+  ForumTargetType,
+  ForumReactionType,
+  ForumReportReason,
+  ForumReportStatus,
+} from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
@@ -21,12 +34,22 @@ const DIFFICULTY_MAP: Record<string, BloomLevel> = {
 async function seedDefaultUsers() {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const bcrypt = require('bcrypt');
-  console.log('👤 Đang khởi tạo các tài khoản chuẩn (Admin, Giảng viên, Học sinh)...');
+  console.log(
+    '👤 Đang khởi tạo các tài khoản chuẩn (Admin, Giảng viên, Học sinh)...',
+  );
   const passwordHash = await bcrypt.hash('123456', 10);
 
   for (const adminInfo of [
-    { email: 'admin@schoolify.top', fullname: 'Kim Thịnh (Super Admin)', phone: '0901000001' },
-    { email: 'thinh@schoolify.edu.vn', fullname: 'Kim Thịnh', phone: '0901000002' },
+    {
+      email: 'admin@schoolify.top',
+      fullname: 'Kim Thịnh (Super Admin)',
+      phone: '0901000001',
+    },
+    {
+      email: 'thinh@schoolify.edu.vn',
+      fullname: 'Kim Thịnh',
+      phone: '0901000002',
+    },
   ]) {
     await prisma.user.upsert({
       where: { email: adminInfo.email },
@@ -89,10 +112,123 @@ async function seedDefaultUsers() {
   });
 
   console.log('✅ Đã khởi tạo xong tài khoản chuẩn (Mật khẩu: 123456)');
+  return { teacherUser, studentUser };
+}
+
+async function seedForumData(teacherUserId: string, studentUserId: string) {
+  const existingPosts = await prisma.forumPost.count();
+  if (existingPosts > 0) {
+    console.log(`✅ Diễn đàn đã có sẵn ${existingPosts} bài thảo luận.`);
+    return;
+  }
+
+  console.log(
+    '💬 Đang khởi tạo dữ liệu mẫu Diễn Đàn (ForumPost, ForumComment 2 cấp, ForumReaction, ForumReport)...',
+  );
+
+  const post = await prisma.forumPost.create({
+    data: {
+      author_id: studentUserId,
+      title:
+        'Hỏi bài Toán 12: Tìm m để hàm số bậc ba đồng biến trên khoảng (0; +∞)',
+      slug: 'hoi-bai-toan-12-tim-m-de-ham-so-bac-ba-dong-bien',
+      content:
+        'Em đang làm bài tập khảo sát hàm số Chương 1: $y = x^3 - 3mx^2 + 3(2m-1)x + 1$. Thầy cô và các bạn cho em hỏi trường hợp cô lập $m$ hay dùng tam thức bậc hai thì nhanh hơn ạ?',
+      subject: 'Toán Học',
+      grade: 12,
+      tags: ['Đạo hàm', 'Đơn điệu', 'Lớp 12'],
+      views_count: 120,
+      likes_count: 2,
+      comments_count: 2,
+      is_solved: true,
+      status: ForumPostStatus.PUBLISHED,
+    },
+  });
+
+  // Bình luận gốc (Cấp 1 - depth = 1, parent_id = null)
+  const rootComment = await prisma.forumComment.create({
+    data: {
+      post_id: post.id,
+      author_id: teacherUserId,
+      parent_id: null,
+      depth: 1,
+      content:
+        "Với bài này, hệ số của $m$ trong $y' = 3x^2 - 6mx + 3(2m-1)$ là bậc nhất theo $m$, nên em dùng phương pháp cô lập $m$: $y' \\ge 0 \\iff 2m(x - 1) \\le x^2 - 1$ sẽ nhanh và ít nhầm dấu hơn nhé!",
+      likes_count: 1,
+      replies_count: 1,
+      is_accepted: true,
+      status: ForumCommentStatus.ACTIVE,
+    },
+  });
+
+  // Trả lời lồng (Cấp 2 - depth = 2, parent_id = rootComment.id)
+  const nestedReply = await prisma.forumComment.create({
+    data: {
+      post_id: post.id,
+      author_id: studentUserId,
+      parent_id: rootComment.id,
+      reply_to_user_id: teacherUserId,
+      depth: 2,
+      content:
+        'Dạ em hiểu rồi ạ! Xét tại $x = 1$ thì bất phương trình luôn đúng với mọi $m$, sau đó chia 2 khoảng $(0; 1)$ và $(1; +\\infty)$ là ra ngay $m = 1$. Em cảm ơn thầy nhiều ạ!',
+      likes_count: 1,
+      replies_count: 0,
+      status: ForumCommentStatus.ACTIVE,
+    },
+  });
+
+  await prisma.forumPost.update({
+    where: { id: post.id },
+    data: { accepted_comment_id: rootComment.id },
+  });
+
+  // Tương tác cảm xúc (ForumReaction cho cả bài viết và bình luận)
+  await prisma.forumReaction.createMany({
+    data: [
+      {
+        user_id: teacherUserId,
+        target_type: ForumTargetType.POST,
+        post_id: post.id,
+        reaction_type: ForumReactionType.LIKE,
+      },
+      {
+        user_id: studentUserId,
+        target_type: ForumTargetType.COMMENT,
+        comment_id: rootComment.id,
+        reaction_type: ForumReactionType.HELPFUL,
+      },
+      {
+        user_id: teacherUserId,
+        target_type: ForumTargetType.COMMENT,
+        comment_id: nestedReply.id,
+        reaction_type: ForumReactionType.LOVE,
+      },
+    ],
+  });
+
+  // Báo cáo kiểm duyệt mẫu (ForumReport)
+  await prisma.forumReport.create({
+    data: {
+      reporter_id: studentUserId,
+      target_type: ForumTargetType.COMMENT,
+      post_id: post.id,
+      comment_id: nestedReply.id,
+      reason: ForumReportReason.OTHER,
+      description: 'Báo cáo thử nghiệm luồng kiểm duyệt bình luận diễn đàn.',
+      status: ForumReportStatus.RESOLVED,
+      resolved_by_id: teacherUserId,
+      admin_note: 'Nội dung hợp lệ, đóng báo cáo thử nghiệm.',
+      moderation_action: 'NONE',
+      resolved_at: new Date(),
+    },
+  });
+
+  console.log('✅ Đã khởi tạo xong dữ liệu mẫu Diễn Đàn!');
 }
 
 async function main() {
-  await seedDefaultUsers();
+  const { teacherUser, studentUser } = await seedDefaultUsers();
+  await seedForumData(teacherUser.id, studentUser.id);
   const existingQCount = await prisma.question.count();
   if (existingQCount >= 580) {
     console.log(`✅ Ngân hàng đề đã có sẵn ${existingQCount} câu hỏi.`);
@@ -104,7 +240,8 @@ async function main() {
     path.resolve(__dirname, '../../schoolify_FE/src/data/questions-db.json'),
     path.resolve(__dirname, '../../FE/src/data/questions-db.json'),
   ];
-  const dataPath = candidatePaths.find((p) => fs.existsSync(p)) || candidatePaths[0];
+  const dataPath =
+    candidatePaths.find((p) => fs.existsSync(p)) || candidatePaths[0];
   if (!fs.existsSync(dataPath)) {
     console.error(`❌ Không tìm thấy file dữ liệu câu hỏi tại: ${dataPath}`);
     return;
@@ -132,9 +269,10 @@ async function main() {
       qType = QuestionType.ESSAY;
     }
 
-    const shortAns = q.shortAnswerCorrect !== undefined && q.shortAnswerCorrect !== null
-      ? String(q.shortAnswerCorrect)
-      : null;
+    const shortAns =
+      q.shortAnswerCorrect !== undefined && q.shortAnswerCorrect !== null
+        ? String(q.shortAnswerCorrect)
+        : null;
 
     // Upsert Question
     await prisma.question.upsert({
