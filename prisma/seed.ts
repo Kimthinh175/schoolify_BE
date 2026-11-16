@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument */
 import {
   PrismaClient,
-  Prisma,
   BloomLevel,
   QuestionFormat,
   QuestionType,
@@ -896,7 +895,7 @@ async function seedForumData(
         comments_count: commentsCount,
         bookmarks_count: idx < 5 ? 1 : 0,
         status: ForumPostStatus.PUBLISHED,
-      } as unknown as Prisma.ForumPostUncheckedUpdateInput,
+      },
       create: {
         author_id: authorId,
         title: topic.title,
@@ -917,7 +916,7 @@ async function seedForumData(
         comments_count: commentsCount,
         bookmarks_count: idx < 5 ? 1 : 0,
         status: ForumPostStatus.PUBLISHED,
-      } as unknown as Prisma.ForumPostUncheckedCreateInput,
+      },
     });
 
     createdOrUpdatedPosts++;
