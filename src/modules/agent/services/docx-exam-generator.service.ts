@@ -13,7 +13,7 @@ import {
 export interface ParsedSeedQuestion {
   title: string;
   content: string;
-  questionFormat: 'SINGLE_CHOICE' | 'MULTI_CHOICE' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'ESSAY';
+  questionFormat: 'SINGLE_CHOICE' | 'MULTI_CHOICE' | 'TRUE_FALSE' | 'SHORT_ANSWER';
   bloomLevel: 'NHAN_BIET' | 'THONG_HIEU' | 'VAN_DUNG' | 'VAN_DUNG_CAO';
   chapter?: string;
   chapterId?: number;
@@ -427,7 +427,6 @@ export class DocxExamGeneratorService {
         TRUE_FALSE: 'TRUE_FALSE',
         FILL_BLANK: 'SHORT_ANSWER',
         SHORT_ANSWER: 'SHORT_ANSWER',
-        ESSAY: 'ESSAY',
       };
 
       const answers = Array.isArray(item.answers)
@@ -470,7 +469,6 @@ export class DocxExamGeneratorService {
         MULTIPLE_CHOICE: 'MULTI_CHOICE',
         TRUE_FALSE: 'TRUE_FALSE',
         FILL_BLANK: 'SHORT_ANSWER',
-        ESSAY: 'ESSAY',
       };
 
       return unified.map((u) => ({
@@ -869,7 +867,6 @@ export class DocxExamGeneratorService {
       const qFormat: ParsedSeedQuestion['questionFormat'] =
         q.questionFormat === 'TRUE_FALSE' ||
         q.questionFormat === 'SHORT_ANSWER' ||
-        q.questionFormat === 'ESSAY' ||
         q.questionFormat === 'MULTI_CHOICE'
           ? q.questionFormat
           : 'SINGLE_CHOICE';
@@ -878,9 +875,7 @@ export class DocxExamGeneratorService {
           ? 'TRUE_FALSE'
           : qFormat === 'SHORT_ANSWER'
             ? 'FILL_BLANK'
-            : qFormat === 'ESSAY'
-              ? 'ESSAY'
-              : 'SINGLE_CHOICE';
+            : 'SINGLE_CHOICE';
       const topicObj =
         scopeAnalysis.detectedTopics[idx % scopeAnalysis.detectedTopics.length] || {
           topicName: 'Chuyên đề trong đề gốc',
@@ -1005,9 +1000,7 @@ export class DocxExamGeneratorService {
           ? 'TRUE_FALSE'
           : generated.questionFormat === 'SHORT_ANSWER'
             ? 'FILL_BLANK'
-            : generated.questionFormat === 'ESSAY'
-              ? 'ESSAY'
-              : 'SINGLE_CHOICE';
+            : 'SINGLE_CHOICE';
 
       results.push({
         id: qId,
@@ -1538,9 +1531,6 @@ export class DocxExamGeneratorService {
     }
     if (val === 'SHORT_ANSWER' || val === 'FILL_BLANK') {
       return { qFormat: QuestionFormat.SHORT_ANSWER, qType: QuestionType.SINGLE_CHOICE };
-    }
-    if (val === 'ESSAY') {
-      return { qFormat: QuestionFormat.ESSAY, qType: QuestionType.ESSAY };
     }
     if (val === 'MULTI_CHOICE') {
       return { qFormat: QuestionFormat.MULTI_CHOICE, qType: QuestionType.MULTIPLE_CHOICE };

@@ -113,7 +113,7 @@ enum QuestionFormat {
   MULTI_CHOICE   // Chọn nhiều đáp án đúng
   TRUE_FALSE     // Đúng/Sai 4 ý con a, b, c, d
   SHORT_ANSWER   // Điền số / Trả lời ngắn
-  ESSAY          // Tự luận theo barem điểm
+  ESSAY          // Deprecated (đã gỡ bỏ module tự luận)
 }
 
 enum BloomLevel {
@@ -137,6 +137,19 @@ enum SubmissionStatus {
   RETURNED
 }
 
+enum QuestionIssueType {
+  WRONG_ANSWER
+  KATEX_ERROR
+  TYPO_CONTENT
+  MATRIX_MISMATCH
+  OTHER
+}
+
+enum QuestionBugReportStatus {
+  PENDING
+  RESOLVED
+}
+
 // ----------------------------------------------------
 // CORE & USER MODELS
 // ----------------------------------------------------
@@ -155,18 +168,20 @@ model User {
   created_at    DateTime   @default(now())
   updated_at    DateTime   @updatedAt
 
-  school_memberships      SchoolMember[]
-  teacher_profile         TeacherProfile?
-  student_profile         StudentProfile?
-  parent_profile          ParentProfile?
-  custom_feature_requests CustomFeatureRequest[]
-  notifications           Notification[]
-  orders_purchased        Order[]                @relation("OrderBuyer")
-  orders_sold             Order[]                @relation("OrderSeller")
-  schools_owned           School[]               @relation("SchoolOwner")
-  created_packages        SubscriptionPackage[]
-  question_banks          QuestionBank[]
-  store_items             StoreItem[]
+  school_memberships         SchoolMember[]
+  teacher_profile            TeacherProfile?
+  student_profile            StudentProfile?
+  parent_profile             ParentProfile?
+  custom_feature_requests    CustomFeatureRequest[]
+  notifications              Notification[]
+  orders_purchased           Order[]                @relation("OrderBuyer")
+  orders_sold                Order[]                @relation("OrderSeller")
+  schools_owned              School[]               @relation("SchoolOwner")
+  created_packages           SubscriptionPackage[]
+  question_banks             QuestionBank[]
+  store_items                StoreItem[]
+  question_reports_submitted QuestionBugReport[]   @relation("QuestionReportReporter")
+  question_reports_resolved  QuestionBugReport[]   @relation("QuestionReportResolver")
 
   @@index([google_id])
   @@map("users")
@@ -227,7 +242,13 @@ model StudentProfile {
   parent_students ParentStudent[]
   submissions     ExamSubmission[]
   progress        StudentProgress[]
-  exam_point_logs ExamPointLog[]
+  exam_point_logs    ExamPointLog[]
+  topic_masteries    StudentTopicMastery[]
+  roadmap_steps      StudentRoadmapStep[]
+  behavior_histories StudentBehaviorHistory[]
+  chapter_progress    StudentChapterProgress[]
+  pool_cursors        StudentPoolCursor[]
+  subject_diagnostics StudentSubjectDiagnostic[]
 
   @@map("student_profile")
 }
@@ -600,6 +621,7 @@ model Question {
   @@index([bank_id])
   @@index([lesson_id])
   @@index([subject, grade, bloom_level])
+  @@index([subject, grade, chapter_id, bloom_level, topic_tag, id])
   @@index([topic_tag])
   @@map("questions")
 }
@@ -829,16 +851,23 @@ model SemanticCache {
 }
 
 model ChatSession {
-  id         String   @id @default(uuid())
-  sessionKey String   @unique @map("session_key")
-  userId     String?  @map("user_id")
-  messages   Json     // Mảng tin nhắn ChatMessage[] (Sliding window 40 tin)
-  expiresAt  DateTime @map("expires_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  sessionKey         String   @unique @map("session_key")
+  userId             String?  @map("user_id")
+  title              String   @default("Cuộc trò chuyện mới")
+  isPinned           Boolean  @default(false) @map("is_pinned")
+  messageCount       Int      @default(0) @map("message_count")
+  lastMessagePreview String?  @map("last_message_preview")
+  summaryText        String?  @map("summary_text")
+  sessionVector      Json?    @map("session_vector")
+  messages           Json     // Mảng tin nhắn ChatMessage[]
+  expiresAt          DateTime @map("expires_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
-  @@index([userId])
+  @@index([userId, isPinned, updatedAt])
   @@index([sessionKey])
+  @@index([expiresAt])
   @@map("chat_sessions")
 }
 
@@ -878,3 +907,266 @@ model ExamPointLog {
   @@map("exam_point_logs")
 }
 
+// ----------------------------------------------------
+// STUDENT KNOWLEDGE PROFILING & ADAPTIVE ROADMAP
+// ----------------------------------------------------
+
+model StudentTopicMastery {
+  id                          String   @id @default(uuid())
+  student_id                  String
+  subject                     String   @db.VarChar(64)  // "toan-hoc", "tin-hoc", ...
+  grade                       Int      @default(12)
+  chapter_id                  Int      @default(1)
+  chapter_name                String?  @db.VarChar(255)
+  topic_tag                   String   @db.VarChar(255)
+  total_attempted             Int      @default(0)
+  total_correct               Int      @default(0)
+  total_wrong                 Int      @default(0)
+  nhan_biet_attempted         Int      @default(0)
+  nhan_biet_correct           Int      @default(0)
+  thong_hieu_attempted        Int      @default(0)
+  thong_hieu_correct          Int      @default(0)
+  van_dung_attempted          Int      @default(0)
+  van_dung_correct            Int      @default(0)
+  van_dung_cao_attempted      Int      @default(0)
+  van_dung_cao_correct        Int      @default(0)
+  remediation_attempted       Int      @default(0)
+  remediation_correct         Int      @default(0)
+  quick_drill_sessions        Int      @default(0)
+  quick_drill_completed_turns Int      @default(0)
+  quick_drill_skipped_turns   Int      @default(0)
+  quick_drill_correct_turns   Int      @default(0)
+  learning_spirit_score       Float    @default(70)
+  learning_spirit_tag         String?  @db.VarChar(64)
+  intelligence_score          Float    @default(70)
+  intelligence_tag            String?  @db.VarChar(64)
+  total_time_seconds          Int      @default(0)
+  mastery_score               Float    @default(0)      // 0..100
+  mastery_status              String   @default("UNTESTED") @db.VarChar(32) // WEAK | REVIEW | MASTERED | UNTESTED
+  trap_counts                 Json?    // Record<string, number>
+  recent_history              Json?    // Array<{ isCorrect: boolean; bloomLevel: string; at: string }>
+  last_practiced_at           DateTime @default(now())
+  created_at                  DateTime @default(now())
+  updated_at                  DateTime @updatedAt
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, subject, grade, topic_tag])
+  @@index([student_id, subject, grade])
+  @@index([mastery_status])
+  @@map("student_topic_masteries")
+}
+
+model StudentRoadmapStep {
+  id                       String    @id @default(uuid())
+  student_id               String
+  subject                  String    @db.VarChar(64)
+  grade                    Int       @default(12)
+  phase                    Int       @default(1) // 1: Vá lỗ hổng (<50%), 2: Củng cố (50-74%), 3: Bứt phá VDC (>=75% / Mở khóa)
+  step_order               Int       @default(1)
+  chapter_id               Int       @default(1)
+  chapter_name             String?   @db.VarChar(255)
+  topic_tag                String    @db.VarChar(255)
+  title                    String    @db.VarChar(255)
+  diagnostic_reason        String    @db.Text
+  recommended_level        String    @default("BASIC") @db.VarChar(32)      // BASIC | MEDIUM | ADVANCED
+  recommended_bloom        String    @default("THONG_HIEU") @db.VarChar(32) // NHAN_BIET | THONG_HIEU | VAN_DUNG | VAN_DUNG_CAO
+  question_count           Int       @default(10)
+  duration_minutes         Int       @default(15)
+  current_mastery          Float     @default(0)
+  target_mastery           Float     @default(75)
+  attempted_count          Int       @default(0)
+  correct_count            Int       @default(0)
+  top_trap_tag             String?   @db.VarChar(255)
+  special_behavior_tag     String?   @db.VarChar(64)
+  learning_spirit_tag      String?   @db.VarChar(64)
+  learning_spirit_label    String?   @db.VarChar(255)
+  learning_spirit_score    Float?
+  intelligence_tag         String?   @db.VarChar(64)
+  intelligence_label       String?   @db.VarChar(255)
+  intelligence_score       Float?
+  behavior_adaptation_note String?   @db.Text
+  status                   String    @default("RECOMMENDED") @db.VarChar(32) // RECOMMENDED | IN_PROGRESS | COMPLETED | LOCKED
+  completed_at             DateTime?
+  created_at               DateTime  @default(now())
+  updated_at               DateTime  @updatedAt
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, subject, grade, topic_tag])
+  @@index([student_id, subject, grade, phase, step_order])
+  @@map("student_roadmap_steps")
+}
+
+model StudentBehaviorHistory {
+  id                      String   @id @default(uuid())
+  student_id              String
+  submission_id           String?
+  attempt_token           String?  @db.VarChar(64)
+  subject                 String   @db.VarChar(64)
+  grade                   Int      @default(12)
+  chapter_id              Int      @default(1)
+  chapter_name            String?  @db.VarChar(255)
+  topic_tag               String   @db.VarChar(255)
+  source_question_id      String?  @db.VarChar(128)
+  source_question_title   String?  @db.VarChar(255)
+  bloom_level             String   @default("THONG_HIEU") @db.VarChar(32)
+  trap_tag                String?  @db.VarChar(255)
+  special_tag             String   @default("#LUYEN_LAI_3_LAN_CUNG_DANG") @db.VarChar(64)
+  is_scored               Boolean  @default(false)
+  total_turns             Int      @default(3)
+  completed_turns         Int      @default(0)
+  skipped_turns           Int      @default(0)
+  correct_turns           Int      @default(0)
+  wrong_turns             Int      @default(0)
+  used_ai_example         Boolean  @default(false)
+  total_time_seconds      Int      @default(0)
+  turn_outcomes           Json?    // Array<{ turn: number; status: 'CORRECT'|'WRONG'|'SKIPPED'; selectedAnswer?: string; correctAnswer?: string; timeSpentSeconds: number }>
+  learning_spirit_tag     String   @db.VarChar(64)  // HIGH_GRIT_PERSISTENT | MODERATE_INITIATIVE | LOW_PATIENCE_PARTIAL_SKIP | AVOIDANCE_SKIPPED
+  learning_spirit_label   String   @db.VarChar(255)
+  learning_spirit_score   Float    @default(50)     // 0..100
+  intelligence_tag        String   @db.VarChar(64)  // FAST_ISOMORPHIC_TRANSFER | RAPID_SELF_CORRECTION | DEVELOPING_PATTERN_LOGIC | NEEDS_STEP_BY_STEP_SCAFFOLDING
+  intelligence_label      String   @db.VarChar(255)
+  intelligence_score      Float    @default(50)     // 0..100
+  roadmap_strategy_tag    String?  @db.VarChar(64)  // ACCELERATE_ADVANCED | MICRO_SPRINT_ANTI_BOREDOM | SCAFFOLD_STEP_BY_STEP | WARMUP_LOW_FRICTION
+  roadmap_adaptation_note String?  @db.Text
+  created_at              DateTime @default(now())
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@index([student_id, subject, grade, created_at])
+  @@index([student_id, topic_tag])
+  @@index([special_tag])
+  @@map("student_behavior_histories")
+}
+
+/// Nhật ký lượt truy cập website & sự kiện điều hướng (Real-time Web Traffic & Page Views)
+model WebVisitLog {
+  id                String   @id @default(uuid()) @db.Uuid
+  path              String   @db.VarChar(255)
+  page_title        String?  @db.VarChar(255)
+  user_id           String?  @db.VarChar(128)
+  user_role         String?  @default("GUEST") @db.VarChar(32)
+  session_id        String?  @db.VarChar(128)
+  device_type       String?  @default("DESKTOP") @db.VarChar(32)
+  os_name           String?  @db.VarChar(64)
+  browser_name      String?  @db.VarChar(64)
+  device_model      String?  @db.VarChar(128)
+  screen_resolution String?  @db.VarChar(32)
+  ip_address        String?  @db.VarChar(64)
+  country_code      String?  @db.VarChar(8)
+  country_name      String?  @db.VarChar(64)
+  region_name       String?  @db.VarChar(128)
+  city_name         String?  @db.VarChar(128)
+  isp_name          String?  @db.VarChar(128)
+  timezone          String?  @db.VarChar(64)
+  language          String?  @db.VarChar(32)
+  referrer          String?  @db.VarChar(512)
+  user_agent        String?  @db.Text
+  created_at        DateTime @default(now())
+
+  @@index([path, created_at(sort: Desc)])
+  @@index([session_id])
+  @@index([user_id])
+  @@index([country_code, city_name])
+  @@index([created_at(sort: Desc)])
+  @@map("web_visit_logs")
+}
+
+/// Tiến độ chinh phục từng Chương theo lộ trình kiểu Duolingo (3 cấp độ: Cơ bản, Trung bình, Nâng cao)
+model StudentChapterProgress {
+  id                  String   @id @default(uuid())
+  student_id          String
+  subject             String   @db.VarChar(64)                // 'toan-hoc' | 'tin-hoc'
+  grade               Int      @default(12)                   // 10 | 11 | 12
+  track               String   @default("DEFAULT") @db.VarChar(32) // 'TOAN_SO' | 'TOAN_HINH' | 'DEFAULT'
+  chapter_id          Int
+  basic_completed     Boolean  @default(false)
+  basic_best_score    Float    @default(0)
+  medium_completed    Boolean  @default(false)
+  medium_best_score   Float    @default(0)
+  advanced_completed         Boolean  @default(false)
+  advanced_best_score        Float    @default(0)
+  unlocked_manually          Boolean  @default(false)                // Tương thích ngược (Cơ bản)
+  basic_unlocked_manually    Boolean  @default(false)                // Nhảy cóc chương ở lộ trình Cơ bản
+  medium_unlocked_manually   Boolean  @default(false)                // Nhảy cóc chương ở lộ trình Trung bình
+  advanced_unlocked_manually Boolean  @default(false)                // Nhảy cóc chương ở lộ trình Nâng cao
+  crowns_earned              Int      @default(0)                    // 0..3 sao
+  attempts_count             Int      @default(0)
+  last_practiced_at          DateTime @default(now())
+  created_at                 DateTime @default(now())
+  updated_at                 DateTime @updatedAt
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, subject, grade, chapter_id])
+  @@index([student_id, subject, grade, track])
+  @@map("student_chapter_progress")
+}
+
+/// Kết quả kiểm tra đánh giá năng lực đầu vào theo từng Môn học & Khối lớp
+model StudentSubjectDiagnostic {
+  id              String   @id @default(uuid())
+  student_id      String
+  subject         String   @db.VarChar(64)
+  grade           Int      @default(12)
+  assigned_level  String   @default("BASIC") @db.VarChar(32)
+  overall_score   Float    @default(0)
+  track_scores    Json?
+  bloom_breakdown Json?
+  submission_id   String?
+  completed_at    DateTime @default(now())
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, subject, grade])
+  @@index([student_id, subject, grade])
+  @@map("student_subject_diagnostics")
+}
+
+model QuestionBugReport {
+  id               String                  @id @default(uuid())
+  question_id      String                  @db.VarChar(255)
+  question_title   String                  @db.VarChar(500)
+  subject_name     String                  @default("Toán Học") @db.VarChar(120)
+  question_snippet String?                 @db.Text
+  issue_type       QuestionIssueType       @default(OTHER)
+  issue_type_label String?                 @db.VarChar(255)
+  description      String                  @db.Text
+  reporter_id      String?
+  reporter_name    String                  @default("Học sinh luyện thi") @db.VarChar(255)
+  status           QuestionBugReportStatus @default(PENDING)
+  admin_note       String?                 @db.Text
+  resolved_by_id   String?
+  resolved_at      DateTime?
+  created_at       DateTime                @default(now())
+  updated_at       DateTime                @updatedAt
+
+  reporter    User? @relation("QuestionReportReporter", fields: [reporter_id], references: [id], onDelete: SetNull)
+  resolved_by User? @relation("QuestionReportResolver", fields: [resolved_by_id], references: [id], onDelete: SetNull)
+
+  @@index([status, created_at])
+  @@index([question_id])
+  @@index([reporter_id])
+  @@map("question_bug_reports")
+}
+
+/// Con trỏ chu kỳ sinh đề ứng biến (Multi-Epoch LCG Stride) cho từng học sinh & bể câu hỏi (>100,000 users)
+model StudentPoolCursor {
+  id                String   @id @default(uuid())
+  student_id        String
+  pool_key          String   @db.VarChar(180)
+  cursor_pos        Int      @default(0)
+  epoch             Int      @default(0)
+  last_boundary_ids Json?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, pool_key])
+  @@index([student_id])
+  @@map("student_pool_cursors")
+}

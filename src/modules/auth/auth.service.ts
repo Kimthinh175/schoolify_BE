@@ -247,6 +247,33 @@ export class AuthService {
     };
   }
 
+  async changePassword(userId: string, currentPassword?: string, newPassword?: string) {
+    if (!newPassword || newPassword.trim().length < 6) {
+      throw new BadRequestException('Mật khẩu mới phải có ít nhất 6 ký tự');
+    }
+
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('Không tìm thấy tài khoản');
+    }
+
+    // Nếu tài khoản có mật khẩu cũ và có gửi currentPassword thì kiểm tra
+    if (currentPassword && user.password_hash) {
+      const isMatch = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!isMatch) {
+        throw new BadRequestException('Mật khẩu hiện tại không chính xác');
+      }
+    }
+
+    const hashed = await bcrypt.hash(newPassword.trim(), 10);
+    await this.usersService.updatePasswordHash(userId, hashed);
+
+    return {
+      success: true,
+      message: 'Đổi mật khẩu thành công',
+    };
+  }
+
   sanitizeUser(user: any) {
     const { password_hash, ...sanitized } = user;
     return {

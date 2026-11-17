@@ -116,6 +116,8 @@ async function main() {
 
   let count = 0;
   for (const q of questions) {
+    if (q.type === 'ESSAY') continue;
+
     const bloom = DIFFICULTY_MAP[q.difficulty] || BloomLevel.THONG_HIEU;
 
     let qFormat: QuestionFormat = QuestionFormat.SINGLE_CHOICE;
@@ -124,12 +126,9 @@ async function main() {
     if (q.type === 'TRUE_FALSE') {
       qFormat = QuestionFormat.TRUE_FALSE;
       qType = QuestionType.TRUE_FALSE;
-    } else if (q.type === 'SHORT_ANSWER') {
+    } else if (q.type === 'SHORT_ANSWER' || q.type === 'FILL_BLANK') {
       qFormat = QuestionFormat.SHORT_ANSWER;
       qType = QuestionType.SINGLE_CHOICE;
-    } else if (q.type === 'ESSAY') {
-      qFormat = QuestionFormat.ESSAY;
-      qType = QuestionType.ESSAY;
     }
 
     const shortAns = q.shortAnswerCorrect !== undefined && q.shortAnswerCorrect !== null

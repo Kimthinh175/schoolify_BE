@@ -606,7 +606,7 @@ export interface UnifiedParsedQuestion {
   index: number;
   questionNumber: number;
   title: string;
-  questionType: 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'FILL_BLANK' | 'ESSAY';
+  questionType: 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'FILL_BLANK';
   difficulty: 'RECOGNITION' | 'UNDERSTANDING' | 'APPLICATION' | 'ADVANCED_APPLICATION';
   chapter: string;
   content: string;
@@ -797,11 +797,9 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
     let qType: UnifiedParsedQuestion['questionType'] =
       currentQ.section === 2
         ? 'TRUE_FALSE'
-        : currentQ.section === 3
+        : currentQ.section === 3 || currentQ.section === 4
           ? 'FILL_BLANK'
-          : currentQ.section === 4
-            ? 'ESSAY'
-            : 'SINGLE_CHOICE';
+          : 'SINGLE_CHOICE';
 
     let answers = [...currentQ.answers];
     let explain = currentQ.explainLines.join('\n').trim();
@@ -809,7 +807,7 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
 
     if (qType === 'SINGLE_CHOICE') {
       if (answers.length === 0) {
-        qType = 'ESSAY';
+        qType = 'FILL_BLANK';
       } else {
         // Tra cứu đáp án đúng từ BẢNG ĐÁP ÁN nếu chưa được đánh dấu trực tiếp
         let keyLetter = '';
@@ -846,7 +844,9 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
           isCorrect: tfFlags![idx] ?? a.isCorrect,
         }));
       }
-    } else if (qType === 'FILL_BLANK') {
+    }
+
+    if (qType === 'FILL_BLANK') {
       if (!shortAnswer) {
         for (const n of lookupNums) {
           if (saKeyMap[n]) {
@@ -861,16 +861,6 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
       } else if (answers.length === 0) {
         answers = [{ label: 'Đáp số', content: '(Điền đáp số)', isCorrect: true }];
       }
-    } else if (qType === 'ESSAY') {
-      if (answers.length === 0) {
-        answers = [
-          {
-            label: 'Tự luận',
-            content: 'Học sinh trình bày lời giải chi tiết theo từng bước lập luận.',
-            isCorrect: true,
-          },
-        ];
-      }
     }
 
     const points =
@@ -878,9 +868,7 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
         ? 1.0
         : qType === 'FILL_BLANK'
           ? 0.5
-          : qType === 'ESSAY'
-            ? 2.0
-            : 0.25;
+          : 0.25;
 
     results.push({
       index: seqIndex,

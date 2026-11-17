@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode, HttpStatus } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CatalogService } from './catalog.service';
 
@@ -68,6 +69,17 @@ export class CatalogController {
     return {
       success: true,
       message: 'Thanh toán và kích hoạt gói thành công',
+      data,
+    };
+  }
+
+  @Patch('orders/:id/cancel')
+  @ApiOperation({ summary: 'Hủy đơn hàng đang chờ thanh toán (PENDING -> CANCELLED)' })
+  async cancelOrder(@Param('id') id: string, @Body() body?: { reason?: string }) {
+    const data = await this.catalogService.cancelOrder(id, body?.reason);
+    return {
+      success: true,
+      message: 'Đã hủy đơn hàng thành công',
       data,
     };
   }
@@ -176,4 +188,29 @@ export class CatalogController {
       data,
     };
   }
+
+  @Post('analytics/visit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Ghi nhận lượt truy cập trang web vào PostgreSQL (web_visit_logs)' })
+  async recordVisit(@Body() body: any, @Req() req: Request) {
+    const data = await this.catalogService.recordWebVisit(body || {}, {
+      headers: (req?.headers || {}) as Record<string, string | string[] | undefined>,
+      remoteAddress: req?.socket?.remoteAddress || req?.ip || undefined,
+    });
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Get('analytics/behavior')
+  @ApiOperation({ summary: 'Thống kê hành vi học sinh & toàn diện hệ thống Web (PostgreSQL 100%)' })
+  async getBehaviorAnalytics() {
+    const data = await this.catalogService.getBehaviorAnalytics();
+    return {
+      success: true,
+      data,
+    };
+  }
 }
+

@@ -21,12 +21,18 @@ import {
 import { ExamsService } from './exams.service';
 import {
   AdminAdjustPointsDto,
+  CreateQuestionBugReportDto,
   DailyClaimPointsDto,
   GenerateMatrixExamDto,
+  RecordQuickDrillBehaviorDto,
   SettleExamPointsDto,
   StartExamWithPointsDto,
   SubmitExamDto,
+  SubmitRemediationDto,
+  SyncGuestOnboardingDto,
   SyncOfflineSubmissionsDto,
+  UnlockChapterJumpDto,
+  UpdateQuestionBugReportStatusDto,
 } from './dto/exam.dto';
 
 @ApiTags('Exams & Practice (Khảo thí & Luyện thi)')
@@ -92,6 +98,9 @@ export class ExamsController {
       correctCount: data.correctCount,
       wrongCount: data.wrongCount,
       totalQuestions: data.totalQuestions,
+      knowledgeUpdate: data.knowledgeUpdate,
+      chapterProgressUpdate: data.chapterProgressUpdate,
+      diagnosticUpdate: data.diagnosticUpdate,
       data,
     };
   }
@@ -162,6 +171,9 @@ export class ExamsController {
       correctCount: data.correctCount,
       wrongCount: data.wrongCount,
       totalQuestions: data.totalQuestions,
+      knowledgeUpdate: data.knowledgeUpdate,
+      chapterProgressUpdate: data.chapterProgressUpdate,
+      diagnosticUpdate: data.diagnosticUpdate,
       data,
     };
   }
@@ -387,13 +399,38 @@ export class ExamsController {
     };
   }
 
+  @Post('questions/by-ids')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lấy danh sách câu hỏi đã chỉnh sửa theo danh sách ID từ PostgreSQL' })
+  async getQuestionsByIds(@Body() body: { ids?: string[] }) {
+    const data = await this.examsService.getQuestionsByIds(
+      Array.isArray(body?.ids) ? body.ids : [],
+    );
+    return {
+      success: true,
+      data,
+    };
+  }
+
   @Patch('questions/:id')
-  @ApiOperation({ summary: 'Cập nhật câu hỏi trong Ngân hàng đề' })
+  @ApiOperation({ summary: 'Cập nhật hoặc chỉnh sửa trực tiếp câu hỏi & câu trả lời trong Ngân hàng đề (PostgreSQL)' })
   async updateQuestion(@Param('id') id: string, @Body() body: any) {
     const data = await this.examsService.updateQuestion(id, body);
     return {
       success: true,
-      message: 'Cập nhật câu hỏi thành công',
+      message: 'Cập nhật câu hỏi và đáp án vào PostgreSQL thành công',
+      data,
+    };
+  }
+
+  @Post('questions/:id/direct-edit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Chỉnh sửa trực tiếp câu hỏi / đáp án ngay trong phòng thi (dành cho Admin)' })
+  async directEditQuestion(@Param('id') id: string, @Body() body: any) {
+    const data = await this.examsService.updateQuestion(id, body);
+    return {
+      success: true,
+      message: 'Đã lưu chỉnh sửa câu hỏi & đáp án vào PostgreSQL',
       data,
     };
   }
@@ -415,6 +452,338 @@ export class ExamsController {
     const data = await this.examsService.listTemplates();
     return {
       success: true,
+      data,
+    };
+  }
+
+  // ==========================================================================
+  // HỒ SƠ KIẾN THỨC & LỘ TRÌNH HỌC TẬP CÁ NHÂN HÓA (POSTGRESQL + PRISMA)
+  // ==========================================================================
+
+  @Get('knowledge-profile')
+  @ApiOperation({
+    summary:
+      'Lấy Hồ sơ Kiến thức & Bản đồ Lỗ hổng của học sinh (tự động tổng hợp từ các bài thi đã nộp trong PostgreSQL)',
+  })
+  @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
+  @ApiQuery({ name: 'grade', required: false, example: 12 })
+  @ApiQuery({ name: 'userId', required: false })
+  async getKnowledgeProfile(
+    @Req() req: any,
+    @Query('subject') subject?: string,
+    @Query('grade') grade?: string,
+    @Query('userId') queryUserId?: string,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId =
+      authUser?.id ||
+      req.user?.id ||
+      queryUserId ||
+      (req?.headers?.['x-user-id'] as string) ||
+      null;
+    const data = await this.examsService.getKnowledgeProfile(
+      userId,
+      subject || 'toan-hoc',
+      grade ? parseInt(grade, 10) : 12,
+    );
+    return {
+      success: true,
+      message: 'Lấy hồ sơ kiến thức và bản đồ lỗ hổng thành công',
+      data,
+    };
+  }
+
+  @Get('personalized-roadmap')
+  @ApiOperation({
+    summary:
+      'Lấy Lộ trình Học tập Cá nhân hóa 3 Chặng của học sinh dựa trên tỉ lệ đúng/sai & cấp độ Bloom',
+  })
+  @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
+  @ApiQuery({ name: 'grade', required: false, example: 12 })
+  @ApiQuery({ name: 'userId', required: false })
+  async getPersonalizedRoadmap(
+    @Req() req: any,
+    @Query('subject') subject?: string,
+    @Query('grade') grade?: string,
+    @Query('userId') queryUserId?: string,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId =
+      authUser?.id ||
+      req.user?.id ||
+      queryUserId ||
+      (req?.headers?.['x-user-id'] as string) ||
+      null;
+    const data = await this.examsService.getPersonalizedRoadmap(
+      userId,
+      subject || 'toan-hoc',
+      grade ? parseInt(grade, 10) : 12,
+    );
+    return {
+      success: true,
+      message: 'Lấy lộ trình cá nhân hóa thành công',
+      data,
+    };
+  }
+
+  @Post('remediation-submit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Nộp kết quả bài Luyện bù biến thể (Remediation), cộng điểm phục hồi năng lực và cập nhật lộ trình cá nhân hóa',
+  })
+  async submitRemediationResult(@Req() req: any, @Body() dto: SubmitRemediationDto) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId =
+      authUser?.id ||
+      req.user?.id ||
+      dto.userId ||
+      (req?.headers?.['x-user-id'] as string) ||
+      null;
+    const data = await this.examsService.submitRemediationResult(userId, dto);
+    return {
+      success: true,
+      message: 'Đã lưu kết quả luyện bù và cập nhật hồ sơ năng lực thành công',
+      data,
+    };
+  }
+
+  @Post('quick-drill-behavior')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Lưu lịch sử hành vi khi Luyện lại nhanh 3 câu cùng dạng (Không tính điểm học vụ, gắn Tag đặc biệt đánh giá Tinh thần học tập & Trí thông minh để thiết kế lại lộ trình)',
+  })
+  async recordQuickDrillBehavior(
+    @Req() req: any,
+    @Body() dto: RecordQuickDrillBehaviorDto,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId =
+      authUser?.id ||
+      req.user?.id ||
+      dto.userId ||
+      (req?.headers?.['x-user-id'] as string) ||
+      null;
+    const data = await this.examsService.recordQuickDrillBehavior(userId, dto);
+    return {
+      success: true,
+      message: 'Đã lưu lịch sử hành vi luyện tập và cập nhật lộ trình cá nhân hóa',
+      data,
+    };
+  }
+
+  @Get('behavior-history')
+  @ApiOperation({
+    summary:
+      'Lấy lịch sử hành vi luyện lại 3 câu cùng dạng và đánh giá Tinh thần học tập & Trí thông minh từ PostgreSQL',
+  })
+  @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
+  @ApiQuery({ name: 'grade', required: false, example: 12 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiQuery({ name: 'userId', required: false })
+  async getBehaviorHistory(
+    @Req() req: any,
+    @Query('subject') subject?: string,
+    @Query('grade') grade?: string,
+    @Query('limit') limit?: string,
+    @Query('userId') queryUserId?: string,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId =
+      authUser?.id ||
+      req.user?.id ||
+      queryUserId ||
+      (req?.headers?.['x-user-id'] as string) ||
+      null;
+    const data = await this.examsService.getBehaviorHistory(
+      userId,
+      subject,
+      grade ? parseInt(grade, 10) : undefined,
+      limit ? parseInt(limit, 10) : 20,
+    );
+    return {
+      success: true,
+      message: 'Lấy lịch sử hành vi học tập thành công',
+      data,
+    };
+  }
+
+  // ==========================================================================
+  // LỘ TRÌNH CHƯƠNG KIỂU DUOLINGO (3 VƯƠNG MIỆN ⭐ & TÁCH TOÁN SỐ / HÌNH)
+  // ==========================================================================
+
+  @Get('diagnostic-status')
+  @ApiOperation({
+    summary: 'Kiểm tra trạng thái bài Test Đánh giá năng lực bắt buộc theo (subject, grade)',
+  })
+  @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
+  @ApiQuery({ name: 'grade', required: false, example: '12' })
+  async getDiagnosticStatus(
+    @Req() req: any,
+    @Query('subject') subject?: string,
+    @Query('grade') grade?: string,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId =
+      authUser?.id ||
+      req.user?.id ||
+      (req?.headers?.['x-user-id'] as string) ||
+      null;
+    const userRole =
+      authUser?.role ||
+      req.user?.role ||
+      (req?.headers?.['x-user-role'] as string) ||
+      undefined;
+    const parsedGrade = grade ? Number(grade) : undefined;
+    const data = await this.examsService.getDiagnosticStatus(
+      userId,
+      subject,
+      parsedGrade,
+      userRole,
+    );
+    return {
+      success: true,
+      message: 'Lấy trạng thái đánh giá năng lực thành công',
+      data,
+    };
+  }
+
+  @Get('chapter-roadmap')
+  @ApiOperation({
+    summary:
+      'Lấy bản đồ lộ trình từng chương kiểu Duolingo (Tách Toán Số & Toán Hình, Lớp 10-11-12, Học kỳ thời gian thực & 3 Vương miện)',
+  })
+  @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
+  @ApiQuery({ name: 'grade', required: false, example: 10 })
+  async getChapterRoadmap(
+    @Req() req: any,
+    @Query('subject') subject?: string,
+    @Query('grade') grade?: string,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || req.user?.id || null;
+    const parsedGrade = grade ? parseInt(grade, 10) : undefined;
+    const data = await this.examsService.getChapterRoadmap(
+      userId,
+      subject,
+      parsedGrade,
+    );
+    return {
+      success: true,
+      message: 'Lấy lộ trình chương kiểu Duolingo thành công',
+      data,
+    };
+  }
+
+  @Post('chapter-roadmap/jump')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Mở khóa nhảy cóc tới chương học sinh đang học thực tế trên lớp',
+  })
+  async unlockChapterJump(@Req() req: any, @Body() dto: UnlockChapterJumpDto) {
+    const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.unlockChapterJump(currentUser!.id, dto);
+    return {
+      success: true,
+      message: 'Đã mở khóa chương thành công',
+      data,
+    };
+  }
+
+  @Post('sync-guest-onboarding')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Đồng bộ Tên, Lớp đang học và Chương đã làm thử của Khách sang PostgreSQL ngay sau khi đăng nhập',
+  })
+  async syncGuestOnboarding(@Req() req: any, @Body() dto: SyncGuestOnboardingDto) {
+    const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.syncGuestOnboarding(currentUser!.id, dto);
+    return {
+      success: true,
+      message: 'Đã đồng bộ thông tin lớp học và tiến độ làm thử vào tài khoản',
+      data,
+    };
+  }
+
+  // ==========================================================================
+  // BÁO CÁO SAI SÓT CÂU HỎI TỪ PHÒNG THI (QUESTION BUG REPORTS - POSTGRESQL)
+  // ==========================================================================
+
+  @Post('question-reports')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Học sinh gửi báo cáo sai sót câu hỏi cho Ban Khảo thí' })
+  @ApiResponse({ status: 201, description: 'Gửi báo cáo sai sót câu hỏi thành công' })
+  async createQuestionBugReport(@Req() req: any, @Body() dto: CreateQuestionBugReportDto) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const data = await this.examsService.createQuestionBugReport(authUser, dto);
+    return {
+      success: true,
+      message: 'Đã gửi báo cáo sai sót câu hỏi cho Ban Khảo thí thành công!',
+      data,
+    };
+  }
+
+  @Get('question-reports')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Danh sách báo cáo sai sót câu hỏi (lọc theo trạng thái & từ khóa)' })
+  @ApiQuery({ name: 'status', required: false, enum: ['ALL', 'PENDING', 'RESOLVED'] })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 100 })
+  async listQuestionBugReports(
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('page') page = '1',
+    @Query('limit') limit = '100',
+  ) {
+    const data = await this.examsService.listQuestionBugReports({
+      status,
+      search,
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
+    });
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Patch('question-reports/:id/status')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin/Giáo viên đánh dấu đã xử lý hoặc mở lại báo cáo câu hỏi' })
+  @ApiResponse({ status: 200, description: 'Cập nhật trạng thái báo cáo thành công' })
+  async updateQuestionBugReportStatus(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateQuestionBugReportStatusDto,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.updateQuestionBugReportStatus(id, authUser, dto);
+    return {
+      success: true,
+      message:
+        dto.status === 'RESOLVED'
+          ? 'Đã đánh dấu báo cáo là đã xử lý!'
+          : 'Đã mở lại báo cáo để kiểm tra thêm!',
+      data,
+    };
+  }
+
+  @Delete('question-reports/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Xóa báo cáo sai sót câu hỏi' })
+  @ApiResponse({ status: 200, description: 'Xóa báo cáo thành công' })
+  async deleteQuestionBugReport(@Req() req: any, @Param('id') id: string) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.deleteQuestionBugReport(id, authUser);
+    return {
+      success: true,
+      message: 'Đã xóa báo cáo sai sót câu hỏi thành công!',
       data,
     };
   }

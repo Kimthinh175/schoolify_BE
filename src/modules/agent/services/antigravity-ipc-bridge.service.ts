@@ -17,6 +17,11 @@ export interface AgentResponseResult {
   }>;
   emotion?: RobotEmotion;
   suggestions?: string[];
+  usageMetadata?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 @Injectable()
@@ -25,97 +30,19 @@ export class AntigravityIpcBridgeService {
   private readonly ipcInboxDir = '/home/thinh/ca-nhan/schoolify/BE/ipc/inbox';
   private readonly ipcOutboxDir = '/home/thinh/ca-nhan/schoolify/BE/ipc/outbox';
 
-  constructor() {
-    this.ensureIpcDirectories();
-  }
-
-  private ensureIpcDirectories() {
-    try {
-      if (!fs.existsSync(this.ipcInboxDir)) fs.mkdirSync(this.ipcInboxDir, { recursive: true });
-      if (!fs.existsSync(this.ipcOutboxDir)) fs.mkdirSync(this.ipcOutboxDir, { recursive: true });
-    } catch (e: any) {
-      this.logger.warn(`Không thể tạo thư mục IPC: ${e.message}`);
-    }
-  }
+  constructor() {}
 
   /**
-   * Giao thức bắt tay 2 pha (2-Phase Live IPC Handshake) kết nối trực tiếp vào phiên Antigravity:
-   * - Pha 1 (800ms): Ghi job vào `inbox/<jobId>.json`. Nếu `antigravity-watcher.js` đang lắng nghe,
-   *   nó sẽ lập tức đổi tên thành `<jobId>.claimed.json` và đánh thức Antigravity Agent.
-   * - Pha 2 (tối đa timeoutMs): Khi đã được Antigravity claim, BE chờ file kết quả tại `outbox/<jobId>.json`
-   *   do chính Antigravity Agent biên soạn và ghi trả về.
+   * Đã ngắt hoàn toàn cổng IPC file bridge nội bộ theo yêu cầu —
+   * Toàn bộ tác vụ AI sử dụng trực tiếp cụm khóa Google Gemini 2.5 Flash API (Multi-Key Rotation).
    */
   async requestLiveAntigravity<T>(
-    jobId: string,
-    type: 'DOCX_SCAN_GENERATE' | 'AGENT_CHAT' | 'SEMANTIC_CHECKPOINT',
-    payload: Record<string, any>,
-    timeoutMs = 60000,
+    _jobId: string,
+    _type: 'DOCX_SCAN_GENERATE' | 'AGENT_CHAT' | 'SEMANTIC_CHECKPOINT',
+    _payload: Record<string, any>,
+    _timeoutMs = 60000,
   ): Promise<T | null> {
-    this.ensureIpcDirectories();
-    const jobFile = path.join(this.ipcInboxDir, `${jobId}.json`);
-    const claimedFile = path.join(this.ipcInboxDir, `${jobId}.claimed.json`);
-    const outboxFile = path.join(this.ipcOutboxDir, `${jobId}.json`);
-
-    try {
-      fs.writeFileSync(
-        jobFile,
-        JSON.stringify(
-          {
-            id: jobId,
-            type,
-            payload,
-            timestamp: new Date().toISOString(),
-          },
-          null,
-          2,
-        ),
-      );
-
-      // Pha 1: Chờ tối đa 800ms xem Antigravity Watcher có đang thức và claim job không
-      let isClaimed = false;
-      const claimDeadline = Date.now() + 800;
-      while (Date.now() < claimDeadline) {
-        if (fs.existsSync(claimedFile) || fs.existsSync(outboxFile)) {
-          isClaimed = true;
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 100));
-      }
-
-      if (!isClaimed) {
-        try {
-          if (fs.existsSync(jobFile)) fs.unlinkSync(jobFile);
-        } catch {}
-        return null;
-      }
-
-      this.logger.log(
-        `⚡ [Antigravity Live Bridge] Antigravity Agent đã nhận job [${type}] (${jobId}), đang chờ kết quả từ phiên chat...`,
-      );
-
-      // Pha 2: Chờ Antigravity ghi file kết quả vào outbox/<jobId>.json
-      const responseDeadline = Date.now() + timeoutMs;
-      while (Date.now() < responseDeadline) {
-        if (fs.existsSync(outboxFile)) {
-          await new Promise((r) => setTimeout(r, 80)); // Đảm bảo flush xong file
-          const raw = fs.readFileSync(outboxFile, 'utf-8');
-          const parsed = JSON.parse(raw) as T;
-          try {
-            if (fs.existsSync(claimedFile)) fs.unlinkSync(claimedFile);
-            if (fs.existsSync(outboxFile)) fs.unlinkSync(outboxFile);
-          } catch {}
-          this.logger.log(`✅ [Antigravity Live Bridge] Đã nhận kết quả trực tiếp từ Antigravity cho job ${jobId}!`);
-          return parsed;
-        }
-        await new Promise((r) => setTimeout(r, 250));
-      }
-
-      this.logger.warn(`⏱️ [Antigravity Live Bridge] Hết thời gian chờ job ${jobId}, chuyển sang bộ sinh nội bộ.`);
-      return null;
-    } catch (err: any) {
-      this.logger.warn(`Lỗi IPC Bridge (${jobId}): ${err.message}`);
-      return null;
-    }
+    return null;
   }
 
   /**
@@ -128,22 +55,6 @@ export class AntigravityIpcBridgeService {
   ): Promise<SemanticLogicResult> {
     const normStudent = candidateSentence.trim().toLowerCase();
     const normCheckpoint = rubricCheckpoint.trim().toLowerCase();
-
-    // 1. Ưu tiên gửi thẳng vào phiên Antigravity đang thức qua Live IPC Bridge
-    const jobId = `job-eval-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const liveRes = await this.requestLiveAntigravity<SemanticLogicResult>(
-      jobId,
-      'SEMANTIC_CHECKPOINT',
-      {
-        candidateSentence,
-        rubricCheckpoint,
-        vectorSimilarity,
-      },
-      60000,
-    );
-    if (liveRes && typeof liveRes.isCorrect === 'boolean') {
-      return liveRes;
-    }
 
     // 2. Dự phòng: Logic kiểm tra phủ định & đối soát tính đúng đắn khoa học
     const negationKeywords = [
@@ -264,10 +175,284 @@ export class AntigravityIpcBridgeService {
     }
   }
 
+  private getVipGeminiKey(): string {
+    return (process.env.GEMINI_API_KEY || '').trim();
+  }
+
+  /**
+   * Gọi trực tiếp Google Gemini Flash API qua GEMINI_API_KEY từ biến môi trường
+   * và truyền ngữ cảnh hội thoại đã nén Vector
+   */
+  private async callRealGeminiApi(
+    dto: AgentChatDto,
+    detectedSubject: string,
+    detectedGrade: number,
+  ): Promise<AgentResponseResult | null> {
+    const apiKey = this.getVipGeminiKey();
+    if (!apiKey) return null;
+
+    const isSocraticTopicHint = dto.questionContext?.mode === 'SOCRATIC_TOPIC_HINT';
+    const qCtx = dto.questionContext || {};
+
+    const contextSummaryBlock = dto.context?.contextSummary
+      ? `\n\n=== TIẾN TRÌNH HỘI THOẠI ĐÃ ĐƯỢC RÚT GỌN TỐI ƯU (AUTO-COMPACTED CONTEXT) ===
+${dto.context.contextSummary}
+====================================================================================
+* QUY TẮC NỐI MẠCH: Dựa vào khối tóm tắt trên để nắm chắc toàn bộ dữ kiện bài toán và các bước đã giải ở các lượt trước, kết hợp với các tin nhắn gần nhất dưới đây để đưa ra lời giải liền mạch, không hỏi lại các dữ kiện đã biết!`
+      : '';
+    const recalledTurns =
+      Array.isArray(dto.context?.recalledTurns) && dto.context.recalledTurns.length > 0
+        ? `\n- Kiến thức liên quan từng trao đổi:\n${dto.context.recalledTurns
+            .map((t: any) => `  + Hỏi: "${t.userQuery}" -> Đáp: "${t.assistantReply}"`)
+            .join('\n')}`
+        : '';
+
+    const ic = dto.context?.interruptedContext;
+    const interruptedContextBlock = ic
+      ? `\n5. [NGỮ CẢNH ĐANG DANG DỞ TỪ LƯỢT TRƯỚC DO HẾT NGỌC TRI THỨC]:
+   - Câu hỏi gốc đang giải dở: "${ic.originalUserQuery || ''}"
+   - Phần lời giải tớ đã viết trước khi bị ngắt giữa chừng: "${ic.partialAssistantReply || ''}"
+   - Phần nháp còn lại chưa xuất ra: "${ic.remainingUnreleasedReply || ''}"
+   -> QUY TẮC NỐI TIẾP BẮT BUỘC: Ở lượt này, hãy tự động nối tiếp mạch suy luận đang dang dở ở trên (tuyệt đối không lặp lại nguyên văn đoạn đã viết ở trên) để hoàn thiện lời giải hoặc giải đáp tiếp yêu cầu mới của bạn học sinh một cách liền mạch!`
+      : '';
+
+    const systemInstructionText = isSocraticTopicHint
+      ? `Bạn là Gia sư Socratic của Schoolify đang hỗ trợ học sinh trong Chế độ Luyện Chuyên Đề (mỗi câu hỏi học sinh chỉ có duy nhất 1 quyền trợ giúp).
+NGUYÊN TẮC BẮT BUỘC TUYỆT ĐỐI:
+1. CHỈ GỢI Ý CÁCH GIẢI / PHƯƠNG PHÁP TƯ DUY: Tuyệt đối KHÔNG giải chi tiết bài toán gốc, KHÔNG thay số của đề gốc để tính ra kết quả cuối cùng, và TUYỆT ĐỐI KHÔNG tiết lộ đáp án đúng là A, B, C, D hay con số đáp án.
+2. NẾU HỌC SINH CÓ NHẬP CHỖ THẮC MẮC: Giải thích trực diện, dễ hiểu đúng chỗ học sinh đang vướng mắc đó (nhưng vẫn không làm hộ bước ra đáp án cuối). NẾU HỌC SINH KHÔNG NHẬP GÌ: Chỉ ra công thức / định lý / bước chuyển đổi cốt lõi cần dùng cho câu hỏi này.
+3. VÍ DỤ LOGIC TƯƠNG ĐƯƠNG: Đưa ra 1 ví dụ tương tự về mặt bản chất logic (cùng dạng toán nhưng dùng số liệu khác hoặc biểu thức đơn giản hơn) và giải nhanh ví dụ đó để học sinh nhìn vào quy luật rồi tự tư duy giải câu hỏi gốc.
+4. Trình bày ngắn gọn, sạch sẽ (tối đa 2-3 gạch đầu dòng ngắn), xưng "tớ" - "bạn", mọi công thức Toán/Lý/Hóa đặt trong ký hiệu LaTeX chuẩn \`$...$\` hoặc \`$$...$$\`.`
+      : `Bạn là **Schoolify AI** — Trợ lý Học tập & Gia sư AI thông minh của nền tảng giáo dục K-12 **Schoolify** (chuẩn Chương trình GDPT 2018).
+Quy tắc giao tiếp & trình bày:
+1. Xưng hô thân thiện là **"tớ"** và gọi người dùng là **"bạn"**. Trả lời tự nhiên, thông minh, trực diện đúng trọng tâm câu hỏi (tuyệt đối KHÔNG trả lời văn mẫu chung chung).
+2. Khi giải bài tập K-12 (Toán, Lý, Hóa, Sinh, Tin học, Anh...): trình bày rõ ràng từng bước, dễ hiểu; mọi công thức Toán/Lý/Hóa đặt trong ký hiệu LaTeX chuẩn \`$...$\` (inline) hoặc \`$$...$$\` (công thức dòng riêng).
+3. Thông tin về nền tảng Schoolify (khi người dùng hỏi):
+   - Nền tảng luyện thi K-12 thích ứng 4 cấp độ (Cơ bản, Trung bình, Nâng cao, HSG), tự động chẩn đoán lỗ hổng kiến thức và tạo lộ trình cá nhân hóa sau mỗi đề thi.
+   - Hệ thống điểm: **Tia Sáng** (điểm lượt thi miễn phí mỗi ngày) và **Ngọc Tri Thức 💎** (điểm thưởng vĩnh viễn khi thi đạt >= 8.5 điểm hoặc từ Gói Học Sinh 50.000đ / 100.000đ).
+4. Ngữ cảnh hiện tại: Môn ${detectedSubject}, Khối ${detectedGrade}.${contextSummaryBlock}${recalledTurns}${interruptedContextBlock}`;
+
+    const historyItems = Array.isArray(dto.history) ? dto.history.slice(-4) : [];
+    const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+
+    if (isSocraticTopicHint) {
+      const choicesText = Array.isArray(qCtx.choices)
+        ? qCtx.choices.map((c: any) => `${c.key}. ${c.content}`).join('\n')
+        : '';
+      const studentDoubt = typeof qCtx.studentDoubt === 'string' ? qCtx.studentDoubt.trim() : '';
+      const socraticPrompt = [
+        `Đề bài câu hỏi đang làm (${qCtx.title || 'Câu hỏi chuyên đề'} - Chuyên đề: ${qCtx.topicTag || detectedSubject}):`,
+        `${qCtx.content || dto.message}`,
+        choicesText ? `\nCác phương án lựa chọn:\n${choicesText}` : '',
+        studentDoubt
+          ? `\nChỗ học sinh đang thắc mắc: "${studentDoubt}"`
+          : `\nHọc sinh không nhập thắc mắc cụ thể (hãy gợi ý hướng giải tổng quát và 1 ví dụ logic tương đương).`,
+        `\nHãy gợi ý cách giải và đưa 1 ví dụ tương đương về mặt logic (với số liệu khác) để học sinh tự tư duy. Nhớ TUYỆT ĐỐI KHÔNG giải ra đáp án của đề bài gốc!`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      contents.push({
+        role: 'user',
+        parts: [{ text: socraticPrompt }],
+      });
+    } else {
+      for (const h of historyItems) {
+        if (!h?.content || typeof h.content !== 'string') continue;
+        const mappedRole = h.role === 'assistant' ? 'model' : 'user';
+        // Đảm bảo luân phiên user/model hợp lệ
+        if (contents.length === 0 && mappedRole === 'model') continue;
+        if (contents.length > 0 && contents[contents.length - 1].role === mappedRole) {
+          contents[contents.length - 1].parts[0].text += `\n${h.content}`;
+        } else {
+          contents.push({
+            role: mappedRole,
+            parts: [{ text: h.content }],
+          });
+        }
+      }
+
+      if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
+        contents[contents.length - 1].parts[0].text += `\n${dto.message}`;
+      } else {
+        contents.push({
+          role: 'user',
+          parts: [{ text: dto.message }],
+        });
+      }
+    }
+
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest'];
+    for (const modelName of modelsToTry) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              systemInstruction: {
+                parts: [{ text: systemInstructionText }],
+              },
+              contents,
+              generationConfig: {
+                temperature: 0.65,
+                maxOutputTokens: 1600,
+                thinkingConfig: { thinkingBudget: 0 },
+              },
+            }),
+            signal: AbortSignal.timeout(15000),
+          },
+        );
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          this.logger.warn(
+            `[Gemini VIP API] Model ${modelName} trả về HTTP ${res.status}: ${errText.slice(0, 120)}`,
+          );
+          continue;
+        }
+
+        const data: any = await res.json();
+        const replyText: string | undefined =
+          data?.candidates?.[0]?.content?.parts
+            ?.map((p: any) => p?.text || '')
+            .join('')
+            .trim();
+
+        if (replyText) {
+          const actions = isSocraticTopicHint
+            ? []
+            : this.buildContextualActions(dto.message, detectedSubject, detectedGrade, dto.currentUrl);
+          const suggestions = isSocraticTopicHint
+            ? []
+            : this.buildContextualSuggestions(dto.message, detectedSubject, detectedGrade);
+          const emotion = inferEmotion(replyText, actions);
+
+          const completionTokens =
+            Number(data?.usageMetadata?.candidatesTokenCount) ||
+            Math.max(1, Math.ceil(replyText.length / 3.5));
+          const userPromptTokens = Math.max(1, Math.ceil((dto.message || '').trim().length / 3.5));
+          const totalTokens = userPromptTokens + completionTokens;
+
+          this.logger.log(
+            `✨ [Gemini VIP API - ${modelName}] Đã sinh phản hồi thành công (${replyText.length} ký tự | ${totalTokens} tokens)`,
+          );
+          return {
+            message: replyText,
+            actions,
+            emotion,
+            suggestions,
+            usageMetadata: {
+              promptTokens: userPromptTokens,
+              completionTokens,
+              totalTokens,
+            },
+          };
+        }
+      } catch (err: any) {
+        this.logger.warn(`[Gemini VIP API] Lỗi kết nối model ${modelName}: ${err.message}`);
+      }
+    }
+
+    return null;
+  }
+
+  private buildContextualActions(
+    rawMessage: string,
+    detectedSubject: string,
+    detectedGrade: number,
+    currentUrl = '',
+  ): Array<{ type: string; payload: Record<string, any> }> {
+    const text = (rawMessage || '').toLowerCase();
+    const actions: Array<{ type: string; payload: Record<string, any> }> = [];
+
+    if (
+      text.includes('tạo đề') ||
+      text.includes('thi thử') ||
+      text.includes('làm đề') ||
+      text.includes('ma trận đề')
+    ) {
+      const isHard = text.includes('khó') || text.includes('vận dụng cao') || text.includes('nâng cao');
+      const bloomRatio = isHard
+        ? { NHAN_BIET: 10, THONG_HIEU: 30, VAN_DUNG: 40, VAN_DUNG_CAO: 20 }
+        : { NHAN_BIET: 30, THONG_HIEU: 40, VAN_DUNG: 20, VAN_DUNG_CAO: 10 };
+      const numMatch = text.match(/(\d+)\s*câu/);
+      const totalQuestions = numMatch ? Math.min(50, Math.max(5, parseInt(numMatch[1], 10))) : 10;
+
+      actions.push({
+        type: 'CONFIGURE_EXAM_MATRIX',
+        payload: {
+          subject: detectedSubject,
+          grade: detectedGrade,
+          bloomRatio,
+          durationMinutes: totalQuestions >= 20 ? 45 : 20,
+          totalQuestions,
+        },
+      });
+    } else if (
+      text.includes('bảng giá') ||
+      text.includes('gói học') ||
+      text.includes('nâng cấp') ||
+      text.includes('mua gói')
+    ) {
+      actions.push({
+        type: 'NAVIGATE_PAGE',
+        payload: {
+          path: '/pricing',
+          label: 'Xem Các Gói Học & Bảng Giá',
+        },
+      });
+    } else if (
+      (text.includes('schoolify') || text.includes('nền tảng')) &&
+      !currentUrl.includes('/student/practice')
+    ) {
+      actions.push({
+        type: 'NAVIGATE_PAGE',
+        payload: {
+          path: '/student/practice',
+          label: 'Vào Phòng Luyện Thi & Lộ Trình Cá Nhân',
+        },
+      });
+    }
+
+    return actions;
+  }
+
+  private buildContextualSuggestions(
+    rawMessage: string,
+    detectedSubject: string,
+    detectedGrade: number,
+  ): string[] {
+    const text = (rawMessage || '').toLowerCase();
+    if (text.includes('bậc 2') || text.includes('bậc hai') || text.includes('vi-ét') || text.includes('viet')) {
+      return [
+        'Cho ví dụ tìm m để phương trình có 2 nghiệm trái dấu',
+        'Cách nhẩm nghiệm nhanh bằng hệ thức Vi-ét',
+        `Tạo đề ${detectedSubject} ${detectedGrade} chuyên đề hàm số 10 câu`,
+      ];
+    }
+    if (text.includes('đạo hàm') || text.includes('cực trị') || text.includes('đồng biến')) {
+      return [
+        'Các bước tìm cực trị hàm số chứa tham số m',
+        'Bảng đạo hàm các hàm số lượng giác cơ bản',
+        `Tạo đề ${detectedSubject} ${detectedGrade} mức độ vận dụng 10 câu`,
+      ];
+    }
+    return [
+      `Giải thích chuyên đề trọng tâm ${detectedSubject} ${detectedGrade}`,
+      `Tạo đề ${detectedSubject} ${detectedGrade} khó 10 câu`,
+      'Phân tích lộ trình học tập cá nhân trên Schoolify',
+    ];
+  }
+
   /**
    * SINH PHẢN HỒI AGENT KÈM CLIENT TOOL ACTIONS (Generative Agentic Chatbot)
    */
-  async generateAgentResponse(dto: AgentChatDto): Promise<AgentResponseResult> {
+  async generateAgentResponse(
+    dto: AgentChatDto,
+    options: { allowRealAi?: boolean } = {},
+  ): Promise<AgentResponseResult> {
     const text = dto.message.toLowerCase();
     const currentUrl = dto.currentUrl || '';
 
@@ -279,6 +464,8 @@ export class AntigravityIpcBridgeService {
       detectedSubject = 'Hóa học';
     } else if (text.includes('sinh') || text.includes('lục lạp') || text.includes('di truyền')) {
       detectedSubject = 'Sinh học';
+    } else if (text.includes('tin') || text.includes('python') || text.includes('c++') || text.includes('sql')) {
+      detectedSubject = 'Tin học';
     } else if (text.includes('anh') || text.includes('english') || text.includes('ielts')) {
       detectedSubject = 'Tiếng Anh';
     } else if (text.includes('sử') || text.includes('lịch sử')) {
@@ -294,39 +481,19 @@ export class AntigravityIpcBridgeService {
     else if (text.includes('lớp 11') || text.includes('khối 11')) detectedGrade = 11;
     else if (text.includes('lớp 12') || text.includes('khối 12')) detectedGrade = 12;
 
+    // 1. Ưu tiên gọi Google Gemini 2.5 Flash thật (Multi-Key Rotation từ GEMINI_API_KEY)
+    //    Khách chưa đăng nhập (allowRealAi = false) chỉ nhận câu trả lời kịch bản có sẵn bên dưới.
+    if (options.allowRealAi !== false) {
+      const geminiResult = await this.callRealGeminiApi(dto, detectedSubject, detectedGrade);
+      if (geminiResult) {
+        return geminiResult;
+      }
+    }
+
     const actions: Array<{ type: string; payload: Record<string, any> }> = [];
     let message = '';
     let emotion: RobotEmotion = 'happy';
     let suggestions: string[] = [];
-
-    // Ưu tiên gửi thẳng yêu cầu chat vào phiên Antigravity đang thức qua Live IPC Bridge
-    const jobId = `job-chat-${Date.now()}`;
-    const liveChatRes = await this.requestLiveAntigravity<
-      AgentResponseResult & { reply?: string; emotion?: string; suggestions?: string[] }
-    >(
-      jobId,
-      'AGENT_CHAT',
-      {
-        dto,
-        detectedSubject,
-        detectedGrade,
-        instruction:
-          'Trả về JSON: { "message": string, "actions": [...], "emotion": string, "suggestions": string[] } trong đó "emotion" BẮT BUỘC là 1 trong: default, happy, excited, wink, thinking, idea, love, celebrate, sad, angry, sleeping, surprised, stunned.',
-      },
-      60000,
-    );
-    const liveMsg = liveChatRes?.message || liveChatRes?.reply;
-    if (liveMsg) {
-      const parsedEmotion = isRobotEmotion(liveChatRes?.emotion)
-        ? liveChatRes.emotion
-        : undefined;
-      return {
-        message: liveMsg,
-        actions: Array.isArray(liveChatRes?.actions) ? liveChatRes.actions : [],
-        emotion: parsedEmotion,
-        suggestions: Array.isArray(liveChatRes?.suggestions) ? liveChatRes.suggestions : [],
-      };
-    }
 
     // Kịch bản 1: Giới thiệu nền tảng Schoolify / Nền tảng này là gì
     if (
@@ -342,7 +509,7 @@ export class AntigravityIpcBridgeService {
       text.includes('ở đây có gì') ||
       text.includes('làm được gì')
     ) {
-      message = `Chào bạn! 👋 **Schoolify** là nền tảng **Giáo dục & Khảo thí K-12 thông minh**, bám sát 100% Chương trình GDPT 2018 của Bộ GD&ĐT.\n\nSchoolify kết nối trọn vẹn 4 phân hệ người dùng:\n\n1. 🎓 **Dành cho Học sinh (K-12)**:\n   - **Luyện thi thích ứng 4 cấp độ**: Cơ bản (SGK), Trung bình (thi học kỳ & tốt nghiệp), Nâng cao (vận dụng cao 9-10đ) và Học sinh Giỏi (HSG Tỉnh & Quốc gia).\n   - **Đa dạng dạng câu hỏi**: Trắc nghiệm 4 lựa chọn, Đúng/Sai, Điền số kết quả ngắn, Tự luận chấm AI đa tầng theo barem, và Lập trình trực tiếp trong phòng thi IDE.\n   - **Khảo thí chẩn đoán năng lực**: Tự động phát hiện lỗ hổng kiến thức và gợi ý lộ trình bù đắp.\n   - **Đổi quà Kim Cương 💎**: Tích lũy điểm thưởng từ bài thi để đổi quà độc quyền.\n\n2. 👨‍👩‍👧 **Dành cho Phụ huynh**: Theo dõi tiến độ học tập, biểu đồ năng lực Bloom theo tuần/tháng, và đóng học phí trực tuyến minh bạch qua VietQR.\n\n3. 👨‍🏫 **Dành cho Giáo viên & Quản trị**: Công cụ AI Quét đề thi Word (.docx) sang Ngân hàng câu hỏi, thiết kế ma trận đề thi phân hóa Bloom, chấm bài tự luận và quản lý lớp học.\n\nBạn có thể bấm các nút bên dưới để bắt đầu trải nghiệm ngay nhé! 🚀`;
+      message = `Chào bạn! 👋 **Schoolify** là nền tảng **Giáo dục & Khảo thí K-12 thông minh**, bám sát 100% Chương trình GDPT 2018 của Bộ GD&ĐT.\n\nSchoolify kết nối trọn vẹn 4 phân hệ người dùng:\n\n1. 🎓 **Dành cho Học sinh (K-12)**:\n   - **Luyện thi thích ứng 4 cấp độ**: Cơ bản (SGK), Trung bình (thi học kỳ & tốt nghiệp), Nâng cao (vận dụng cao 9-10đ) và Học sinh Giỏi (HSG Tỉnh & Quốc gia).\n   - **Đa dạng dạng câu hỏi trắc nghiệm**: Trắc nghiệm 4 lựa chọn, Nhiều đáp án, Đúng/Sai 4 ý, Điền số / Trả lời ngắn, Chùm ngữ liệu, Nối cặp, Sắp xếp, Đục lỗ và Lập trình trực tiếp trong phòng thi IDE.\n   - **Khảo thí chẩn đoán năng lực**: Tự động phát hiện lỗ hổng kiến thức và gợi ý lộ trình bù đắp.\n   - **Đổi quà Kim Cương 💎**: Tích lũy điểm thưởng từ bài thi để đổi quà độc quyền.\n\n2. 👨‍👩‍👧 **Dành cho Phụ huynh**: Theo dõi tiến độ học tập, biểu đồ năng lực Bloom theo tuần/tháng, và đóng học phí trực tuyến minh bạch qua VietQR.\n\n3. 👨‍🏫 **Dành cho Giáo viên & Quản trị**: Công cụ AI Quét đề thi Word (.docx) sang Ngân hàng câu hỏi, thiết kế ma trận đề thi phân hóa Bloom và quản lý lớp học.\n\nBạn có thể bấm các nút bên dưới để bắt đầu trải nghiệm ngay nhé! 🚀`;
 
       actions.push({
         type: 'NAVIGATE_PAGE',

@@ -160,6 +160,20 @@ export class AuthController {
     };
   }
 
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @ApiCookieAuth('access_token')
+  @ApiOperation({
+    summary: 'Đổi mật khẩu tài khoản hiện tại',
+  })
+  async changePassword(
+    @CurrentUser() user: any,
+    @Body() body: { currentPassword?: string; newPassword?: string },
+  ) {
+    return this.authService.changePassword(user.id, body?.currentPassword, body?.newPassword);
+  }
+
   private setTokenCookie(res: Response, token: string) {
     const isProduction = process.env.NODE_ENV === 'production';
     res.cookie('access_token', token, {

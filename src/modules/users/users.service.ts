@@ -48,6 +48,7 @@ export class UsersService {
     profile_type?: 'TEACHER' | 'STUDENT' | 'PARENT';
     google_id?: string;
     avatar_url?: string;
+    grade_level?: string | null;
   }) {
     const existing = await this.prisma.user.findUnique({
       where: { email: data.email.toLowerCase() },
@@ -81,7 +82,7 @@ export class UsersService {
         });
       } else {
         await tx.studentProfile.create({
-          data: { user_id: user.id, grade_level: 'Lớp 12', points: 100 },
+          data: { user_id: user.id, grade_level: data.grade_level || null, points: 100 },
         });
       }
 
@@ -268,7 +269,7 @@ export class UsersService {
       schoolName,
       points: u.student_profile?.points ?? 0,
       examPoints: u.student_profile?.exam_points ?? 9,
-      gradeLevel: u.student_profile?.grade_level || 'Lớp 12',
+      gradeLevel: u.student_profile?.grade_level || null,
     };
   }
 
@@ -373,6 +374,20 @@ export class UsersService {
           ...(data.grade_level !== undefined ? { grade_level: data.grade_level } : {}),
         },
       });
+    } else if (
+      !existing.student_profile &&
+      !existing.teacher_profile &&
+      existing.role !== 'SUPER_ADMIN' &&
+      data.grade_level !== undefined
+    ) {
+      await this.prisma.studentProfile.create({
+        data: {
+          user_id: id,
+          grade_level: data.grade_level,
+          points: 10,
+          exam_points: 9,
+        },
+      });
     }
 
     const updated = await this.prisma.user.update({
@@ -405,5 +420,12 @@ export class UsersService {
     }
     await this.prisma.user.delete({ where: { id } });
     return { deletedId: id };
+  }
+
+  async updatePasswordHash(id: string, password_hash: string) {
+    return this.prisma.user.update({
+      where: { id },
+      data: { password_hash },
+    });
   }
 }

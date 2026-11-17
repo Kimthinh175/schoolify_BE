@@ -89,6 +89,12 @@ export class AgentChatDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Ngữ cảnh câu hỏi cụ thể khi bấm hỏi Gia sư AI',
+  })
+  @IsOptional()
+  questionContext?: Record<string, any>;
 }
 
 export class DocxScanGenerateDto {
