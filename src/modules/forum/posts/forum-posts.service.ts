@@ -10,16 +10,22 @@ import {
 import {
   ForumPostStatus,
   ForumReactionType,
+  ForumTargetType,
   Prisma,
   SystemRole,
 } from '@prisma/client';
+import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
+import * as streamifier from 'streamifier';
 import { createHmac, randomBytes } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { PrismaService } from '../../../database/prisma.service';
 import {
   CreateForumPostDto,
   ForumPostSortOption,
   GetForumPostsQueryDto,
   ToggleForumBookmarkDto,
+  ToggleForumLikeDto,
   UpdateForumPostDto,
 } from '../dto/forum-post.dto';
 
@@ -37,52 +43,65 @@ const AUTHOR_SELECT = {
   role: true,
 } satisfies Prisma.UserSelect;
 
-const SUBJECT_ALIAS_MAP: Record<string, string[]> = {
-  'toan-hoc': ['Toán Học', 'toan-hoc', 'Toán', 'Toan Hoc'],
-  'toán học': ['Toán Học', 'toan-hoc', 'Toán', 'Toan Hoc'],
-  'vat-ly': ['Vật Lý', 'vat-ly', 'Vật Lí', 'Lý', 'Vat Ly'],
-  'vật lý': ['Vật Lý', 'vat-ly', 'Vật Lí', 'Lý', 'Vat Ly'],
-  'hoa-hoc': ['Hóa Học', 'hoa-hoc', 'Hoá Học', 'Hóa', 'Hoa Hoc'],
-  'hóa học': ['Hóa Học', 'hoa-hoc', 'Hoá Học', 'Hóa', 'Hoa Hoc'],
-  'tin-hoc': ['Tin Học', 'tin-hoc', 'Tin', 'Tin Hoc'],
-  'tin học': ['Tin Học', 'tin-hoc', 'Tin', 'Tin Hoc'],
-  'tieng-anh': ['Tiếng Anh', 'tieng-anh', 'Anh Văn', 'Anh', 'Tieng Anh'],
-  'tiếng anh': ['Tiếng Anh', 'tieng-anh', 'Anh Văn', 'Anh', 'Tieng Anh'],
-  'sinh-hoc': ['Sinh Học', 'sinh-hoc', 'Sinh', 'Sinh Hoc'],
-  'sinh học': ['Sinh Học', 'sinh-hoc', 'Sinh', 'Sinh Hoc'],
-  'ngu-van': ['Ngữ Văn', 'ngu-van', 'Văn', 'Ngu Van'],
-  'ngữ văn': ['Ngữ Văn', 'ngu-van', 'Văn', 'Ngu Van'],
-};
+const SUBJECT_CATALOG: ReadonlyArray<{
+  display: string;
+  slug: string;
+  aliases: string[];
+}> = [
+  {
+    display: 'Hệ Thống',
+    slug: 'he-thong',
+    aliases: ['Hệ Thống', 'he-thong', 'Nội quy', 'nội quy'],
+  },
+  {
+    display: 'Toán Học',
+    slug: 'toan-hoc',
+    aliases: ['Toán Học', 'toan-hoc', 'Toán', 'Toan Hoc'],
+  },
+  {
+    display: 'Vật Lý',
+    slug: 'vat-ly',
+    aliases: ['Vật Lý', 'vat-ly', 'Vật Lí', 'Lý', 'Vat Ly'],
+  },
+  {
+    display: 'Hóa Học',
+    slug: 'hoa-hoc',
+    aliases: ['Hóa Học', 'hoa-hoc', 'Hoá Học', 'Hóa', 'Hoa Hoc'],
+  },
+  {
+    display: 'Tin Học',
+    slug: 'tin-hoc',
+    aliases: ['Tin Học', 'tin-hoc', 'Tin', 'Tin Hoc'],
+  },
+  {
+    display: 'Tiếng Anh',
+    slug: 'tieng-anh',
+    aliases: ['Tiếng Anh', 'tieng-anh', 'Anh Văn', 'Anh', 'Tieng Anh'],
+  },
+  {
+    display: 'Sinh Học',
+    slug: 'sinh-hoc',
+    aliases: ['Sinh Học', 'sinh-hoc', 'Sinh', 'Sinh Hoc'],
+  },
+  {
+    display: 'Ngữ Văn',
+    slug: 'ngu-van',
+    aliases: ['Ngữ Văn', 'ngu-van', 'Văn', 'Ngu Van'],
+  },
+];
 
-const CANONICAL_SUBJECT_DISPLAY: Record<string, string> = {
-  'toan-hoc': 'Toán Học',
-  'toán học': 'Toán Học',
-  toan: 'Toán Học',
-  'vat-ly': 'Vật Lý',
-  'vật lý': 'Vật Lý',
-  'vật lí': 'Vật Lý',
-  'hoa-hoc': 'Hóa Học',
-  'hóa học': 'Hóa Học',
-  'hoá học': 'Hóa Học',
-  'tin-hoc': 'Tin Học',
-  'tin học': 'Tin Học',
-  'tieng-anh': 'Tiếng Anh',
-  'tiếng anh': 'Tiếng Anh',
-  'sinh-hoc': 'Sinh Học',
-  'sinh học': 'Sinh Học',
-  'ngu-van': 'Ngữ Văn',
-  'ngữ văn': 'Ngữ Văn',
-};
+const SUBJECT_ALIAS_MAP: Record<string, string[]> = {};
+const CANONICAL_SUBJECT_DISPLAY: Record<string, string> = {};
+const CANONICAL_SUBJECT_SLUG: Record<string, string> = {};
 
-const CANONICAL_SUBJECT_SLUG: Record<string, string> = {
-  'Toán Học': 'toan-hoc',
-  'Vật Lý': 'vat-ly',
-  'Hóa Học': 'hoa-hoc',
-  'Tin Học': 'tin-hoc',
-  'Tiếng Anh': 'tieng-anh',
-  'Sinh Học': 'sinh-hoc',
-  'Ngữ Văn': 'ngu-van',
-};
+for (const item of SUBJECT_CATALOG) {
+  CANONICAL_SUBJECT_SLUG[item.display] = item.slug;
+  for (const alias of item.aliases) {
+    const key = alias.toLowerCase();
+    SUBJECT_ALIAS_MAP[key] = item.aliases;
+    CANONICAL_SUBJECT_DISPLAY[key] = item.display;
+  }
+}
 
 @Injectable()
 export class ForumPostsService {
@@ -333,39 +352,25 @@ export class ForumPostsService {
       }
 
       // Hỗ trợ alias quen thuộc khi test: 'seed-student-01', 'seed-teacher-01', 'seed-admin-01'
-      if (candidateId.includes('teacher')) {
-        const t = await this.prisma.user.findUnique({
-          where: { email: 'teacher.nguyen@schoolify.edu.vn' },
+      const aliasEmail = candidateId.includes('teacher')
+        ? 'teacher.nguyen@schoolify.edu.vn'
+        : candidateId.includes('admin')
+          ? 'admin@schoolify.top'
+          : candidateId.includes('student')
+            ? 'student.minh@schoolify.edu.vn'
+            : null;
+      if (aliasEmail) {
+        const aliasUser = await this.prisma.user.findUnique({
+          where: { email: aliasEmail },
         });
-        if (t)
+        if (aliasUser) {
           return {
-            id: t.id,
-            email: t.email,
-            fullname: t.fullname,
-            role: t.role,
+            id: aliasUser.id,
+            email: aliasUser.email,
+            fullname: aliasUser.fullname,
+            role: aliasUser.role,
           };
-      } else if (candidateId.includes('admin')) {
-        const a = await this.prisma.user.findUnique({
-          where: { email: 'admin@schoolify.top' },
-        });
-        if (a)
-          return {
-            id: a.id,
-            email: a.email,
-            fullname: a.fullname,
-            role: a.role,
-          };
-      } else if (candidateId.includes('student')) {
-        const s = await this.prisma.user.findUnique({
-          where: { email: 'student.minh@schoolify.edu.vn' },
-        });
-        if (s)
-          return {
-            id: s.id,
-            email: s.email,
-            fullname: s.fullname,
-            role: s.role,
-          };
+        }
       }
 
       // Nếu là một ID khác không tồn tại trong bảng users (ví dụ khi test IDOR với hacker-id),
@@ -440,9 +445,21 @@ export class ForumPostsService {
 
     const isBookmarked = bookmarkedSet.has(post.id);
     const myReaction = reactionMap.get(post.id) || null;
+    const isLiked = Boolean(myReaction);
     const timeAgo = post.is_pinned
       ? 'Đã ghim'
       : this.formatRelativeTimeVi(post.created_at);
+
+    const rawAttachments = Array.isArray(post.attachments)
+      ? post.attachments.filter((a: any) => typeof a === 'string')
+      : [];
+
+    const authorRoleCode =
+      post.author?.role === SystemRole.SUPER_ADMIN
+        ? 'SUPER_ADMIN'
+        : post.author?.teacher_profile
+          ? 'TEACHER'
+          : 'STUDENT';
 
     const authorRoleLabel =
       post.author?.role === SystemRole.SUPER_ADMIN
@@ -467,19 +484,15 @@ export class ForumPostsService {
       content_format: post.content_format || 'MARKDOWN_LATEX',
       content_plain: post.content_plain || null,
       has_math: Boolean(post.has_math),
-      hasMath: Boolean(post.has_math),
       subject: subjectDisplay,
       subject_slug: subjectSlug,
       grade: post.grade ?? 12,
       grade_level: post.grade ?? 12,
       chapter_id: post.chapter_id ?? null,
-      chapterId: post.chapter_id ?? null,
       chapter_name: post.chapter_name ?? null,
-      chapterName: post.chapter_name ?? null,
       tags: tagsArray,
       thumbnail_url: post.thumbnail_url ?? null,
-      thumbnailUrl: post.thumbnail_url ?? null,
-      attachments: post.attachments ?? null,
+      attachments: rawAttachments,
       views_count: post.views_count ?? 0,
       likes_count: post.likes_count ?? 0,
       comments_count: post.comments_count ?? 0,
@@ -487,6 +500,9 @@ export class ForumPostsService {
       is_solved: Boolean(post.is_solved),
       is_pinned: Boolean(post.is_pinned),
       is_locked: Boolean(post.is_locked),
+      is_liked: isLiked,
+      is_bookmarked: isBookmarked,
+      my_reaction: myReaction,
       accepted_comment_id: post.accepted_comment_id ?? null,
       status: post.status,
       author_id: post.author_id,
@@ -494,28 +510,14 @@ export class ForumPostsService {
       updated_at: post.updated_at,
       time_ago: timeAgo,
       timeAgo,
-      // Các trường camelCase tương thích trực tiếp với giao diện Frontend Next.js
-      repliesCount: post.comments_count ?? 0,
-      likesCount: post.likes_count ?? 0,
-      viewsCount: post.views_count ?? 0,
-      bookmarksCount: post.bookmarks_count ?? 0,
-      isSolved: Boolean(post.is_solved),
-      isPinned: Boolean(post.is_pinned),
-      isLocked: Boolean(post.is_locked),
-      is_bookmarked: isBookmarked,
-      isBookmarked,
-      my_reaction: myReaction,
-      myReaction,
       author: post.author
         ? {
             id: post.author.id,
             fullname: post.author.fullname,
-            name: post.author.fullname,
-            avatar_url: post.author.avatar_url,
-            avatar:
+            avatar_url:
               post.author.avatar_url ||
               'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80',
-            role: post.author.role,
+            role: authorRoleCode,
             role_label: authorRoleLabel,
             grade: authorGradeLabel,
           }
@@ -542,12 +544,14 @@ export class ForumPostsService {
     ];
 
     // 1. Lọc theo Môn học (chấp nhận cả "Toán Học" lẫn "toan-hoc", bỏ qua nếu là "Tất cả" / "all")
+    // Khi chọn một môn học cụ thể, chỉ hiển thị đúng các câu hỏi thuộc môn đó (loại bài Nội quy Hệ Thống ra khỏi bộ lọc môn)
     if (query.subject && query.subject.trim()) {
       const rawSubject = query.subject.trim();
       const lowerSubject = rawSubject.toLowerCase();
       if (lowerSubject !== 'tất cả' && lowerSubject !== 'all') {
         const aliases = SUBJECT_ALIAS_MAP[lowerSubject] || [rawSubject];
         andConditions.push({
+          is_pinned: false,
           OR: aliases.map((alias) => ({
             subject: { equals: alias, mode: 'insensitive' },
           })),
@@ -573,9 +577,16 @@ export class ForumPostsService {
       andConditions.push({ has_math: Boolean(hasMathVal) });
     }
 
-    // 4. Lọc theo Tab nhanh (ALL | HOT | UNSOLVED | SOLVED | BOOKMARKED) & trạng thái isSolved
-    const tab = query.tab?.toUpperCase() as
-      'ALL' | 'HOT' | 'UNSOLVED' | 'SOLVED' | 'BOOKMARKED' | undefined;
+    // 4. Lọc theo Tab nhanh (ALL | HOT | UNSOLVED | SOLVED | SAVED | BOOKMARKED) & trạng thái isSolved
+    const rawTab = (query.tab || query.status || '').toUpperCase();
+    const tab = (rawTab || undefined) as
+      | 'ALL'
+      | 'HOT'
+      | 'UNSOLVED'
+      | 'SOLVED'
+      | 'SAVED'
+      | 'BOOKMARKED'
+      | undefined;
     const isSolvedVal = query.isSolved ?? query.is_solved;
 
     if (isSolvedVal !== undefined) {
@@ -587,21 +598,26 @@ export class ForumPostsService {
     } else if (tab === 'HOT') {
       andConditions.push({
         OR: [
-          { likes_count: { gte: 20 } },
-          { views_count: { gte: 200 } },
+          { likes_count: { gte: 15 } },
+          { views_count: { gte: 180 } },
           { comments_count: { gte: 2 } },
         ],
       });
     }
 
-    // 5. Lọc theo bài viết đã Bookmark của người dùng
-    const bookmarkedOnlyVal = query.bookmarkedOnly ?? query.bookmarked_only;
-    if ((bookmarkedOnlyVal || tab === 'BOOKMARKED') && viewerId) {
-      andConditions.push({
-        bookmarks: {
-          some: { user_id: viewerId },
-        },
-      });
+    // 5. Lọc theo bài viết đã Bookmark của người dùng (hỗ trợ cả bookmarked, bookmarkedOnly, bookmarked_only, status=SAVED/BOOKMARKED)
+    const bookmarkedOnlyVal =
+      query.bookmarked ?? query.bookmarkedOnly ?? query.bookmarked_only;
+    if (bookmarkedOnlyVal || tab === 'BOOKMARKED' || tab === 'SAVED') {
+      if (viewerId) {
+        andConditions.push({
+          bookmarks: {
+            some: { user_id: viewerId },
+          },
+        });
+      } else {
+        andConditions.push({ id: { in: [] } });
+      }
     }
 
     // 6. Lọc theo Tác giả
@@ -697,6 +713,8 @@ export class ForumPostsService {
       pagination: {
         page,
         limit,
+        total: totalItems,
+        totalPages,
         total_items: totalItems,
         total_pages: totalPages,
         has_next_page: page < totalPages,
@@ -958,8 +976,11 @@ export class ForumPostsService {
     const title = dto.title.trim();
     const content = dto.content.trim();
     const slug = await this.generateUniqueSlug(title);
+    const explicitHasMath = dto.has_math ?? dto.hasMath;
     const hasMath =
-      this.detectLatexMath(content) || this.detectLatexMath(title);
+      explicitHasMath !== undefined
+        ? Boolean(explicitHasMath)
+        : this.detectLatexMath(content) || this.detectLatexMath(title);
     const contentPlain = this.buildPlainTextSummary(content);
     const subjectDisplay = this.normalizeSubjectDisplay(dto.subject);
     const grade = dto.grade ?? dto.grade_level ?? 12;
@@ -988,7 +1009,7 @@ export class ForumPostsService {
         chapter_name: chapterName,
         tags,
         thumbnail_url: thumbnailUrl,
-        attachments: dto.attachments ?? Prisma.DbNull,
+        attachments: dto.attachments ?? [],
         views_count: 1,
         likes_count: 0,
         comments_count: 0,
@@ -1009,7 +1030,10 @@ export class ForumPostsService {
       },
     });
 
-    return this.formatPostResponse(created, new Set(), new Map());
+    const formatted = this.formatPostResponse(created, new Set(), new Map());
+    return {
+      post: formatted,
+    };
   }
 
   /**
@@ -1312,6 +1336,273 @@ export class ForumPostsService {
       bookmarks_count: updatedPost.bookmarks_count,
       action: 'ADDED',
       message: 'Đã lưu câu hỏi vào danh sách quan tâm',
+    };
+  }
+
+  /**
+   * Thả tim / Bỏ tim (Toggle Like / Reaction) bài viết
+   * POST /api/v1/forum/posts/:id/like
+   * Trả về `{ likes_count, is_liked, likesCount, isLiked }`
+   */
+  async toggleLike(
+    postIdOrSlug: string,
+    dto: ToggleForumLikeDto = {},
+    req?: any,
+    currentUser?: any,
+  ) {
+    const post = await this.prisma.forumPost.findFirst({
+      where: {
+        OR: [{ id: postIdOrSlug }, { slug: postIdOrSlug }],
+        status: { not: ForumPostStatus.DELETED },
+      },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        likes_count: true,
+      },
+    });
+
+    if (!post) {
+      throw new NotFoundException(
+        `Không tìm thấy bài viết với mã "${postIdOrSlug}" để thả cảm xúc.`,
+      );
+    }
+
+    let requester = await this.resolveRequester(
+      req,
+      currentUser,
+      dto.userId || dto.user_id,
+      false,
+    );
+
+    if (!requester) {
+      const defaultStudent = await this.prisma.user.findUnique({
+        where: { email: 'student.minh@schoolify.edu.vn' },
+      });
+      if (!defaultStudent) {
+        throw new UnauthorizedException(
+          'Vui lòng đăng nhập để thả cảm xúc cho bài viết.',
+        );
+      }
+      requester = {
+        id: defaultStudent.id,
+        email: defaultStudent.email,
+        fullname: defaultStudent.fullname,
+        role: defaultStudent.role,
+      };
+    }
+
+    const rawType = (dto.type || dto.reaction_type || 'LIKE')
+      .trim()
+      .toUpperCase();
+    const validTypes = Object.values(ForumReactionType) as string[];
+    const reactionType: ForumReactionType = validTypes.includes(rawType)
+      ? (rawType as ForumReactionType)
+      : ForumReactionType.LIKE;
+
+    const existing = await this.prisma.forumReaction.findUnique({
+      where: {
+        user_id_post_id: {
+          user_id: requester.id,
+          post_id: post.id,
+        },
+      },
+    });
+
+    if (existing) {
+      const nextLikesCount = Math.max(0, (post.likes_count || 1) - 1);
+      await this.prisma.$transaction([
+        this.prisma.forumReaction.delete({
+          where: { id: existing.id },
+        }),
+        this.prisma.forumPost.update({
+          where: { id: post.id },
+          data: { likes_count: nextLikesCount },
+        }),
+      ]);
+
+      return {
+        post_id: post.id,
+        slug: post.slug,
+        user_id: requester.id,
+        likes_count: nextLikesCount,
+        likesCount: nextLikesCount,
+        is_liked: false,
+        isLiked: false,
+        reaction_type: null,
+        action: 'UNLIKED',
+        message: 'Đã bỏ thích bài viết',
+      };
+    }
+
+    const [reaction, updatedPost] = await this.prisma.$transaction([
+      this.prisma.forumReaction.create({
+        data: {
+          user_id: requester.id,
+          target_type: ForumTargetType.POST,
+          post_id: post.id,
+          reaction_type: reactionType,
+        },
+      }),
+      this.prisma.forumPost.update({
+        where: { id: post.id },
+        data: { likes_count: { increment: 1 } },
+        select: { likes_count: true },
+      }),
+    ]);
+
+    return {
+      reaction_id: reaction.id,
+      post_id: post.id,
+      slug: post.slug,
+      user_id: requester.id,
+      likes_count: updatedPost.likes_count,
+      likesCount: updatedPost.likes_count,
+      is_liked: true,
+      isLiked: true,
+      reaction_type: reaction.reaction_type,
+      action: 'LIKED',
+      message: 'Đã thích bài viết',
+    };
+  }
+
+  /**
+   * [Task #11] Upload ảnh chụp đề bài <= 5MB lên Cloudinary (POST /api/v1/forum/upload)
+   * - Đọc cấu hình từ .env: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
+   * - Nếu đã cấu hình Cloudinary hợp lệ -> Ký SHA-1 signature và upload trực tiếp lên folder `schoolify_forum`.
+   * - Nếu môi trường dev chưa điền khóa Cloudinary -> Tự động lưu file vào thư mục tĩnh `/uploads/schoolify_forum`
+   *   và trả về URL đầy đủ (`url`, `secure_url`, `public_id`) để FE hiển thị ảnh chụp đề bài ngay lập tức.
+   */
+  async uploadForumAttachment(
+    file: Express.Multer.File | undefined,
+    req?: any,
+  ) {
+    if (!file || !file.buffer) {
+      throw new BadRequestException({
+        success: false,
+        message:
+          'Vui lòng chọn một file ảnh chụp đề bài (field "file" trong multipart/form-data).',
+      });
+    }
+
+    const MAX_BYTES = 5 * 1024 * 1024; // 5MB (5 * 1024 * 1024 bytes)
+    if (file.size > MAX_BYTES) {
+      throw new BadRequestException({
+        success: false,
+        message: 'Ảnh vượt quá dung lượng tối đa 5MB',
+      });
+    }
+
+    const allowedMimeTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/gif',
+    ];
+    if (!allowedMimeTypes.includes((file.mimetype || '').toLowerCase())) {
+      throw new BadRequestException({
+        success: false,
+        message:
+          'Định dạng file không hợp lệ. Chỉ chấp nhận ảnh image/jpeg, image/png, image/webp hoặc image/gif (<= 5MB).',
+      });
+    }
+
+    const cloudName = (process.env.CLOUDINARY_CLOUD_NAME || '').trim();
+    const apiKey = (process.env.CLOUDINARY_API_KEY || '').trim();
+    const apiSecret = (process.env.CLOUDINARY_API_SECRET || '').trim();
+    const folder = 'schoolify_forum';
+
+    const hasRealCloudinary =
+      Boolean(cloudName && apiKey && apiSecret) &&
+      !cloudName.startsWith('your_') &&
+      !cloudName.startsWith('ten_') &&
+      !apiKey.startsWith('your_') &&
+      !apiKey.startsWith('api_key_');
+
+    if (hasRealCloudinary) {
+      try {
+        cloudinary.config({
+          cloud_name: cloudName,
+          api_key: apiKey,
+          api_secret: apiSecret,
+          secure: true,
+        });
+
+        const rawBaseName = path
+          .parse(file.originalname || 'de-bai')
+          .name.replace(/[^a-zA-Z0-9_-]/g, '-')
+          .slice(0, 40);
+        const publicIdShort = `${rawBaseName || 'de-bai'}-${Date.now()}`;
+
+        const uploadResult = await new Promise<UploadApiResponse>(
+          (resolve, reject) => {
+            const uploadStream = cloudinary.uploader.upload_stream(
+              {
+                folder,
+                public_id: publicIdShort,
+                resource_type: 'image',
+              },
+              (error, result) => {
+                if (error || !result) {
+                  return reject(
+                    error instanceof Error
+                      ? error
+                      : new Error(error?.message || 'Cloudinary upload failed'),
+                  );
+                }
+                resolve(result);
+              },
+            );
+            streamifier.createReadStream(file.buffer).pipe(uploadStream);
+          },
+        );
+
+        return {
+          url: uploadResult.secure_url || uploadResult.url,
+          secure_url: uploadResult.secure_url || uploadResult.url,
+          public_id: uploadResult.public_id || `${folder}/${publicIdShort}`,
+          bytes: uploadResult.bytes || file.size,
+          format: uploadResult.format || '',
+          provider: 'cloudinary',
+        };
+      } catch (err: any) {
+        this.logger.warn(
+          `Cloudinary SDK upload thất bại (${err?.message}). Chuyển sang lưu trữ local static fallback.`,
+        );
+      }
+    }
+
+    // Fallback lưu file tĩnh tại BE (/uploads/schoolify_forum/...) khi dev local chưa điền CLOUDINARY_API_KEY
+    const ext =
+      path.extname(file.originalname || '').toLowerCase() ||
+      `.${(file.mimetype.split('/')[1] || 'jpg').replace('jpeg', 'jpg')}`;
+    const safeBase = this.slugifyVietnamese(
+      path.parse(file.originalname || 'anh-de-bai').name,
+    ).slice(0, 45);
+    const fileName = `${safeBase || 'anh-de-bai'}-${Date.now()}${ext}`;
+    const uploadDir = path.join(process.cwd(), 'uploads', folder);
+
+    fs.mkdirSync(uploadDir, { recursive: true });
+    fs.writeFileSync(path.join(uploadDir, fileName), file.buffer);
+
+    const protocol =
+      (req?.headers?.['x-forwarded-proto'] as string) ||
+      req?.protocol ||
+      'http';
+    const host =
+      (req?.headers?.['x-forwarded-host'] as string) ||
+      req?.headers?.host ||
+      `localhost:${process.env.PORT || 3005}`;
+    const fullUrl = `${protocol}://${host}/uploads/${folder}/${fileName}`;
+
+    return {
+      url: fullUrl,
+      secure_url: fullUrl,
+      public_id: `${folder}/${path.parse(fileName).name}`,
+      bytes: file.size,
+      format: ext.replace('.', ''),
+      provider: 'local_fallback',
     };
   }
 
@@ -1632,22 +1923,10 @@ export class ForumPostsService {
         total_reactions: totalReactions,
         total_bookmarks: totalBookmarks,
       },
-      // Các trường phẳng (flat fields) để Frontend destructuring trực tiếp nếu cần
-      totalQuestions: totalPosts,
-      solvedQuestions: solvedPosts,
-      unsolvedQuestions: unsolvedPosts,
-      solvedRatePercent,
-      totalComments,
-      totalViews: aggregates._sum.views_count || 0,
-      totalBookmarks,
       hot_topics: topPostsRaw,
-      hotTopics: topPostsRaw,
       hot_tags: hotTags,
-      hotTags,
       subject_breakdown: subjectBreakdown,
-      subjectBreakdown,
       top_contributors: topContributors,
-      topContributors,
     };
   }
 }
