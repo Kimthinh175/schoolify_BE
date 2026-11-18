@@ -10,8 +10,15 @@ import * as bcrypt from 'bcrypt';
 describe('AuthModule (Unit Tests)', () => {
   let controller: AuthController;
   let service: AuthService;
-  let usersService: jest.Mocked<Partial<UsersService>>;
-  let jwtService: jest.Mocked<Partial<JwtService>>;
+  let usersService: {
+    findByEmail: jest.Mock;
+    findById: jest.Mock;
+    create: jest.Mock;
+    updateLastLogin: jest.Mock;
+  };
+  let jwtService: {
+    signAsync: jest.Mock;
+  };
 
   const mockUser = {
     id: 'user-uuid-123',
