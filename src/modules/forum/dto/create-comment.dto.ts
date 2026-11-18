@@ -13,11 +13,11 @@ export class CreateForumCommentDto {
       'Nội dung lời giải hoặc bình luận thảo luận (hỗ trợ định dạng KaTeX/LaTeX trong cặp dấu $...$ hoặc $$...$$)',
     example:
       "Ta có đạo hàm $y' = 3x^2 - 6mx + 3(2m - 1) = 3(x - 1)(x - 2m + 1)$. Để hàm số đồng biến thì...",
-    minLength: 2,
+    minLength: 3,
   })
   @IsNotEmpty({ message: 'Nội dung lời giải hoặc bình luận không được để trống' })
   @IsString({ message: 'Nội dung phải là chuỗi ký tự' })
-  @MinLength(2, { message: 'Nội dung bình luận tối thiểu 2 ký tự' })
+  @MinLength(3, { message: 'Nội dung bình luận tối thiểu 3 ký tự' })
   content: string;
 
   @ApiPropertyOptional({

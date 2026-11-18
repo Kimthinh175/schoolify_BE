@@ -518,6 +518,32 @@ export class ForumService {
         );
       }
 
+      // 2.1. Lọc chất lượng nội dung lời giải & chống bình luận tào lao / spam
+      const trimmedContent = (dto.content || '').trim();
+      const hasAttachments = Boolean(dto.attachments && dto.attachments.length > 0);
+
+      if (!dto.parentId) {
+        // Lời giải bài tập Cấp 1
+        if (!hasAttachments && trimmedContent.length < 15) {
+          throw new BadRequestException(
+            'Lời giải bài tập (Cấp 1) cần có độ dài tối thiểu 15 ký tự hoặc đính kèm ảnh bài giải để người hỏi có thể hiểu được.',
+          );
+        }
+      } else {
+        // Phản hồi thảo luận Cấp 2
+        if (!hasAttachments && trimmedContent.length < 3) {
+          throw new BadRequestException(
+            'Nội dung phản hồi quá ngắn (tối thiểu 3 ký tự).',
+          );
+        }
+      }
+
+      if (/(.)\1{5,}/.test(trimmedContent)) {
+        throw new BadRequestException(
+          'Nội dung bình luận chứa ký tự lặp vô nghĩa (spam). Vui lòng nhập lời giải nghiêm túc.',
+        );
+      }
+
       let depth = 1;
       let parentComment: any = null;
       let replyToUserId: string | null = null;
