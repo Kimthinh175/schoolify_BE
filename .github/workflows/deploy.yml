@@ -1,0 +1,71 @@
+name: Deploy Schoolify BE to s68
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies & Build NestJS
+        env:
+          DATABASE_URL: postgresql://dummy:dummy@127.0.0.1:5432/schoolify_db
+        run: |
+          npm ci
+          npx prisma generate
+          npm run build
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Rsync build artifacts to server
+        run: |
+          rsync -az --delete \
+            --filter='P .env' \
+            --filter='P .env.*' \
+            --filter='P node_modules/' \
+            --exclude='.env*' \
+            --exclude='node_modules' \
+            --exclude='*.md' \
+            --exclude='.git' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
+            dist prisma package.json package-lock.json prisma.config.ts \
+            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/opt/apps/schoolify/be/"
+
+      - name: Install prod deps, migrate & reload PM2
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" '
+            set -e
+            export PATH="/opt/plesk/node/24/bin:$PATH"
+            cd /opt/apps/schoolify/be
+            npm ci --omit=dev
+            npx prisma generate
+            if [ -d prisma/migrations ] && [ -n "$(ls -A prisma/migrations 2>/dev/null)" ]; then
+              npx prisma migrate deploy
+            else
+              npx prisma db push
+            fi
+            pm2 reload schoolify-be --update-env || pm2 start /opt/apps/schoolify/ecosystem.config.cjs --only schoolify-be
+            pm2 save
+            for i in 1 2 3 4 5; do
+              curl -sf http://127.0.0.1:3005/ >/dev/null && exit 0
+              sleep 2
+            done
+            exit 1
+          '
