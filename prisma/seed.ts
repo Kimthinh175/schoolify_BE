@@ -767,40 +767,18 @@ async function seedDefaultUsers() {
     '👤 Đang khởi tạo các tài khoản chuẩn (Admin, Giảng viên, Học sinh)...',
   );
   const passwordHash = await bcrypt.hash('123456', 10);
-  const passwordHash123 = await bcrypt.hash('123', 10);
-  const passwordHashQuang = await bcrypt.hash('quang', 10);
 
   let adminUser: any = null;
   for (const adminInfo of [
     {
-      email: 'phuc@gmail.com',
-      fullname: 'Phúc Xô',
-      phone: '123',
-      pass: passwordHash123,
-    },
-    {
-      email: 'huan@gmail.com',
-      fullname: 'Huấn',
-      phone: '123',
-      pass: passwordHash123,
-    },
-    {
-      email: 'quang@gmail.com',
-      fullname: 'quang',
-      phone: 'quang',
-      pass: passwordHashQuang,
-    },
-    {
       email: 'admin@schoolify.top',
       fullname: 'Kim Thịnh (Super Admin)',
       phone: '0901000001',
-      pass: passwordHash,
     },
     {
       email: 'thinh@schoolify.edu.vn',
       fullname: 'Kim Thịnh',
       phone: '0901000002',
-      pass: passwordHash,
     },
   ]) {
     const u = await prisma.user.upsert({
@@ -810,7 +788,7 @@ async function seedDefaultUsers() {
         email: adminInfo.email,
         fullname: adminInfo.fullname,
         phone: adminInfo.phone,
-        password_hash: adminInfo.pass,
+        password_hash: passwordHash,
         role: SystemRole.SUPER_ADMIN,
         status: true,
       },
