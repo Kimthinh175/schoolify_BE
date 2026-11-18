@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -11,10 +12,15 @@ import {
   Post,
   Query,
   Req,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import * as multer from 'multer';
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -26,6 +32,7 @@ import {
   CreateForumPostDto,
   GetForumPostsQueryDto,
   ToggleForumBookmarkDto,
+  ToggleForumLikeDto,
   UpdateForumPostDto,
 } from '../dto/forum-post.dto';
 import { ForumPostsService } from './forum-posts.service';
@@ -117,17 +124,14 @@ export class ForumPostsController {
     const requester = await this.forumPostsService.resolveRequester(
       req,
       user,
-      query.userId,
+      query.userId || query.user_id,
       false,
     );
     const result = await this.forumPostsService.getPosts(query, requester);
     return {
       success: true,
       message: 'Lấy danh sách câu hỏi diễn đàn thành công',
-      // Trả `data` là mảng bài viết để tương thích trực tiếp với `json.data.map(...)` trên Frontend,
-      // đồng thời cung cấp `pagination` và `filters` ở cấp root.
       data: result.items,
-      items: result.items,
       pagination: result.pagination,
       filters: result.filters_applied,
     };
@@ -231,7 +235,74 @@ export class ForumPostsController {
     const data = await this.forumPostsService.createPost(dto, req, user);
     return {
       success: true,
-      message: 'Đăng câu hỏi mới lên diễn đàn thành công',
+      message: 'Đăng câu hỏi thành công!',
+      data,
+    };
+  }
+
+  @Post('upload')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: multer.memoryStorage(),
+      fileFilter: (_req, file, cb) => {
+        const allowedMimeTypes = [
+          'image/jpeg',
+          'image/png',
+          'image/webp',
+          'image/gif',
+        ];
+        if (!allowedMimeTypes.includes((file.mimetype || '').toLowerCase())) {
+          return cb(
+            new BadRequestException({
+              success: false,
+              message:
+                'Định dạng file không hợp lệ. Chỉ chấp nhận ảnh image/jpeg, image/png, image/webp hoặc image/gif.',
+            }),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary:
+      '[Task #11] Upload ảnh chụp đề bài / vở nháp (<= 5MB) lên Cloudinary (POST /api/v1/forum/upload)',
+    description:
+      'Nhận file ảnh (JPG, PNG, WEBP, GIF dung lượng tối đa 5MB) qua field `file` trong `multipart/form-data`. Tải lên Cloudinary folder `schoolify_forum` (hoặc tự động fallback lưu trữ tĩnh `/uploads/schoolify_forum` khi môi trường local chưa điền CLOUDINARY_API_KEY) và trả về `{ url, secure_url, public_id }`.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'File ảnh chụp đề bài (JPG, PNG, WEBP, GIF <= 5MB)',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Upload ảnh đề bài thành công, trả về url, secure_url và public_id',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'File vượt quá 5MB hoặc sai định dạng ảnh',
+  })
+  async uploadForumImage(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: any,
+  ) {
+    const data = await this.forumPostsService.uploadForumAttachment(file, req);
+    return {
+      success: true,
+      message: 'Tải ảnh chụp đề bài lên thành công!',
       data,
     };
   }
@@ -380,7 +451,44 @@ export class ForumPostsController {
       success: true,
       message: data.message,
       bookmarked: data.bookmarked,
+      is_bookmarked: data.is_bookmarked,
       bookmarks_count: data.bookmarks_count,
+      data,
+    };
+  }
+
+  @Post('posts/:id/like')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Thả tim / Bỏ tim (Toggle Like / Reaction) bài viết (POST /api/v1/forum/posts/:id/like)',
+    description:
+      'Nếu người dùng chưa thả cảm xúc thì tạo bản ghi `ForumReaction` mới và tăng `likes_count` (+1). Nếu đã thả trước đó thì tự động bỏ thích và giảm `likes_count` (-1) trong cùng một Transaction nguyên tử.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'ID hoặc Slug của câu hỏi cần thả tim / bỏ tim',
+    example: 'hoi-bai-toan-12-tim-m-de-ham-so-bac-ba-dong-bien',
+  })
+  @ApiBody({ type: ToggleForumLikeDto, required: false })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Thả tim hoặc bỏ tim thành công, trả về likes_count và is_liked mới',
+  })
+  async togglePostLike(
+    @Param('id') id: string,
+    @Body() dto: ToggleForumLikeDto = {},
+    @Req() req: any,
+    @CurrentUser() user: any,
+  ) {
+    const data = await this.forumPostsService.toggleLike(id, dto, req, user);
+    return {
+      success: true,
+      message: data.message,
+      likes_count: data.likes_count,
+      is_liked: data.is_liked,
       data,
     };
   }

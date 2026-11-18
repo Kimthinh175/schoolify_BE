@@ -24,7 +24,7 @@ export type ForumPostSortOption =
   | 'unsolved';
 
 export type ForumPostTabOption =
-  'ALL' | 'HOT' | 'UNSOLVED' | 'SOLVED' | 'BOOKMARKED';
+  'ALL' | 'HOT' | 'UNSOLVED' | 'SOLVED' | 'SAVED' | 'BOOKMARKED';
 
 const transformOptionalBoolean = ({ value }: { value: unknown }) => {
   if (value === true || value === 'true' || value === '1') return true;
@@ -156,13 +156,30 @@ export class GetForumPostsQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'Tab lọc nhanh đồng bộ UI Diễn đàn: ALL | HOT | UNSOLVED | SOLVED | BOOKMARKED',
-    enum: ['ALL', 'HOT', 'UNSOLVED', 'SOLVED', 'BOOKMARKED'],
+      'Tab lọc nhanh đồng bộ UI Diễn đàn: ALL | HOT | UNSOLVED | SOLVED | SAVED | BOOKMARKED',
+    enum: ['ALL', 'HOT', 'UNSOLVED', 'SOLVED', 'SAVED', 'BOOKMARKED'],
     default: 'ALL',
   })
   @IsOptional()
   @IsString()
   tab?: ForumPostTabOption;
+
+  @ApiPropertyOptional({
+    description:
+      'Alias status từ Frontend: ALL | HOT | UNSOLVED | SOLVED | SAVED | BOOKMARKED',
+    enum: ['ALL', 'HOT', 'UNSOLVED', 'SOLVED', 'SAVED', 'BOOKMARKED'],
+  })
+  @IsOptional()
+  @IsString()
+  status?: ForumPostTabOption;
+
+  @ApiPropertyOptional({
+    description: 'Alias bookmarked từ Frontend (khi lọc tab Đã lưu SAVED)',
+  })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean()
+  bookmarked?: boolean;
 
   @ApiPropertyOptional({
     description:
@@ -376,6 +393,22 @@ export class CreateForumPostDto {
   attachments?: string[];
 
   @ApiPropertyOptional({
+    description: 'Cờ báo câu hỏi có chứa công thức KaTeX (has_math / hasMath)',
+  })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean()
+  has_math?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Alias camelCase của has_math',
+  })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean()
+  hasMath?: boolean;
+
+  @ApiPropertyOptional({
     description:
       'ID tác giả (chỉ dùng làm fallback khi test trên Swagger không kèm Bearer Token)',
     example: 'seed-student-01',
@@ -543,6 +576,22 @@ export class UpdateForumPostDto {
   is_solved?: boolean;
 
   @ApiPropertyOptional({
+    description: 'Cờ báo câu hỏi có chứa công thức KaTeX (has_math / hasMath)',
+  })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean()
+  has_math?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Alias camelCase của has_math',
+  })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean()
+  hasMath?: boolean;
+
+  @ApiPropertyOptional({
     description:
       'ID người thực hiện (chỉ dùng khi test Swagger không kèm Bearer Token; nếu khác author_id sẽ bị chặn 403 IDOR)',
   })
@@ -590,6 +639,43 @@ export class ToggleForumBookmarkDto {
     description:
       'ID người dùng (fallback khi test trên Swagger không kèm Bearer Token)',
     example: 'seed-student-01',
+  })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias snake_case của userId',
+  })
+  @IsOptional()
+  @IsString()
+  user_id?: string;
+}
+
+/**
+ * DTO Thả tim / Bỏ tim (Toggle Like / Reaction) bài viết
+ * POST /api/v1/forum/posts/:id/like
+ */
+export class ToggleForumLikeDto {
+  @ApiPropertyOptional({
+    description:
+      'Loại cảm xúc (LIKE | UPVOTE | DOWNVOTE | HELPFUL | LOVE | HAHA)',
+    default: 'LIKE',
+    example: 'LIKE',
+  })
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias reaction_type',
+  })
+  @IsOptional()
+  @IsString()
+  reaction_type?: string;
+
+  @ApiPropertyOptional({
+    description: 'ID người dùng (fallback khi test trên Swagger)',
   })
   @IsOptional()
   @IsString()

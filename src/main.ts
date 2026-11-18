@@ -3,6 +3,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import * as path from 'path';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -10,6 +11,11 @@ async function bootstrap() {
 
   // Tin cậy reverse proxy (Nginx/Plesk) để đọc đúng X-Forwarded-Proto / IP
   app.set('trust proxy', 1);
+
+  // Phục vụ file ảnh tĩnh local (fallback khi chưa cấu hình Cloudinary)
+  app.useStaticAssets(path.join(process.cwd(), 'uploads'), {
+    prefix: '/uploads/',
+  });
 
   // 1. Enable Cookie Parser for reading HTTP-Only cookies
   app.use(cookieParser());
@@ -79,6 +85,8 @@ async function bootstrap() {
   const host = process.env.HOST ?? '0.0.0.0';
   await app.listen(port, host);
   console.log(`🚀 Schoolify Backend is running on http://localhost:${port}`);
-  console.log(`📚 Swagger API Docs available at http://localhost:${port}/api/docs`);
+  console.log(
+    `📚 Swagger API Docs available at http://localhost:${port}/api/docs`,
+  );
 }
-bootstrap();
+void bootstrap();

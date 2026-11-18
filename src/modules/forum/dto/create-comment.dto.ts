@@ -13,11 +13,13 @@ export class CreateForumCommentDto {
       'Nội dung lời giải hoặc bình luận thảo luận (hỗ trợ định dạng KaTeX/LaTeX trong cặp dấu $...$ hoặc $$...$$)',
     example:
       "Ta có đạo hàm $y' = 3x^2 - 6mx + 3(2m - 1) = 3(x - 1)(x - 2m + 1)$. Để hàm số đồng biến thì...",
-    minLength: 2,
+    minLength: 3,
   })
-  @IsNotEmpty({ message: 'Nội dung lời giải hoặc bình luận không được để trống' })
+  @IsNotEmpty({
+    message: 'Nội dung lời giải hoặc bình luận không được để trống',
+  })
   @IsString({ message: 'Nội dung phải là chuỗi ký tự' })
-  @MinLength(2, { message: 'Nội dung bình luận tối thiểu 2 ký tự' })
+  @MinLength(3, { message: 'Nội dung bình luận tối thiểu 3 ký tự' })
   content: string;
 
   @ApiPropertyOptional({
@@ -31,6 +33,14 @@ export class CreateForumCommentDto {
   parentId?: string | null;
 
   @ApiPropertyOptional({
+    description: 'Alias snake_case của parentId',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  parent_id?: string | null;
+
+  @ApiPropertyOptional({
     description:
       'ID của người dùng được phản hồi trực tiếp (@mention) trong luồng thảo luận Cấp 2.',
     example: 'seed-teacher-01',
@@ -41,14 +51,28 @@ export class CreateForumCommentDto {
   replyToUserId?: string | null;
 
   @ApiPropertyOptional({
-    description: 'Danh sách URL ảnh đính kèm (ảnh chụp bài giải hoặc tài liệu)',
-    example: ['https://storage.schoolify.edu.vn/solutions/bai-giai-1.jpg'],
+    description: 'Alias snake_case của replyToUserId',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  reply_to_user_id?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Danh sách URL ảnh đính kèm (ảnh chụp bài giải hoặc tài liệu đã upload lên Cloudinary)',
+    example: [
+      'https://res.cloudinary.com/demo/image/upload/v1/schoolify_forum/bai-giai-1.jpg',
+    ],
     type: [String],
     nullable: true,
   })
   @IsOptional()
   @IsArray({ message: 'attachments phải là một mảng chuỗi URL' })
-  @IsString({ each: true, message: 'Mỗi đường dẫn đính kèm phải là chuỗi ký tự' })
+  @IsString({
+    each: true,
+    message: 'Mỗi đường dẫn đính kèm phải là chuỗi ký tự',
+  })
   attachments?: string[] | null;
 
   @ApiPropertyOptional({
@@ -59,5 +83,25 @@ export class CreateForumCommentDto {
   @IsOptional()
   @IsString()
   authorId?: string;
-}
 
+  @ApiPropertyOptional({
+    description: 'Alias snake_case của authorId',
+  })
+  @IsOptional()
+  @IsString()
+  author_id?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias userId',
+  })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias user_id',
+  })
+  @IsOptional()
+  @IsString()
+  user_id?: string;
+}
