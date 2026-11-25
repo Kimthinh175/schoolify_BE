@@ -1,11 +1,20 @@
-import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { OAuth2Client } from 'google-auth-library';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { GoogleLoginDto, SendOtpDto, VerifyOtpDto } from './dto/google-login.dto';
+import {
+  GoogleLoginDto,
+  SendOtpDto,
+  VerifyOtpDto,
+} from './dto/google-login.dto';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
@@ -18,7 +27,10 @@ interface OtpRecord {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly googleClient = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
+  private readonly googleClient = new OAuth2Client(
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+  );
   private readonly otpStore = new Map<string, OtpRecord>();
 
   constructor(
@@ -36,6 +48,7 @@ export class AuthService {
       phone: dto.phone,
       password_hash,
       profile_type: dto.profile_type,
+      grade_level: dto.grade_level,
     });
 
     if (!user) {
@@ -118,7 +131,9 @@ export class AuthService {
           try {
             const parts = dto.idToken.split('.');
             if (parts.length === 3) {
-              const decoded = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+              const decoded = JSON.parse(
+                Buffer.from(parts[1], 'base64url').toString('utf8'),
+              );
               if (decoded.email) {
                 email = decoded.email;
                 name = decoded.name || String(decoded.email).split('@')[0];
@@ -131,19 +146,26 @@ export class AuthService {
           }
         }
         if (!email) {
-          this.logger.warn(`Google ID Token verification failed: ${err?.message}`);
-          throw new UnauthorizedException('Xác thực Google ID Token không hợp lệ hoặc đã hết hạn');
+          this.logger.warn(
+            `Google ID Token verification failed: ${err?.message}`,
+          );
+          throw new UnauthorizedException(
+            'Xác thực Google ID Token không hợp lệ hoặc đã hết hạn',
+          );
         }
       }
     } else if (dto.accessToken && !email) {
       try {
-        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-          headers: { Authorization: `Bearer ${dto.accessToken}` },
-        });
+        const res = await fetch(
+          'https://www.googleapis.com/oauth2/v3/userinfo',
+          {
+            headers: { Authorization: `Bearer ${dto.accessToken}` },
+          },
+        );
         if (!res.ok) {
           throw new UnauthorizedException('Google Access Token không hợp lệ');
         }
-        const profile = (await res.json()) as any;
+        const profile = await res.json();
         email = profile.email;
         name = profile.name || email?.split('@')[0];
         picture = profile.picture;
@@ -170,7 +192,13 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new BadRequestException('Không thể khởi tạo hoặc đồng bộ tài khoản Google');
+      throw new BadRequestException(
+        'Không thể khởi tạo hoặc đồng bộ tài khoản Google',
+      );
+    }
+
+    if (!user.status) {
+      throw new UnauthorizedException('Tài khoản của bạn đã bị khóa');
     }
 
     const jwtPayload = {
@@ -233,6 +261,10 @@ export class AuthService {
       throw new BadRequestException('Không thể đăng nhập bằng số điện thoại');
     }
 
+    if (!user.status) {
+      throw new UnauthorizedException('Tài khoản của bạn đã bị khóa');
+    }
+
     const payload = {
       sub: user.id,
       email: user.email,
@@ -247,7 +279,11 @@ export class AuthService {
     };
   }
 
-  async changePassword(userId: string, currentPassword?: string, newPassword?: string) {
+  async changePassword(
+    userId: string,
+    currentPassword?: string,
+    newPassword?: string,
+  ) {
     if (!newPassword || newPassword.trim().length < 6) {
       throw new BadRequestException('Mật khẩu mới phải có ít nhất 6 ký tự');
     }
@@ -276,6 +312,9 @@ export class AuthService {
 
   sanitizeUser(user: any) {
     const { password_hash, ...sanitized } = user;
+    if (typeof this.usersService?.formatUserItem === 'function') {
+      return this.usersService.formatUserItem(sanitized);
+    }
     return {
       ...sanitized,
       avatarUrl: user.avatar_url,
@@ -283,4 +322,3 @@ export class AuthService {
     };
   }
 }
-

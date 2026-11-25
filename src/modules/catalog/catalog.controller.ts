@@ -1,4 +1,16 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  Req,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CatalogService } from './catalog.service';
@@ -63,7 +75,10 @@ export class CatalogController {
   }
 
   @Patch('orders/:id/pay')
-  @ApiOperation({ summary: 'Xác nhận thanh toán VietQR tự động (3 giây) & kích hoạt gói + cộng Token' })
+  @ApiOperation({
+    summary:
+      'Xác nhận thanh toán VietQR tự động (3 giây) & kích hoạt gói + cộng Token',
+  })
   async confirmPayment(@Param('id') id: string) {
     const data = await this.catalogService.confirmOrderPayment(id);
     return {
@@ -74,8 +89,13 @@ export class CatalogController {
   }
 
   @Patch('orders/:id/cancel')
-  @ApiOperation({ summary: 'Hủy đơn hàng đang chờ thanh toán (PENDING -> CANCELLED)' })
-  async cancelOrder(@Param('id') id: string, @Body() body?: { reason?: string }) {
+  @ApiOperation({
+    summary: 'Hủy đơn hàng đang chờ thanh toán (PENDING -> CANCELLED)',
+  })
+  async cancelOrder(
+    @Param('id') id: string,
+    @Body() body?: { reason?: string },
+  ) {
     const data = await this.catalogService.cancelOrder(id, body?.reason);
     return {
       success: true,
@@ -85,7 +105,9 @@ export class CatalogController {
   }
 
   @Post('payos/create-payment-link')
-  @ApiOperation({ summary: 'Khởi tạo link thanh toán VietQR động qua cổng PayOS' })
+  @ApiOperation({
+    summary: 'Khởi tạo link thanh toán VietQR động qua cổng PayOS',
+  })
   async createPayosPaymentLink(@Body() body: any) {
     const data = await this.catalogService.createPayosOrder(body);
     return {
@@ -96,9 +118,13 @@ export class CatalogController {
   }
 
   @Get('payos/order-status/:orderCode')
-  @ApiOperation({ summary: 'Kiểm tra trạng thái thanh toán PayOS real-time theo orderCode' })
+  @ApiOperation({
+    summary: 'Kiểm tra trạng thái thanh toán PayOS real-time theo orderCode',
+  })
   async getPayosOrderStatus(@Param('orderCode') orderCode: string) {
-    const data = await this.catalogService.getPayosOrderStatus(Number(orderCode));
+    const data = await this.catalogService.getPayosOrderStatus(
+      Number(orderCode),
+    );
     return {
       success: true,
       data,
@@ -107,7 +133,9 @@ export class CatalogController {
 
   @Post('payos/webhook')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Webhook nhận thông báo thanh toán tự động từ PayOS' })
+  @ApiOperation({
+    summary: 'Webhook nhận thông báo thanh toán tự động từ PayOS',
+  })
   async handlePayosWebhook(@Body() body: any) {
     const data = await this.catalogService.handlePayosWebhook(body);
     return {
@@ -115,7 +143,6 @@ export class CatalogController {
       data,
     };
   }
-
 
   @Get('orders')
   @ApiOperation({ summary: 'Danh sách lịch sử đơn hàng & giao dịch' })
@@ -128,7 +155,9 @@ export class CatalogController {
   }
 
   @Get('leaderboard')
-  @ApiOperation({ summary: 'Bảng xếp hạng Học sinh theo Token nỗ lực & Điểm trung bình' })
+  @ApiOperation({
+    summary: 'Bảng xếp hạng Học sinh theo Token nỗ lực & Điểm trung bình',
+  })
   async getLeaderboard() {
     const data = await this.catalogService.getLeaderboard();
     return {
@@ -138,7 +167,9 @@ export class CatalogController {
   }
 
   @Get('stats')
-  @ApiOperation({ summary: 'Thống kê tổng quan toàn hệ thống (Real-time PostgreSQL KPIs)' })
+  @ApiOperation({
+    summary: 'Thống kê tổng quan toàn hệ thống (Real-time PostgreSQL KPIs)',
+  })
   async getStats() {
     const data = await this.catalogService.getSystemStats();
     return {
@@ -148,7 +179,9 @@ export class CatalogController {
   }
 
   @Get('store-items')
-  @ApiOperation({ summary: 'Danh sách vật phẩm Cửa hàng Đổi quà (PostgreSQL store_items)' })
+  @ApiOperation({
+    summary: 'Danh sách vật phẩm Cửa hàng Đổi quà (PostgreSQL store_items)',
+  })
   async listStoreItems() {
     const data = await this.catalogService.listStoreItems();
     return {
@@ -169,8 +202,14 @@ export class CatalogController {
   }
 
   @Post('store-items/:id/redeem')
-  @ApiOperation({ summary: 'Học sinh đổi quà bằng Điểm Năng Lượng và lưu vào Túi đồ (PostgreSQL)' })
-  async redeemStoreItem(@Param('id') id: string, @Body() body: { userId?: string }) {
+  @ApiOperation({
+    summary:
+      'Học sinh đổi quà bằng Điểm Năng Lượng và lưu vào Túi đồ (PostgreSQL)',
+  })
+  async redeemStoreItem(
+    @Param('id') id: string,
+    @Body() body: { userId?: string },
+  ) {
     const data = await this.catalogService.redeemStoreItem(id, body?.userId);
     return {
       success: true,
@@ -180,7 +219,10 @@ export class CatalogController {
   }
 
   @Get('inventory')
-  @ApiOperation({ summary: 'Danh sách quà tặng trong Túi đồ của học sinh (PostgreSQL student_inventory)' })
+  @ApiOperation({
+    summary:
+      'Danh sách quà tặng trong Túi đồ của học sinh (PostgreSQL student_inventory)',
+  })
   async listStudentInventory(@Query('userId') userId?: string) {
     const data = await this.catalogService.listStudentInventory(userId);
     return {
@@ -191,10 +233,12 @@ export class CatalogController {
 
   @Post('analytics/visit')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Ghi nhận lượt truy cập trang web vào PostgreSQL (web_visit_logs)' })
+  @ApiOperation({
+    summary: 'Ghi nhận lượt truy cập trang web vào PostgreSQL (web_visit_logs)',
+  })
   async recordVisit(@Body() body: any, @Req() req: Request) {
     const data = await this.catalogService.recordWebVisit(body || {}, {
-      headers: (req?.headers || {}) as Record<string, string | string[] | undefined>,
+      headers: req?.headers || {},
       remoteAddress: req?.socket?.remoteAddress || req?.ip || undefined,
     });
     return {
@@ -204,7 +248,10 @@ export class CatalogController {
   }
 
   @Get('analytics/behavior')
-  @ApiOperation({ summary: 'Thống kê hành vi học sinh & toàn diện hệ thống Web (PostgreSQL 100%)' })
+  @ApiOperation({
+    summary:
+      'Thống kê hành vi học sinh & toàn diện hệ thống Web (PostgreSQL 100%)',
+  })
   async getBehaviorAnalytics() {
     const data = await this.catalogService.getBehaviorAnalytics();
     return {
@@ -213,4 +260,3 @@ export class CatalogController {
     };
   }
 }
-

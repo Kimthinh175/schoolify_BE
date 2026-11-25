@@ -27,10 +27,16 @@ export function clampEmotionDuration(value: unknown, fallback = 4000): number {
 }
 
 /** Fallback khi LLM không trả emotion */
-export function inferEmotion(message: string, actions: any[] = []): RobotEmotion {
+export function inferEmotion(
+  message: string,
+  actions: any[] = [],
+): RobotEmotion {
   const t = message.toLowerCase();
   if (actions.some((a) => a?.type === 'SOCRATIC_HINT')) return 'thinking';
-  if (actions.some((a) => a?.type === 'SELECT_PRICING_PLAN') || /bảng giá|gói cước|gói pro|gói vip|học phí/.test(t)) {
+  if (
+    actions.some((a) => a?.type === 'SELECT_PRICING_PLAN') ||
+    /bảng giá|gói cước|gói pro|gói vip|học phí/.test(t)
+  ) {
     return 'wink';
   }
   if (/chúc mừng|xuất sắc|tuyệt vời|🎉|🏆/.test(t)) return 'celebrate';

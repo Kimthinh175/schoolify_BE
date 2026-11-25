@@ -12,7 +12,9 @@ export class SemanticCacheService implements OnModuleInit {
   async onModuleInit() {
     if (process.env.USE_ONNX_EMBEDDING === 'true') {
       this.initModel().catch((err) => {
-        this.logger.warn(`Chưa tải được mô hình embedding khởi đầu: ${err.message}`);
+        this.logger.warn(
+          `Chưa tải được mô hình embedding khởi đầu: ${err.message}`,
+        );
       });
     } else {
       this.logger.log(
@@ -120,8 +122,13 @@ export class SemanticCacheService implements OnModuleInit {
     const extractor = await this.initModel();
     if (extractor) {
       const cleanText = text.trim().replace(/\s+/g, ' ');
-      const prefixedText = cleanText.startsWith('query:') ? cleanText : `query: ${cleanText}`;
-      const output = await extractor(prefixedText, { pooling: 'mean', normalize: true });
+      const prefixedText = cleanText.startsWith('query:')
+        ? cleanText
+        : `query: ${cleanText}`;
+      const output = await extractor(prefixedText, {
+        pooling: 'mean',
+        normalize: true,
+      });
       return Array.from(output.data);
     }
     return this.computeLightweightEmbedding(text);
@@ -178,7 +185,7 @@ export class SemanticCacheService implements OnModuleInit {
       let maxSim = -1;
 
       for (const record of cachedRecords) {
-        const recordVec = record.query_vector as number[];
+        const recordVec = record.query_vector;
         const sim = this.cosineSimilarity(queryVector, recordVec);
         if (sim > maxSim) {
           maxSim = sim;
@@ -239,14 +246,19 @@ export class SemanticCacheService implements OnModuleInit {
           response_text: responseText,
           client_actions: clientActions || undefined,
           emotion: emotion || null,
-          suggestions: suggestions && suggestions.length > 0 ? (suggestions as any) : undefined,
+          suggestions:
+            suggestions && suggestions.length > 0
+              ? (suggestions as any)
+              : undefined,
           subject: subject || null,
           grade: grade || null,
           hit_count: 1,
           ttl_days: ttlDays,
         },
       });
-      this.logger.log(`💾 Đã lưu vào Semantic Cache: "${queryText.slice(0, 50)}..." (emotion: ${emotion || 'none'})`);
+      this.logger.log(
+        `💾 Đã lưu vào Semantic Cache: "${queryText.slice(0, 50)}..." (emotion: ${emotion || 'none'})`,
+      );
     } catch (err: any) {
       this.logger.warn('Không thể lưu vào Semantic Cache:', err);
     }

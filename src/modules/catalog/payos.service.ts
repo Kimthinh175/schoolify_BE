@@ -58,7 +58,9 @@ export class PayOSService {
         this.isConfigured = false;
       }
     } else {
-      this.logger.warn('⚠️ Chưa đủ biến môi trường PAYOS_CLIENT_ID / PAYOS_API_KEY / PAYOS_CHECKSUM_KEY');
+      this.logger.warn(
+        '⚠️ Chưa đủ biến môi trường PAYOS_CLIENT_ID / PAYOS_API_KEY / PAYOS_CHECKSUM_KEY',
+      );
       this.isConfigured = false;
     }
   }
@@ -70,7 +72,9 @@ export class PayOSService {
   /**
    * Tạo Payment Link PayOS (VietQR Chuẩn Tự Động)
    */
-  async createPaymentLink(params: PayOSCreateLinkParams): Promise<PayOSPaymentResult> {
+  async createPaymentLink(
+    params: PayOSCreateLinkParams,
+  ): Promise<PayOSPaymentResult> {
     const cleanDesc = (params.description || `SCH ${params.orderCode}`)
       .replace(/[^a-zA-Z0-9 ]/g, '')
       .slice(0, 25);
@@ -92,7 +96,9 @@ export class PayOSService {
           buyerEmail: params.buyerEmail,
         });
 
-        this.logger.log(`✅ Đã tạo PayOS Payment Link cho orderCode=${params.orderCode}`);
+        this.logger.log(
+          `✅ Đã tạo PayOS Payment Link cho orderCode=${params.orderCode}`,
+        );
         const qrImageUrl = linkRes.qrCode.startsWith('http')
           ? linkRes.qrCode
           : `https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=${encodeURIComponent(linkRes.qrCode)}`;
@@ -113,13 +119,17 @@ export class PayOSService {
         };
       } catch (err: any) {
         this.logger.warn(
-          `⚠️ Không thể tạo link trực tiếp từ PayOS API (${err?.message}). Chuyển sang VietQR fallback.`
+          `⚠️ Không thể tạo link trực tiếp từ PayOS API (${err?.message}). Chuyển sang VietQR fallback.`,
         );
         return this.createFallbackResult(params, cleanDesc, err?.message);
       }
     }
 
-    return this.createFallbackResult(params, cleanDesc, 'PayOS client chưa được cấu hình');
+    return this.createFallbackResult(
+      params,
+      cleanDesc,
+      'PayOS client chưa được cấu hình',
+    );
   }
 
   /**
@@ -143,7 +153,9 @@ export class PayOSService {
         transactions: paymentInfo.transactions,
       };
     } catch (err: any) {
-      this.logger.warn(`Lỗi truy vấn PayOS status orderCode=${orderCode}: ${err?.message}`);
+      this.logger.warn(
+        `Lỗi truy vấn PayOS status orderCode=${orderCode}: ${err?.message}`,
+      );
       return { status: 'PENDING', error: err?.message };
     }
   }
@@ -174,14 +186,14 @@ export class PayOSService {
   private createFallbackResult(
     params: PayOSCreateLinkParams,
     cleanDesc: string,
-    errorReason?: string
+    errorReason?: string,
   ): PayOSPaymentResult {
     const bankId = 'MB';
     const accountNo = '0903888899';
     const accountName = 'CONG TY CO PHAN SCHOOLIFY';
     // VietQR quick chart URL
     const vietQrUrl = `https://img.vietqr.io/image/${bankId}-${accountNo}-compact2.png?amount=${params.amount}&addInfo=${encodeURIComponent(
-      cleanDesc
+      cleanDesc,
     )}&accountName=${encodeURIComponent(accountName)}`;
 
     return {

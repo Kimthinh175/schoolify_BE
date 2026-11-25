@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { RecordQuickDrillBehaviorDto, SubmitRemediationDto } from './dto/exam.dto';
+import {
+  RecordQuickDrillBehaviorDto,
+  SubmitRemediationDto,
+} from './dto/exam.dto';
 
 export interface QuestionAttemptOutcome {
   questionId?: string;
@@ -37,18 +40,23 @@ interface CurriculumTopicSeed {
   defaultTitle: string;
 }
 
-const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> = {
+const CURRICULUM_TOPICS: Record<
+  string,
+  Record<number, CurriculumTopicSeed[]>
+> = {
   'toan-hoc': {
     12: [
       {
         chapterId: 1,
-        chapterName: 'Chương 1: Ứng dụng đạo hàm để khảo sát và vẽ đồ thị hàm số',
+        chapterName:
+          'Chương 1: Ứng dụng đạo hàm để khảo sát và vẽ đồ thị hàm số',
         topicTag: 'Tính đơn điệu và cực trị của hàm số',
         defaultTitle: 'Xét chiều biến thiên & tìm điểm cực trị hàm số',
       },
       {
         chapterId: 1,
-        chapterName: 'Chương 1: Ứng dụng đạo hàm để khảo sát và vẽ đồ thị hàm số',
+        chapterName:
+          'Chương 1: Ứng dụng đạo hàm để khảo sát và vẽ đồ thị hàm số',
         topicTag: 'Giá trị lớn nhất - nhỏ nhất & Tiệm cận đồ thị',
         defaultTitle: 'Tìm GTLN, GTNN trên đoạn và đường tiệm cận',
       },
@@ -66,7 +74,8 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
       },
       {
         chapterId: 3,
-        chapterName: 'Chương 3: Các số đặc trưng đo mức độ phân tán mẫu số liệu ghép nhóm',
+        chapterName:
+          'Chương 3: Các số đặc trưng đo mức độ phân tán mẫu số liệu ghép nhóm',
         topicTag: 'Khoảng biến thiên, tứ phân vị & phương sai mẫu ghép nhóm',
         defaultTitle: 'Phân tích mẫu số liệu ghép nhóm thống kê',
       },
@@ -78,13 +87,15 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
       },
       {
         chapterId: 5,
-        chapterName: 'Chương 5A: Phương trình mặt phẳng và đường thẳng trong Oxyz',
+        chapterName:
+          'Chương 5A: Phương trình mặt phẳng và đường thẳng trong Oxyz',
         topicTag: 'Phương trình mặt phẳng và đường thẳng trong Oxyz',
         defaultTitle: 'Vectơ pháp tuyến, chỉ phương và vị trí tương đối Oxyz',
       },
       {
         chapterId: 8,
-        chapterName: 'Chương 5B: Phương trình mặt cầu, Góc & Khoảng cách trong Oxyz',
+        chapterName:
+          'Chương 5B: Phương trình mặt cầu, Góc & Khoảng cách trong Oxyz',
         topicTag: 'Phương trình mặt cầu, góc và khoảng cách trong Oxyz',
         defaultTitle: 'Mặt cầu, góc và khoảng cách trong không gian Oxyz',
       },
@@ -112,13 +123,17 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
         chapterId: 3,
         chapterName: 'Chương 3: Mẫu số liệu ghép nhóm (Xu thế trung tâm)',
         topicTag: 'Các số đặc trưng đo xu thế trung tâm mẫu ghép nhóm',
-        defaultTitle: 'Số trung bình, trung vị, tứ phân vị và mốt mẫu ghép nhóm',
+        defaultTitle:
+          'Số trung bình, trung vị, tứ phân vị và mốt mẫu ghép nhóm',
       },
       {
         chapterId: 4,
-        chapterName: 'Chương 4A: Đại cương mặt phẳng & Hai đường thẳng song song',
-        topicTag: 'Giao tuyến mặt phẳng và hai đường thẳng song song không gian',
-        defaultTitle: 'Xác định giao tuyến, giao điểm và hai đường thẳng chéo nhau/song song',
+        chapterName:
+          'Chương 4A: Đại cương mặt phẳng & Hai đường thẳng song song',
+        topicTag:
+          'Giao tuyến mặt phẳng và hai đường thẳng song song không gian',
+        defaultTitle:
+          'Xác định giao tuyến, giao điểm và hai đường thẳng chéo nhau/song song',
       },
       {
         chapterId: 10,
@@ -147,7 +162,8 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
       {
         chapterId: 11,
         chapterName: 'Chương 7B: Khoảng cách & Thể tích khối đa diện',
-        topicTag: 'Khoảng cách trong không gian và thể tích khối chóp, lăng trụ',
+        topicTag:
+          'Khoảng cách trong không gian và thể tích khối chóp, lăng trụ',
         defaultTitle: 'Tính khoảng cách và thể tích khối đa diện',
       },
       {
@@ -190,7 +206,8 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
       },
       {
         chapterId: 5,
-        chapterName: 'Chương 5: Các số đặc trưng của mẫu số liệu không ghép nhóm',
+        chapterName:
+          'Chương 5: Các số đặc trưng của mẫu số liệu không ghép nhóm',
         topicTag: 'Số gần đúng, trung vị, tứ phân vị và độ lệch chuẩn',
         defaultTitle: 'Phân tích mẫu số liệu không ghép nhóm',
       },
@@ -198,13 +215,15 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
         chapterId: 6,
         chapterName: 'Chương 6: Hàm số, đồ thị và ứng dụng',
         topicTag: 'Hàm số bậc hai và dấu của tam thức bậc hai',
-        defaultTitle: 'Đỉnh Parabol, bảng biến thiên và bất phương trình bậc hai',
+        defaultTitle:
+          'Đỉnh Parabol, bảng biến thiên và bất phương trình bậc hai',
       },
       {
         chapterId: 7,
         chapterName: 'Chương 7A: Đường thẳng và Đường tròn trong mặt phẳng Oxy',
         topicTag: 'Phương trình đường thẳng và đường tròn trong Oxy',
-        defaultTitle: 'Phương trình đường thẳng, góc – khoảng cách và tiếp tuyến đường tròn',
+        defaultTitle:
+          'Phương trình đường thẳng, góc – khoảng cách và tiếp tuyến đường tròn',
       },
       {
         chapterId: 10,
@@ -230,13 +249,15 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
     12: [
       {
         chapterId: 1,
-        chapterName: 'Chương 1: Trí tuệ nhân tạo (AI) trong khoa học và đời sống',
+        chapterName:
+          'Chương 1: Trí tuệ nhân tạo (AI) trong khoa học và đời sống',
         topicTag: 'Trí tuệ nhân tạo (AI) và ứng dụng đời sống',
         defaultTitle: 'Khái niệm AI, Học máy và đạo đức AI',
       },
       {
         chapterId: 2,
-        chapterName: 'Chương 2: Thiết bị mạng, Giao thức TCP/IP & Chia sẻ tài nguyên',
+        chapterName:
+          'Chương 2: Thiết bị mạng, Giao thức TCP/IP & Chia sẻ tài nguyên',
         topicTag: 'Thiết bị mạng và giao thức mạng TCP/IP',
         defaultTitle: 'Switch, Router, Access Point, IP/DNS và mạng LAN',
       },
@@ -260,7 +281,8 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
       },
       {
         chapterId: 6,
-        chapterName: 'Chương 6: Hướng nghiệp CNTT, CSDL SQL & Giải thuật nâng cao',
+        chapterName:
+          'Chương 6: Hướng nghiệp CNTT, CSDL SQL & Giải thuật nâng cao',
         topicTag: 'Hướng nghiệp CNTT, quản trị mạng, SQL và giải thuật',
         defaultTitle: 'Nhóm nghề CNTT, truy vấn SQL và tư duy giải thuật',
       },
@@ -268,15 +290,19 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
     11: [
       {
         chapterId: 1,
-        chapterName: 'Chương 1: Hệ điều hành, Phần mềm nguồn mở & Kiến trúc máy tính',
+        chapterName:
+          'Chương 1: Hệ điều hành, Phần mềm nguồn mở & Kiến trúc máy tính',
         topicTag: 'Hệ điều hành, phần mềm nguồn mở và mạch logic máy tính',
-        defaultTitle: 'Hệ điều hành, giấy phép nguồn mở, CPU/RAM và phép cộng nhị phân',
+        defaultTitle:
+          'Hệ điều hành, giấy phép nguồn mở, CPU/RAM và phép cộng nhị phân',
       },
       {
         chapterId: 2,
-        chapterName: 'Chương 2: Lưu trữ trực tuyến, Tìm kiếm & Giao tiếp an toàn số',
+        chapterName:
+          'Chương 2: Lưu trữ trực tuyến, Tìm kiếm & Giao tiếp an toàn số',
         topicTag: 'Lưu trữ đám mây và phòng chống lừa đảo trực tuyến',
-        defaultTitle: 'Chia sẻ đám mây, tìm kiếm nâng cao và nhận diện Phishing',
+        defaultTitle:
+          'Chia sẻ đám mây, tìm kiếm nâng cao và nhận diện Phishing',
       },
       {
         chapterId: 3,
@@ -293,12 +319,15 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
       {
         chapterId: 5,
         chapterName: 'Chương 5: Mảng 1D/2D & Thuật toán Tìm kiếm – Sắp xếp',
-        topicTag: 'Mảng 1 chiều/2 chiều, Tìm kiếm nhị phân và Thuật toán sắp xếp',
-        defaultTitle: 'Tìm kiếm tuần tự/nhị phân và sắp xếp chọn, chèn, nổi bọt',
+        topicTag:
+          'Mảng 1 chiều/2 chiều, Tìm kiếm nhị phân và Thuật toán sắp xếp',
+        defaultTitle:
+          'Tìm kiếm tuần tự/nhị phân và sắp xếp chọn, chèn, nổi bọt',
       },
       {
         chapterId: 6,
-        chapterName: 'Chương 6: Độ phức tạp thuật toán O(n) & Thiết kế chương trình mô đun',
+        chapterName:
+          'Chương 6: Độ phức tạp thuật toán O(n) & Thiết kế chương trình mô đun',
         topicTag: 'Đánh giá độ phức tạp thời gian Big-O và thiết kế mô đun',
         defaultTitle: 'Phân tích O(1), O(log n), O(n), O(n²) và làm mịn dần',
       },
@@ -308,7 +337,8 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
         chapterId: 1,
         chapterName: 'Chương 1: Máy tính và xã hội tri thức',
         topicTag: 'Thông tin, dữ liệu, hệ nhị phân và phép toán lôgic',
-        defaultTitle: 'Đơn vị dữ liệu số, đổi cơ số nhị phân và bảng chân trị AND/OR/NOT',
+        defaultTitle:
+          'Đơn vị dữ liệu số, đổi cơ số nhị phân và bảng chân trị AND/OR/NOT',
       },
       {
         chapterId: 2,
@@ -318,7 +348,8 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
       },
       {
         chapterId: 3,
-        chapterName: 'Chương 3: Đạo đức, pháp luật và văn hóa trong môi trường số',
+        chapterName:
+          'Chương 3: Đạo đức, pháp luật và văn hóa trong môi trường số',
         topicTag: 'Bản quyền số, Luật An ninh mạng và bảo vệ dữ liệu cá nhân',
         defaultTitle: 'Quyền tác giả số và tuân thủ pháp luật trên Internet',
       },
@@ -336,7 +367,8 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
       },
       {
         chapterId: 6,
-        chapterName: 'Chương 6: Danh sách (List), Xâu ký tự, Hàm & Kiểm thử Python',
+        chapterName:
+          'Chương 6: Danh sách (List), Xâu ký tự, Hàm & Kiểm thử Python',
         topicTag: 'Danh sách list, xâu ký tự str, hàm def và gỡ lỗi Python',
         defaultTitle: 'Thao tác List/String, phạm vi biến trong hàm và Debug',
       },
@@ -344,7 +376,8 @@ const CURRICULUM_TOPICS: Record<string, Record<number, CurriculumTopicSeed[]>> =
         chapterId: 7,
         chapterName: 'Chương 7: Hướng nghiệp với Tin học',
         topicTag: 'Nghề Thiết kế đồ họa máy tính và Phát triển phần mềm',
-        defaultTitle: 'Định hướng nghề nghiệp Thiết kế đồ họa & Kỹ thuật phần mềm',
+        defaultTitle:
+          'Định hướng nghề nghiệp Thiết kế đồ họa & Kỹ thuật phần mềm',
       },
     ],
   },
@@ -363,7 +396,11 @@ export class KnowledgeRoadmapService {
     if (val === 'NHAN_BIET' || val === 'EASY' || val.includes('NHẬN BIẾT')) {
       return 'NHAN_BIET';
     }
-    if (val === 'VAN_DUNG_CAO' || val === 'VERY_HARD' || val.includes('VẬN DỤNG CAO')) {
+    if (
+      val === 'VAN_DUNG_CAO' ||
+      val === 'VERY_HARD' ||
+      val.includes('VẬN DỤNG CAO')
+    ) {
       return 'VAN_DUNG_CAO';
     }
     if (val === 'VAN_DUNG' || val === 'HARD' || val.includes('VẬN DỤNG')) {
@@ -385,9 +422,13 @@ export class KnowledgeRoadmapService {
     return 'toan-hoc';
   }
 
-  getCurriculumSeeds(subjectSlug: string, grade: number): CurriculumTopicSeed[] {
+  getCurriculumSeeds(
+    subjectSlug: string,
+    grade: number,
+  ): CurriculumTopicSeed[] {
     const normSubj = this.normalizeSubjectSlug(subjectSlug);
-    const subjMap = CURRICULUM_TOPICS[normSubj] || CURRICULUM_TOPICS['toan-hoc'];
+    const subjMap =
+      CURRICULUM_TOPICS[normSubj] || CURRICULUM_TOPICS['toan-hoc'];
     return subjMap[grade] || subjMap[12] || [];
   }
 
@@ -409,7 +450,11 @@ export class KnowledgeRoadmapService {
     vanDungCaoCorrect: number;
     remediationAttempted: number;
     remediationCorrect: number;
-    recentHistory: Array<{ isCorrect: boolean; bloomLevel: string; at: string }>;
+    recentHistory: Array<{
+      isCorrect: boolean;
+      bloomLevel: string;
+      at: string;
+    }>;
   }): { score: number; status: 'WEAK' | 'REVIEW' | 'MASTERED' | 'UNTESTED' } {
     const totalAttempted =
       params.nhanBietAttempted +
@@ -441,11 +486,15 @@ export class KnowledgeRoadmapService {
       params.vanDungCorrect * weights.VAN_DUNG +
       params.vanDungCaoCorrect * weights.VAN_DUNG_CAO;
 
-    const weightedBloomAcc = weightedMax > 0 ? (weightedEarned / weightedMax) * 100 : 0;
+    const weightedBloomAcc =
+      weightedMax > 0 ? (weightedEarned / weightedMax) * 100 : 0;
 
     // 2. Phong độ gần đây (Recency EMA trên tối đa 10 câu gần nhất)
     let recentAcc = weightedBloomAcc;
-    if (Array.isArray(params.recentHistory) && params.recentHistory.length > 0) {
+    if (
+      Array.isArray(params.recentHistory) &&
+      params.recentHistory.length > 0
+    ) {
       let recWeightSum = 0;
       let recCorrectSum = 0;
       params.recentHistory.slice(-10).forEach((entry, idx) => {
@@ -465,7 +514,8 @@ export class KnowledgeRoadmapService {
       remediationBonus = Math.min(12, Math.round(remRate * 12));
     }
 
-    let rawScore = 0.65 * weightedBloomAcc + 0.35 * recentAcc + remediationBonus;
+    let rawScore =
+      0.65 * weightedBloomAcc + 0.35 * recentAcc + remediationBonus;
 
     // Điều tiết độ tin cậy khi số câu mới làm quá ít (1-2 câu) để tránh nhảy vọt ảo
     if (totalAttempted === 1) {
@@ -482,7 +532,10 @@ export class KnowledgeRoadmapService {
       params.nhanBietCorrect / params.nhanBietAttempted < 0.4;
 
     if (finalScore < 50 || basicBroken) {
-      return { score: basicBroken ? Math.min(finalScore, 48) : finalScore, status: 'WEAK' };
+      return {
+        score: basicBroken ? Math.min(finalScore, 48) : finalScore,
+        status: 'WEAK',
+      };
     }
     if (finalScore < 75) {
       return { score: finalScore, status: 'REVIEW' };
@@ -514,7 +567,8 @@ export class KnowledgeRoadmapService {
     const attemptedAt = params.submittedAt || new Date().toISOString();
 
     const outcomes: QuestionAttemptOutcome[] = [];
-    const snapOrig = params.snapshotData?.originalExam || params.snapshotData || {};
+    const snapOrig =
+      params.snapshotData?.originalExam || params.snapshotData || {};
     const snapQuestions: any[] = Array.isArray(snapOrig.questions)
       ? snapOrig.questions
       : Array.isArray(params.snapshotData?.questions)
@@ -532,7 +586,8 @@ export class KnowledgeRoadmapService {
       }
     }
 
-    const studentAnswers = snapOrig.studentAnswers || params.snapshotData?.answers || {};
+    const studentAnswers =
+      snapOrig.studentAnswers || params.snapshotData?.answers || {};
     const mcMap = studentAnswers.multipleChoices || {};
     const tfMap = studentAnswers.trueFalseAnswers || {};
     const saMap = studentAnswers.shortAnswers || {};
@@ -540,7 +595,9 @@ export class KnowledgeRoadmapService {
     if (snapQuestions.length > 0) {
       const avgTimePerQ = Math.max(
         5,
-        Math.round(Number(params.timeSpentSeconds || 60) / snapQuestions.length),
+        Math.round(
+          Number(params.timeSpentSeconds || 60) / snapQuestions.length,
+        ),
       );
 
       for (const q of snapQuestions) {
@@ -567,7 +624,9 @@ export class KnowledgeRoadmapService {
           isCorrect = userSa.length > 0 && userSa === targetSa;
         } else {
           const userChoice = mcMap[qId];
-          isCorrect = Boolean(userChoice && q.correctChoice && userChoice === q.correctChoice);
+          isCorrect = Boolean(
+            userChoice && q.correctChoice && userChoice === q.correctChoice,
+          );
         }
 
         const bloomLevel = this.normalizeBloomLevel(
@@ -601,7 +660,9 @@ export class KnowledgeRoadmapService {
     } else if (Array.isArray(params.details) && params.details.length > 0) {
       const avgTimePerQ = Math.max(
         5,
-        Math.round(Number(params.timeSpentSeconds || 60) / params.details.length),
+        Math.round(
+          Number(params.timeSpentSeconds || 60) / params.details.length,
+        ),
       );
       const seeds = this.getCurriculumSeeds(subject, grade);
       const fallbackTopic =
@@ -629,7 +690,12 @@ export class KnowledgeRoadmapService {
 
     // Nếu snapshot có sẵn dữ liệu bài luyện bù (khi backfill từ lịch sử)
     const rem = params.snapshotData?.remediation;
-    if (rem && rem.attempted && Array.isArray(rem.questions) && rem.questions.length > 0) {
+    if (
+      rem &&
+      rem.attempted &&
+      Array.isArray(rem.questions) &&
+      rem.questions.length > 0
+    ) {
       const remMc = rem.studentAnswers?.multipleChoices || {};
       const remTf = rem.studentAnswers?.trueFalseAnswers || {};
       const remSa = rem.studentAnswers?.shortAnswers || {};
@@ -652,7 +718,9 @@ export class KnowledgeRoadmapService {
           isCorrect = uSa.length > 0 && uSa === tSa;
         } else {
           const uMc = remMc[rqId];
-          isCorrect = Boolean(uMc && rq.correctChoice && uMc === rq.correctChoice);
+          isCorrect = Boolean(
+            uMc && rq.correctChoice && uMc === rq.correctChoice,
+          );
         }
 
         const chapterId = Number(rq.chapterId || defaultChapterId || 1);
@@ -751,10 +819,13 @@ export class KnowledgeRoadmapService {
           ? { ...(existing.trap_counts as Record<string, number>) }
           : {};
 
-      const recentHistory: Array<{ isCorrect: boolean; bloomLevel: string; at: string }> =
-        Array.isArray(existing?.recent_history)
-          ? [...(existing!.recent_history as any[])]
-          : [];
+      const recentHistory: Array<{
+        isCorrect: boolean;
+        bloomLevel: string;
+        at: string;
+      }> = Array.isArray(existing?.recent_history)
+        ? [...(existing.recent_history as any[])]
+        : [];
 
       let attemptedInExam = 0;
       let correctInExam = 0;
@@ -803,19 +874,20 @@ export class KnowledgeRoadmapService {
 
       const trimmedRecent = recentHistory.slice(-15);
 
-      const { score: newScore, status: newStatus } = this.computeMasteryScoreAndStatus({
-        nhanBietAttempted: nbAttempted,
-        nhanBietCorrect: nbCorrect,
-        thongHieuAttempted: thAttempted,
-        thongHieuCorrect: thCorrect,
-        vanDungAttempted: vdAttempted,
-        vanDungCorrect: vdCorrect,
-        vanDungCaoAttempted: vdcAttempted,
-        vanDungCaoCorrect: vdcCorrect,
-        remediationAttempted: remAttempted,
-        remediationCorrect: remCorrect,
-        recentHistory: trimmedRecent,
-      });
+      const { score: newScore, status: newStatus } =
+        this.computeMasteryScoreAndStatus({
+          nhanBietAttempted: nbAttempted,
+          nhanBietCorrect: nbCorrect,
+          thongHieuAttempted: thAttempted,
+          thongHieuCorrect: thCorrect,
+          vanDungAttempted: vdAttempted,
+          vanDungCorrect: vdCorrect,
+          vanDungCaoAttempted: vdcAttempted,
+          vanDungCaoCorrect: vdcCorrect,
+          remediationAttempted: remAttempted,
+          remediationCorrect: remCorrect,
+          recentHistory: trimmedRecent,
+        });
 
       await this.prisma.studentTopicMastery.upsert({
         where: {
@@ -855,7 +927,10 @@ export class KnowledgeRoadmapService {
         },
         update: {
           chapter_id: sample.chapterId || existing?.chapter_id || 1,
-          chapter_name: sample.chapterName || existing?.chapter_name || `Chương ${sample.chapterId || 1}`,
+          chapter_name:
+            sample.chapterName ||
+            existing?.chapter_name ||
+            `Chương ${sample.chapterId || 1}`,
           total_attempted: totalAttempted,
           total_correct: totalCorrect,
           total_wrong: totalWrong,
@@ -878,7 +953,9 @@ export class KnowledgeRoadmapService {
         },
       });
 
-      const topTrapEntry = Object.entries(trapCounts).sort((a, b) => b[1] - a[1])[0];
+      const topTrapEntry = Object.entries(trapCounts).sort(
+        (a, b) => b[1] - a[1],
+      )[0];
 
       topicDeltas.push({
         topicTag,
@@ -905,8 +982,9 @@ export class KnowledgeRoadmapService {
         );
         if (!nextRecommendedStep && steps.length > 0) {
           nextRecommendedStep =
-            steps.find((s) => s.status === 'RECOMMENDED' || s.status === 'IN_PROGRESS') ||
-            steps[0];
+            steps.find(
+              (s) => s.status === 'RECOMMENDED' || s.status === 'IN_PROGRESS',
+            ) || steps[0];
         }
       }
     }
@@ -951,10 +1029,14 @@ export class KnowledgeRoadmapService {
         subjectSlug: snap.subjectSlug || subjectSlug || 'toan-hoc',
         grade: Number(snap.grade || grade || 12),
         chapterId: Number(snap.chapterId || 1),
-        timeSpentSeconds: Number(sub.time_spent_seconds || snap.timeSpentSeconds || 600),
+        timeSpentSeconds: Number(
+          sub.time_spent_seconds || snap.timeSpentSeconds || 600,
+        ),
         details: snap.details || [],
         snapshotData: snap,
-        submittedAt: sub.submitted_at ? sub.submitted_at.toISOString() : undefined,
+        submittedAt: sub.submitted_at
+          ? sub.submitted_at.toISOString()
+          : undefined,
       });
       allOutcomes.push(...extracted);
     }
@@ -1022,11 +1104,15 @@ export class KnowledgeRoadmapService {
     // 1. Đưa toàn bộ các topic học sinh đã thực sự làm bài vào trước
     for (const m of masteries) {
       seenTags.add(m.topic_tag);
-      const matchedSeed = curriculumSeeds.find((s) => s.topicTag === m.topic_tag);
+      const matchedSeed = curriculumSeeds.find(
+        (s) => s.topicTag === m.topic_tag,
+      );
       mergedTopics.push({
         chapterId: m.chapter_id || matchedSeed?.chapterId || 1,
         chapterName:
-          m.chapter_name || matchedSeed?.chapterName || `Chương ${m.chapter_id || 1}`,
+          m.chapter_name ||
+          matchedSeed?.chapterName ||
+          `Chương ${m.chapter_id || 1}`,
         topicTag: m.topic_tag,
         defaultTitle: matchedSeed?.defaultTitle || `Chuyên đề: ${m.topic_tag}`,
         mastery: m,
@@ -1053,15 +1139,24 @@ export class KnowledgeRoadmapService {
     // - Phase 3: Vững vàng (MASTERED >= 75%) & Chưa khảo sát (UNTESTED) -> Bứt phá Vận dụng cao / Mở khóa chương mới
     const phase1Items = mergedTopics
       .filter((t) => t.mastery && t.mastery.mastery_status === 'WEAK')
-      .sort((a, b) => (a.mastery?.mastery_score ?? 0) - (b.mastery?.mastery_score ?? 0));
+      .sort(
+        (a, b) =>
+          (a.mastery?.mastery_score ?? 0) - (b.mastery?.mastery_score ?? 0),
+      );
 
     const phase2Items = mergedTopics
       .filter((t) => t.mastery && t.mastery.mastery_status === 'REVIEW')
-      .sort((a, b) => (a.mastery?.mastery_score ?? 0) - (b.mastery?.mastery_score ?? 0));
+      .sort(
+        (a, b) =>
+          (a.mastery?.mastery_score ?? 0) - (b.mastery?.mastery_score ?? 0),
+      );
 
     const phase3Mastered = mergedTopics
       .filter((t) => t.mastery && t.mastery.mastery_status === 'MASTERED')
-      .sort((a, b) => (a.mastery?.mastery_score ?? 0) - (b.mastery?.mastery_score ?? 0));
+      .sort(
+        (a, b) =>
+          (a.mastery?.mastery_score ?? 0) - (b.mastery?.mastery_score ?? 0),
+      );
 
     const phase3Untested = mergedTopics
       .filter((t) => !t.mastery || t.mastery.mastery_status === 'UNTESTED')
@@ -1092,7 +1187,9 @@ export class KnowledgeRoadmapService {
         m?.trap_counts && typeof m.trap_counts === 'object'
           ? (m.trap_counts as Record<string, number>)
           : {};
-      const topTrapEntry = Object.entries(trapCounts).sort((a, b) => b[1] - a[1])[0];
+      const topTrapEntry = Object.entries(trapCounts).sort(
+        (a, b) => b[1] - a[1],
+      )[0];
       const topTrapTag = topTrapEntry ? topTrapEntry[0] : null;
 
       let phase = entry.phase;
@@ -1103,14 +1200,17 @@ export class KnowledgeRoadmapService {
       let questionCount = 10;
       let durationMinutes = 15;
       let targetMastery = 75;
-      let stepStatus: 'RECOMMENDED' | 'IN_PROGRESS' | 'COMPLETED' | 'LOCKED' = 'RECOMMENDED';
+      let stepStatus: 'RECOMMENDED' | 'IN_PROGRESS' | 'COMPLETED' | 'LOCKED' =
+        'RECOMMENDED';
 
       if (statusMastery === 'WEAK') {
         phase = 1;
         title = `Vá lỗ hổng: ${entry.topicTag}`;
         recommendedLevel = 'BASIC';
         recommendedBloom =
-          m && m.nhan_biet_attempted > 0 && m.nhan_biet_correct < m.nhan_biet_attempted
+          m &&
+          m.nhan_biet_attempted > 0 &&
+          m.nhan_biet_correct < m.nhan_biet_attempted
             ? 'NHAN_BIET'
             : 'THONG_HIEU';
         questionCount = 5;
@@ -1118,9 +1218,13 @@ export class KnowledgeRoadmapService {
         targetMastery = 65;
 
         const accPct =
-          attemptedCount > 0 ? Math.round((correctCount / attemptedCount) * 100) : 0;
+          attemptedCount > 0
+            ? Math.round((correctCount / attemptedCount) * 100)
+            : 0;
         diagnosticReason = `Đang đạt ${accPct}% (${correctCount}/${attemptedCount} câu đúng, điểm thành thạo ${currentMastery}%).${
-          topTrapTag ? ` Hay mắc bẫy: "${topTrapTag}".` : ' Cần ôn lại phương pháp giải cốt lõi.'
+          topTrapTag
+            ? ` Hay mắc bẫy: "${topTrapTag}".`
+            : ' Cần ôn lại phương pháp giải cốt lõi.'
         }`;
 
         if (!activeRecommendedAssigned) {
@@ -1139,7 +1243,9 @@ export class KnowledgeRoadmapService {
         targetMastery = 80;
 
         const accPct =
-          attemptedCount > 0 ? Math.round((correctCount / attemptedCount) * 100) : 0;
+          attemptedCount > 0
+            ? Math.round((correctCount / attemptedCount) * 100)
+            : 0;
         diagnosticReason = `Đã nắm nền tảng (${correctCount}/${attemptedCount} câu đúng - ${accPct}%). Cần luyện thêm câu mức Thông hiểu & Vận dụng để đạt ngưỡng Vững vàng ≥ 75%.${
           topTrapTag ? ` Lưu ý tránh bẫy: "${topTrapTag}".` : ''
         }`;
@@ -1160,7 +1266,9 @@ export class KnowledgeRoadmapService {
         targetMastery = 90;
 
         const accPct =
-          attemptedCount > 0 ? Math.round((correctCount / attemptedCount) * 100) : 100;
+          attemptedCount > 0
+            ? Math.round((correctCount / attemptedCount) * 100)
+            : 100;
         diagnosticReason = `Đã vững vàng (${correctCount}/${attemptedCount} câu đúng - ${accPct}%, thành thạo ${currentMastery}%). Sẵn sàng chinh phục câu hỏi phân hóa Vận dụng cao.`;
         stepStatus = currentMastery >= 85 ? 'COMPLETED' : 'IN_PROGRESS';
       } else {
@@ -1198,7 +1306,8 @@ export class KnowledgeRoadmapService {
       const intelligenceScore =
         latestBehavior?.intelligence_score ??
         (m?.quick_drill_sessions ? m.intelligence_score : null);
-      let behaviorAdaptationNote = latestBehavior?.roadmap_adaptation_note || null;
+      const behaviorAdaptationNote =
+        latestBehavior?.roadmap_adaptation_note || null;
 
       if (latestBehavior) {
         if (
@@ -1212,7 +1321,8 @@ export class KnowledgeRoadmapService {
               : recommendedBloom === 'THONG_HIEU'
                 ? 'VAN_DUNG'
                 : 'VAN_DUNG_CAO';
-          recommendedLevel = recommendedLevel === 'BASIC' ? 'MEDIUM' : 'ADVANCED';
+          recommendedLevel =
+            recommendedLevel === 'BASIC' ? 'MEDIUM' : 'ADVANCED';
           questionCount = 8;
           durationMinutes = 15;
           title = `Tăng tốc phân hóa: ${entry.topicTag}`;
@@ -1229,7 +1339,8 @@ export class KnowledgeRoadmapService {
           title = `Micro-Sprint 5 câu biến thể: ${entry.topicTag}`;
         } else if (intelligenceTag === 'RAPID_SELF_CORRECTION') {
           // Tự sửa sai nhanh sau lần 1 -> 8 câu mức Thông hiểu - Vận dụng
-          recommendedBloom = recommendedBloom === 'NHAN_BIET' ? 'THONG_HIEU' : 'VAN_DUNG';
+          recommendedBloom =
+            recommendedBloom === 'NHAN_BIET' ? 'THONG_HIEU' : 'VAN_DUNG';
           questionCount = 8;
           durationMinutes = 12;
         } else if (
@@ -1340,7 +1451,11 @@ export class KnowledgeRoadmapService {
     const subject = this.normalizeSubjectSlug(params.subjectSlug || 'toan-hoc');
     const grade = Number(params.grade || 12);
 
-    await this.ensureBackfilledFromSubmissions(params.studentProfileId, subject, grade);
+    await this.ensureBackfilledFromSubmissions(
+      params.studentProfileId,
+      subject,
+      grade,
+    );
 
     const [masteries, totalSubmissionsCount, behaviorLogs] = await Promise.all([
       this.prisma.studentTopicMastery.findMany({
@@ -1374,12 +1489,25 @@ export class KnowledgeRoadmapService {
 
     const bloomStats = {
       NHAN_BIET: { label: 'Nhận biết', attempted: 0, correct: 0, accuracy: 0 },
-      THONG_HIEU: { label: 'Thông hiểu', attempted: 0, correct: 0, accuracy: 0 },
+      THONG_HIEU: {
+        label: 'Thông hiểu',
+        attempted: 0,
+        correct: 0,
+        accuracy: 0,
+      },
       VAN_DUNG: { label: 'Vận dụng', attempted: 0, correct: 0, accuracy: 0 },
-      VAN_DUNG_CAO: { label: 'Vận dụng cao', attempted: 0, correct: 0, accuracy: 0 },
+      VAN_DUNG_CAO: {
+        label: 'Vận dụng cao',
+        attempted: 0,
+        correct: 0,
+        accuracy: 0,
+      },
     };
 
-    const globalTraps: Record<string, { trapTag: string; count: number; topicTag: string }> = {};
+    const globalTraps: Record<
+      string,
+      { trapTag: string; count: number; topicTag: string }
+    > = {};
 
     for (const m of masteries) {
       totalAttempted += m.total_attempted;
@@ -1399,11 +1527,17 @@ export class KnowledgeRoadmapService {
       bloomStats.VAN_DUNG_CAO.correct += m.van_dung_cao_correct;
 
       if (m.trap_counts && typeof m.trap_counts === 'object') {
-        for (const [trap, cnt] of Object.entries(m.trap_counts as Record<string, number>)) {
+        for (const [trap, cnt] of Object.entries(
+          m.trap_counts as Record<string, number>,
+        )) {
           const num = Number(cnt || 0);
           if (num <= 0) continue;
           if (!globalTraps[trap]) {
-            globalTraps[trap] = { trapTag: trap, count: num, topicTag: m.topic_tag };
+            globalTraps[trap] = {
+              trapTag: trap,
+              count: num,
+              topicTag: m.topic_tag,
+            };
           } else {
             globalTraps[trap].count += num;
           }
@@ -1411,38 +1545,58 @@ export class KnowledgeRoadmapService {
       }
     }
 
-    for (const key of Object.keys(bloomStats) as Array<keyof typeof bloomStats>) {
+    for (const key of Object.keys(bloomStats) as Array<
+      keyof typeof bloomStats
+    >) {
       const b = bloomStats[key];
-      b.accuracy = b.attempted > 0 ? Math.round((b.correct / b.attempted) * 100) : 0;
+      b.accuracy =
+        b.attempted > 0 ? Math.round((b.correct / b.attempted) * 100) : 0;
     }
 
     const overallAccuracy =
-      totalAttempted > 0 ? Math.round((totalCorrect / totalAttempted) * 100) : 0;
+      totalAttempted > 0
+        ? Math.round((totalCorrect / totalAttempted) * 100)
+        : 0;
     const overallMasteryScore =
       masteries.length > 0
         ? Math.round(
-            masteries.reduce((acc, m) => acc + Number(m.mastery_score || 0), 0) /
-              masteries.length,
+            masteries.reduce(
+              (acc, m) => acc + Number(m.mastery_score || 0),
+              0,
+            ) / masteries.length,
           )
         : 0;
 
     // Tổng hợp hồ sơ Hành vi (Tinh thần học tập & Trí thông minh nhận diện dạng bài)
     const totalQuickDrillSessions = behaviorLogs.length;
-    const totalTurnsCompleted = behaviorLogs.reduce((s, b) => s + b.completed_turns, 0);
-    const totalTurnsSkipped = behaviorLogs.reduce((s, b) => s + b.skipped_turns, 0);
-    const totalTurnsCorrect = behaviorLogs.reduce((s, b) => s + b.correct_turns, 0);
+    const totalTurnsCompleted = behaviorLogs.reduce(
+      (s, b) => s + b.completed_turns,
+      0,
+    );
+    const totalTurnsSkipped = behaviorLogs.reduce(
+      (s, b) => s + b.skipped_turns,
+      0,
+    );
+    const totalTurnsCorrect = behaviorLogs.reduce(
+      (s, b) => s + b.correct_turns,
+      0,
+    );
     const avgLearningSpiritScore =
       totalQuickDrillSessions > 0
         ? Math.round(
-            behaviorLogs.reduce((s, b) => s + Number(b.learning_spirit_score || 70), 0) /
-              totalQuickDrillSessions,
+            behaviorLogs.reduce(
+              (s, b) => s + Number(b.learning_spirit_score || 70),
+              0,
+            ) / totalQuickDrillSessions,
           )
         : 75;
     const avgIntelligenceScore =
       totalQuickDrillSessions > 0
         ? Math.round(
-            behaviorLogs.reduce((s, b) => s + Number(b.intelligence_score || 70), 0) /
-              totalQuickDrillSessions,
+            behaviorLogs.reduce(
+              (s, b) => s + Number(b.intelligence_score || 70),
+              0,
+            ) / totalQuickDrillSessions,
           )
         : 75;
 
@@ -1547,11 +1701,21 @@ export class KnowledgeRoadmapService {
               ? Math.round((m.total_correct / m.total_attempted) * 100)
               : 0,
           masteryScore: Math.round(m.mastery_score),
-          masteryStatus: m.mastery_status as 'WEAK' | 'REVIEW' | 'MASTERED' | 'UNTESTED',
+          masteryStatus: m.mastery_status as
+            'WEAK' | 'REVIEW' | 'MASTERED' | 'UNTESTED',
           bloomBreakdown: {
-            NHAN_BIET: { attempted: m.nhan_biet_attempted, correct: m.nhan_biet_correct },
-            THONG_HIEU: { attempted: m.thong_hieu_attempted, correct: m.thong_hieu_correct },
-            VAN_DUNG: { attempted: m.van_dung_attempted, correct: m.van_dung_correct },
+            NHAN_BIET: {
+              attempted: m.nhan_biet_attempted,
+              correct: m.nhan_biet_correct,
+            },
+            THONG_HIEU: {
+              attempted: m.thong_hieu_attempted,
+              correct: m.thong_hieu_correct,
+            },
+            VAN_DUNG: {
+              attempted: m.van_dung_attempted,
+              correct: m.van_dung_correct,
+            },
             VAN_DUNG_CAO: {
               attempted: m.van_dung_cao_attempted,
               correct: m.van_dung_cao_correct,
@@ -1613,9 +1777,15 @@ export class KnowledgeRoadmapService {
     ];
 
     const weakTopics = allTopicItems.filter((t) => t.masteryStatus === 'WEAK');
-    const reviewTopics = allTopicItems.filter((t) => t.masteryStatus === 'REVIEW');
-    const masteredTopics = allTopicItems.filter((t) => t.masteryStatus === 'MASTERED');
-    const untestedTopics = allTopicItems.filter((t) => t.masteryStatus === 'UNTESTED');
+    const reviewTopics = allTopicItems.filter(
+      (t) => t.masteryStatus === 'REVIEW',
+    );
+    const masteredTopics = allTopicItems.filter(
+      (t) => t.masteryStatus === 'MASTERED',
+    );
+    const untestedTopics = allTopicItems.filter(
+      (t) => t.masteryStatus === 'UNTESTED',
+    );
 
     return {
       studentProfileId: params.studentProfileId,
@@ -1630,7 +1800,9 @@ export class KnowledgeRoadmapService {
         overallAccuracyPercent: overallAccuracy,
         overallMasteryScore,
         avgSecondsPerQuestion:
-          totalAttempted > 0 ? Math.round(totalTimeSeconds / totalAttempted) : 0,
+          totalAttempted > 0
+            ? Math.round(totalTimeSeconds / totalAttempted)
+            : 0,
         remediationAttempted,
         remediationCorrect,
         countsByStatus: {
@@ -1669,7 +1841,11 @@ export class KnowledgeRoadmapService {
     const subject = this.normalizeSubjectSlug(params.subjectSlug || 'toan-hoc');
     const grade = Number(params.grade || 12);
 
-    await this.ensureBackfilledFromSubmissions(params.studentProfileId, subject, grade);
+    await this.ensureBackfilledFromSubmissions(
+      params.studentProfileId,
+      subject,
+      grade,
+    );
 
     let steps = await this.prisma.studentRoadmapStep.findMany({
       where: {
@@ -1742,7 +1918,8 @@ export class KnowledgeRoadmapService {
         learningSpiritTag: s.learning_spirit_tag,
         learningSpiritLabel: s.learning_spirit_label,
         learningSpiritScore:
-          s.learning_spirit_score !== null && s.learning_spirit_score !== undefined
+          s.learning_spirit_score !== null &&
+          s.learning_spirit_score !== undefined
             ? Math.round(s.learning_spirit_score)
             : null,
         intelligenceTag: s.intelligence_tag,
@@ -1752,7 +1929,8 @@ export class KnowledgeRoadmapService {
             ? Math.round(s.intelligence_score)
             : null,
         behaviorAdaptationNote: s.behavior_adaptation_note,
-        status: s.status as 'RECOMMENDED' | 'IN_PROGRESS' | 'COMPLETED' | 'LOCKED',
+        status: s.status as
+          'RECOMMENDED' | 'IN_PROGRESS' | 'COMPLETED' | 'LOCKED',
         practiceUrl,
         updatedAt: s.updated_at,
       };
@@ -1858,7 +2036,10 @@ export class KnowledgeRoadmapService {
 
     // 2. Bóc tách kết quả từng câu trong bài Luyện bù để cập nhật Mastery Score
     const outcomes: QuestionAttemptOutcome[] = [];
-    if (Array.isArray(dto.questionOutcomes) && dto.questionOutcomes.length > 0) {
+    if (
+      Array.isArray(dto.questionOutcomes) &&
+      dto.questionOutcomes.length > 0
+    ) {
       for (const qo of dto.questionOutcomes) {
         const chapterId = Number(qo.chapterId || defaultChapterId);
         const seeds = this.getCurriculumSeeds(subject, grade);
@@ -1904,7 +2085,9 @@ export class KnowledgeRoadmapService {
           isCorrect = uSa.length > 0 && uSa === tSa;
         } else {
           const uMc = remMc[rqId];
-          isCorrect = Boolean(uMc && rq.correctChoice && uMc === rq.correctChoice);
+          isCorrect = Boolean(
+            uMc && rq.correctChoice && uMc === rq.correctChoice,
+          );
         }
 
         const chapterId = Number(rq.chapterId || defaultChapterId);
@@ -1965,7 +2148,8 @@ export class KnowledgeRoadmapService {
     const grade = Number(dto.grade || 12);
     const chapterId = Number(dto.chapterId || 1);
     const seeds = this.getCurriculumSeeds(subject, grade);
-    const matchedSeed = seeds.find((s) => s.chapterId === chapterId) || seeds[0];
+    const matchedSeed =
+      seeds.find((s) => s.chapterId === chapterId) || seeds[0];
     const chapterName =
       dto.chapterName || matchedSeed?.chapterName || `Chương ${chapterId}`;
     const topicTag = String(
@@ -2000,27 +2184,38 @@ export class KnowledgeRoadmapService {
       };
     });
 
-
-    const completedTurns = normalizedTurns.filter((t) => t.status !== 'SKIPPED').length;
-    const skippedTurns = normalizedTurns.filter((t) => t.status === 'SKIPPED').length;
-    const correctTurns = normalizedTurns.filter((t) => t.status === 'CORRECT').length;
-    const wrongTurns = normalizedTurns.filter((t) => t.status === 'WRONG').length;
+    const completedTurns = normalizedTurns.filter(
+      (t) => t.status !== 'SKIPPED',
+    ).length;
+    const skippedTurns = normalizedTurns.filter(
+      (t) => t.status === 'SKIPPED',
+    ).length;
+    const correctTurns = normalizedTurns.filter(
+      (t) => t.status === 'CORRECT',
+    ).length;
+    const wrongTurns = normalizedTurns.filter(
+      (t) => t.status === 'WRONG',
+    ).length;
     const totalTimeSeconds =
       Number(dto.totalTimeSeconds || 0) ||
       normalizedTurns.reduce((s, t) => s + t.timeSpentSeconds, 0);
 
     // 1. Đánh giá Tinh thần học tập (Learning Spirit / Grit)
     let learningSpiritTag = 'HIGH_GRIT_PERSISTENT';
-    let learningSpiritLabel = '🔥 Tinh thần Cầu tiến Cao (Kiên trì làm đủ 3/3 lần)';
+    let learningSpiritLabel =
+      '🔥 Tinh thần Cầu tiến Cao (Kiên trì làm đủ 3/3 lần)';
     let learningSpiritScore = 92;
 
     if (completedTurns === 3) {
       learningSpiritTag = 'HIGH_GRIT_PERSISTENT';
-      learningSpiritLabel = '🔥 Tinh thần Cầu tiến Cao (Kiên trì làm đủ 3/3 lần)';
-      learningSpiritScore = correctTurns === 3 ? 98 : correctTurns === 2 ? 94 : 90;
+      learningSpiritLabel =
+        '🔥 Tinh thần Cầu tiến Cao (Kiên trì làm đủ 3/3 lần)';
+      learningSpiritScore =
+        correctTurns === 3 ? 98 : correctTurns === 2 ? 94 : 90;
     } else if (completedTurns === 2) {
       learningSpiritTag = 'MODERATE_INITIATIVE';
-      learningSpiritLabel = '⚡ Chủ động Rèn luyện (Hoàn thành 2/3 lần, Skip 1 lần)';
+      learningSpiritLabel =
+        '⚡ Chủ động Rèn luyện (Hoàn thành 2/3 lần, Skip 1 lần)';
       learningSpiritScore = correctTurns === 2 ? 78 : 70;
     } else if (completedTurns === 1) {
       learningSpiritTag = 'LOW_PATIENCE_PARTIAL_SKIP';
@@ -2038,7 +2233,8 @@ export class KnowledgeRoadmapService {
     const t3 = normalizedTurns[2]?.status;
 
     let intelligenceTag = 'DEVELOPING_PATTERN_LOGIC';
-    let intelligenceLabel = '🔍 Tư duy Đang định hình (Cần rèn thêm bước biến đổi số học)';
+    let intelligenceLabel =
+      '🔍 Tư duy Đang định hình (Cần rèn thêm bước biến đổi số học)';
     let intelligenceScore = 65;
 
     if (
@@ -2049,7 +2245,8 @@ export class KnowledgeRoadmapService {
       intelligenceTag = 'FAST_ISOMORPHIC_TRANSFER';
       intelligenceLabel =
         '🧠 Tư duy Đẳng cấu Nhạy bén (Nhận diện quy luật ngay từ 1 gợi ý chung)';
-      intelligenceScore = correctTurns === 3 ? 96 : correctTurns === 2 ? 90 : 84;
+      intelligenceScore =
+        correctTurns === 3 ? 96 : correctTurns === 2 ? 90 : 84;
     } else if (t1 === 'WRONG' && (t2 === 'CORRECT' || t3 === 'CORRECT')) {
       intelligenceTag = 'RAPID_SELF_CORRECTION';
       intelligenceLabel =
@@ -2179,7 +2376,7 @@ export class KnowledgeRoadmapService {
         remediationAttempted: nextRemAttempted,
         remediationCorrect: nextRemCorrect,
         recentHistory: Array.isArray(existingMastery?.recent_history)
-          ? (existingMastery!.recent_history as any[])
+          ? (existingMastery.recent_history as any[])
           : [],
       });
 
@@ -2327,4 +2524,3 @@ export class KnowledgeRoadmapService {
     }));
   }
 }
-

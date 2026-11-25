@@ -87,7 +87,7 @@ describe('AuthModule (Unit Tests)', () => {
 
       expect(result.message).toBe('Đăng ký tài khoản thành công');
       expect(result.user.email).toBe(registerDto.email);
-      expect((result.user as any).password_hash).toBeUndefined();
+      expect(result.user.password_hash).toBeUndefined();
       expect(mockRes.cookie).toHaveBeenCalledWith(
         'access_token',
         'mock-jwt-token-12345',
@@ -141,7 +141,10 @@ describe('AuthModule (Unit Tests)', () => {
       usersService.findByEmail.mockResolvedValueOnce(mockUser as any);
 
       await expect(
-        service.login({ email: 'nguyenvana@gmail.com', password: 'wrongpassword' }),
+        service.login({
+          email: 'nguyenvana@gmail.com',
+          password: 'wrongpassword',
+        }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -149,7 +152,10 @@ describe('AuthModule (Unit Tests)', () => {
       usersService.findByEmail.mockResolvedValueOnce(null);
 
       await expect(
-        service.login({ email: 'nonexistent@gmail.com', password: 'secret123' }),
+        service.login({
+          email: 'nonexistent@gmail.com',
+          password: 'secret123',
+        }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -165,11 +171,12 @@ describe('AuthModule (Unit Tests)', () => {
 
   describe('Logout Flow', () => {
     it('should clear access_token cookie on logout', async () => {
+      const mockReq = { headers: {}, cookies: {} } as any;
       const mockRes = {
         clearCookie: jest.fn(),
       } as any;
 
-      const result = await controller.logout(mockRes);
+      const result = await controller.logout(mockReq, mockRes);
 
       expect(result.message).toBe('Đăng xuất thành công');
       expect(mockRes.clearCookie).toHaveBeenCalledWith(
@@ -187,7 +194,7 @@ describe('AuthModule (Unit Tests)', () => {
       const result = await controller.getProfile(mockUser);
 
       expect(result.user.email).toBe(mockUser.email);
-      expect((result.user as any).password_hash).toBeUndefined();
+      expect(result.user.password_hash).toBeUndefined();
     });
   });
 });

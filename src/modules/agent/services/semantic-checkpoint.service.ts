@@ -29,10 +29,14 @@ export class SemanticCheckpointService {
    * 2. Nếu không phát hiện câu nào có độ tương đồng đủ ngưỡng (< 0.65) -> Kết luận SAI ngay (Early Exit, 0 tốn AI).
    * 3. Nếu phát hiện câu tương đồng -> Bốc tách câu đó + Checkpoint gửi qua AI (Antigravity IPC Bridge) để phán định TRUE / FALSE.
    */
-  async evaluate(dto: EvaluateSemanticCheckpointDto): Promise<SemanticCheckpointResponse> {
+  async evaluate(
+    dto: EvaluateSemanticCheckpointDto,
+  ): Promise<SemanticCheckpointResponse> {
     const { questionId, studentAnswer, rubricCheckpoint } = dto;
 
-    this.logger.log(`🔍 Bắt đầu chấm Semantic Checkpoint cho tiêu chí: "${rubricCheckpoint}"`);
+    this.logger.log(
+      `🔍 Bắt đầu chấm Semantic Checkpoint cho tiêu chí: "${rubricCheckpoint}"`,
+    );
 
     // 1. Chia tách đoạn văn của học sinh thành các câu/mệnh đề riêng biệt
     const sentences = studentAnswer
@@ -46,21 +50,27 @@ export class SemanticCheckpointService {
         questionId,
         matchedSentence: null,
         vectorSimilarity: 0,
-        explanation: 'Học sinh chưa nhập câu trả lời hoặc câu trả lời không có nội dung.',
+        explanation:
+          'Học sinh chưa nhập câu trả lời hoặc câu trả lời không có nội dung.',
         evaluationSource: 'VECTOR_FILTER_EARLY_EXIT',
       };
     }
 
     // 2. Tính vector embedding cho Rubric Checkpoint
-    const checkpointVector = await this.semanticCacheService.getEmbedding(rubricCheckpoint);
+    const checkpointVector =
+      await this.semanticCacheService.getEmbedding(rubricCheckpoint);
 
     // 3. Tính độ tương đồng cho từng câu trong bài làm của học sinh
     let maxSim = -1;
     let candidateSentence: string | null = null;
 
     for (const sentence of sentences) {
-      const sentenceVector = await this.semanticCacheService.getEmbedding(sentence);
-      const sim = this.semanticCacheService.cosineSimilarity(sentenceVector, checkpointVector);
+      const sentenceVector =
+        await this.semanticCacheService.getEmbedding(sentence);
+      const sim = this.semanticCacheService.cosineSimilarity(
+        sentenceVector,
+        checkpointVector,
+      );
 
       if (sim > maxSim) {
         maxSim = sim;
@@ -77,10 +87,20 @@ export class SemanticCheckpointService {
     // Chỉ cho đi tiếp sang AI nếu phát hiện câu tương đồng > 0.85 (85%)
     const VECTOR_FILTER_THRESHOLD = 0.85;
     if (similarityScore <= VECTOR_FILTER_THRESHOLD || !candidateSentence) {
-      this.logger.log(`❌ [Vector Filter] Không phát hiện câu tương đồng -> Early Exit (False)`);
+      this.logger.log(
+        `❌ [Vector Filter] Không phát hiện câu tương đồng -> Early Exit (False)`,
+      );
 
       // Ghi log vào database
-      await this.logEvaluation(questionId, studentAnswer, rubricCheckpoint, null, similarityScore, false, 'Bài làm chưa đề cập đến nội dung của tiêu chí này.');
+      await this.logEvaluation(
+        questionId,
+        studentAnswer,
+        rubricCheckpoint,
+        null,
+        similarityScore,
+        false,
+        'Bài làm chưa đề cập đến nội dung của tiêu chí này.',
+      );
 
       return {
         isCorrect: false,

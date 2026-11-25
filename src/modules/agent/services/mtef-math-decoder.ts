@@ -109,7 +109,10 @@ function skipNudge(buf: Uint8Array, pos: number): number {
   return pos;
 }
 
-function parseSingleChar(buf: Uint8Array, pos: number): { ch: string; pos: number } {
+function parseSingleChar(
+  buf: Uint8Array,
+  pos: number,
+): { ch: string; pos: number } {
   pos += 1; // skip 2 (CHAR)
   if (pos >= buf.length) return { ch: '', pos };
   const opts = buf[pos++];
@@ -128,7 +131,10 @@ function parseSingleChar(buf: Uint8Array, pos: number): { ch: string; pos: numbe
 
   let ch = MTCODE_MAP[mtcode];
   if (ch === undefined) {
-    if ((mtcode >= 32 && mtcode <= 126) || (mtcode >= 0x00a0 && mtcode <= 0x1ef9)) {
+    if (
+      (mtcode >= 32 && mtcode <= 126) ||
+      (mtcode >= 0x00a0 && mtcode <= 0x1ef9)
+    ) {
       ch = String.fromCharCode(mtcode);
     } else {
       ch = '';
@@ -164,7 +170,10 @@ function parseSingleChar(buf: Uint8Array, pos: number): { ch: string; pos: numbe
   return { ch, pos };
 }
 
-function parseMtefNodes(buf: Uint8Array, startPos = 0): { latex: string; pos: number } {
+function parseMtefNodes(
+  buf: Uint8Array,
+  startPos = 0,
+): { latex: string; pos: number } {
   const items: string[] = [];
   let pos = startPos;
   const n = buf.length;
@@ -250,7 +259,9 @@ function parseMtefNodes(buf: Uint8Array, startPos = 0): { latex: string; pos: nu
       } else if (selector === 0x03) {
         const inner = slots[0] || '';
         if (variation === 0x01 && inner.includes('\\\\')) {
-          items.push(`\\left[ \\begin{aligned} ${inner} \\end{aligned} \\right.`);
+          items.push(
+            `\\left[ \\begin{aligned} ${inner} \\end{aligned} \\right.`,
+          );
         } else {
           items.push(`[${inner}]`);
         }
@@ -360,47 +371,56 @@ export function ommlToLatex(ommlStr: string): string {
     // 1. Căn bậc hai / bậc n: <m:rad>
     res = res.replace(
       /<m:rad(?:\s[^>]*)?>[\s\S]*?<m:deg(?:\s[^>]*)?>([\s\S]*?)<\/m:deg>[\s\S]*?<m:e(?:\s[^>]*)?>([\s\S]*?)<\/m:e>[\s\S]*?<\/m:rad>/g,
-      (_m, deg, rad) => (deg.trim() ? `\\sqrt[${deg}]{${rad}}` : `\\sqrt{${rad}}`)
+      (_m, deg, rad) =>
+        deg.trim() ? `\\sqrt[${deg}]{${rad}}` : `\\sqrt{${rad}}`,
     );
     // 2. Dấu ngoặc <m:d>...</m:d>
     res = res.replace(
       /<m:d(?:\s[^>]*)?>[\s\S]*?<m:e(?:\s[^>]*)?>([\s\S]*?)<\/m:e>[\s\S]*?<\/m:d>/g,
-      (_m, content) => `(${content})`
+      (_m, content) => `(${content})`,
     );
     // 3. Phân số <m:f>
     res = res.replace(
       /<m:f(?:\s[^>]*)?>[\s\S]*?<m:num(?:\s[^>]*)?>([\s\S]*?)<\/m:num>[\s\S]*?<m:den(?:\s[^>]*)?>([\s\S]*?)<\/m:den>[\s\S]*?<\/m:f>/g,
-      (_m, num, den) => `\\frac{${num}}{${den}}`
+      (_m, num, den) => `\\frac{${num}}{${den}}`,
     );
     // 4. Số mũ & chỉ số dưới kết hợp <m:sSubSup>
     res = res.replace(
       /<m:sSubSup(?:\s[^>]*)?>[\s\S]*?<m:e(?:\s[^>]*)?>([\s\S]*?)<\/m:e>[\s\S]*?<m:sub(?:\s[^>]*)?>([\s\S]*?)<\/m:sub>[\s\S]*?<m:sup(?:\s[^>]*)?>([\s\S]*?)<\/m:sup>[\s\S]*?<\/m:sSubSup>/g,
-      (_m, e, sub, sup) => `${e}_{${sub}}^{${sup}}`
+      (_m, e, sub, sup) => `${e}_{${sub}}^{${sup}}`,
     );
     // 5. Số mũ <m:sSup>
     res = res.replace(
       /<m:sSup(?:\s[^>]*)?>[\s\S]*?<m:e(?:\s[^>]*)?>([\s\S]*?)<\/m:e>[\s\S]*?<m:sup(?:\s[^>]*)?>([\s\S]*?)<\/m:sup>[\s\S]*?<\/m:sSup>/g,
-      (_m, e, s) => `${e}^{${s}}`
+      (_m, e, s) => `${e}^{${s}}`,
     );
     // 6. Chỉ số dưới <m:sSub>
     res = res.replace(
       /<m:sSub(?:\s[^>]*)?>[\s\S]*?<m:e(?:\s[^>]*)?>([\s\S]*?)<\/m:e>[\s\S]*?<m:sub(?:\s[^>]*)?>([\s\S]*?)<\/m:sub>[\s\S]*?<\/m:sSub>/g,
-      (_m, e, s) => `${e}_{${s}}`
+      (_m, e, s) => `${e}_{${s}}`,
     );
     // 7. Mảng phương trình <m:eqArr>
     res = res.replace(
       /<m:eqArr(?:\s[^>]*)?>([\s\S]*?)<\/m:eqArr>/g,
       (_m, inner) => {
-        const rows = Array.from(inner.matchAll(/<m:e(?:\s[^>]*)?>([\s\S]*?)<\/m:e>/g)).map(
-          (rm: any) => rm[1]
-        );
-        return rows.length > 1 ? `\\begin{cases} ${rows.join(' \\\\ ')} \\end{cases}` : inner;
-      }
+        const rows = Array.from(
+          inner.matchAll(/<m:e(?:\s[^>]*)?>([\s\S]*?)<\/m:e>/g),
+        ).map((rm: any) => rm[1]);
+        return rows.length > 1
+          ? `\\begin{cases} ${rows.join(' \\\\ ')} \\end{cases}`
+          : inner;
+      },
     );
     // 8. Loại bỏ thẻ <m:r> và <w:r>
-    res = res.replace(/<(?:m:r|w:r)(?:\s[^>]*)?>([\s\S]*?)<\/(?:m:r|w:r)>/g, (_m, content) => content);
+    res = res.replace(
+      /<(?:m:r|w:r)(?:\s[^>]*)?>([\s\S]*?)<\/(?:m:r|w:r)>/g,
+      (_m, content) => content,
+    );
     // 9. Lấy chữ từ thẻ <m:t> và <w:t>
-    res = res.replace(/<(?:m:t|w:t)(?:\s[^>]*)?>([\s\S]*?)<\/(?:m:t|w:t)>/g, (_m, txt) => txt);
+    res = res.replace(
+      /<(?:m:t|w:t)(?:\s[^>]*)?>([\s\S]*?)<\/(?:m:t|w:t)>/g,
+      (_m, txt) => txt,
+    );
   }
 
   res = res.replace(/<[^>]+>/g, '');
@@ -412,7 +432,7 @@ export function ommlToLatex(ommlStr: string): string {
  * bảng đáp án và hình ảnh minh họa từ file `.docx`.
  */
 export async function extractDocxWithMtefAndOmml(
-  arrayBuffer: ArrayBuffer | Uint8Array
+  arrayBuffer: ArrayBuffer | Uint8Array,
 ): Promise<string> {
   const zip = await JSZip.loadAsync(arrayBuffer);
 
@@ -487,7 +507,7 @@ export async function extractDocxWithMtefAndOmml(
           return `<w:t> ${oleLatexMap[oleMatch[1]]} </w:t>`;
         }
         return '';
-      }
+      },
     );
 
     // 2. Thay thế các thẻ <m:oMath>...</m:oMath> của Word bằng công thức LaTeX $...$
@@ -496,15 +516,22 @@ export async function extractDocxWithMtefAndOmml(
       (fullOmml) => {
         const latex = ommlToLatex(fullOmml);
         return latex ? `<w:t> $${latex}$ </w:t>` : '';
-      }
+      },
     );
 
     // 3. Thay thế <w:tab/> bằng ký tự tab để tách các đáp án A, B, C, D cùng dòng
-    processedXml = processedXml.replace(/<w:tab(?:\s[^>]*)?\/>/gi, '<w:t>\t</w:t>');
-    processedXml = processedXml.replace(/<w:br(?:\s[^>]*)?\/>/gi, '<w:t>\n</w:t>');
+    processedXml = processedXml.replace(
+      /<w:tab(?:\s[^>]*)?\/>/gi,
+      '<w:t>\t</w:t>',
+    );
+    processedXml = processedXml.replace(
+      /<w:br(?:\s[^>]*)?\/>/gi,
+      '<w:t>\n</w:t>',
+    );
 
     // 4. Tìm các hình ảnh minh họa thực sự (<w:drawing>, <w:pict>)
-    const drawingRegex = /<(?:w:drawing|w:pict)(?:\s[^>]*)?>([\s\S]*?)<\/(?:w:drawing|w:pict)>/gi;
+    const drawingRegex =
+      /<(?:w:drawing|w:pict)(?:\s[^>]*)?>([\s\S]*?)<\/(?:w:drawing|w:pict)>/gi;
     let dMatch: RegExpExecArray | null;
     while ((dMatch = drawingRegex.exec(processedXml)) !== null) {
       const rMatch = dMatch[0].match(/(?:r:embed|r:id)="([^"]+)"/i);
@@ -516,16 +543,25 @@ export async function extractDocxWithMtefAndOmml(
 
     // 5. Trích xuất văn bản từ <w:t> (đồng thời nhận diện gạch chân <w:u> cho đáp án đúng)
     let text = '';
-    const runRegex = /<w:r(?:\s[^>]*)?>([\s\S]*?)<\/w:r>|<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
+    const runRegex =
+      /<w:r(?:\s[^>]*)?>([\s\S]*?)<\/w:r>|<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
     let rMatch: RegExpExecArray | null;
     while ((rMatch = runRegex.exec(processedXml)) !== null) {
       if (rMatch[1] !== undefined) {
         const runContent = rMatch[1];
-        const hasUnderline = /<w:u(?:\s+w:val="(?!none)[^"]*"|\s*\/)>/i.test(runContent);
-        const hasRedColor = /<w:color[^>]*w:val="(?:FF0000|red|C00000|E00000)"/i.test(runContent);
-        const tMatches = Array.from(runContent.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g));
+        const hasUnderline = /<w:u(?:\s+w:val="(?!none)[^"]*"|\s*\/)>/i.test(
+          runContent,
+        );
+        const hasRedColor =
+          /<w:color[^>]*w:val="(?:FF0000|red|C00000|E00000)"/i.test(runContent);
+        const tMatches = Array.from(
+          runContent.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g),
+        );
         const runText = tMatches.map((m) => m[1]).join('');
-        if ((hasUnderline || hasRedColor) && /^[A-Ea-e](?:[\.\)\:]|\s*$)/.test(runText.trim())) {
+        if (
+          (hasUnderline || hasRedColor) &&
+          /^[A-Ea-e](?:[\.\)\:]|\s*$)/.test(runText.trim())
+        ) {
           text += `*${runText.trimStart()}`;
         } else {
           text += runText;
@@ -542,8 +578,12 @@ export async function extractDocxWithMtefAndOmml(
       .trim();
 
     if (foundImages.length > 0) {
-      const imgMarkdown = foundImages.map((u) => `\n![Hình minh họa](${u})`).join('');
-      fullParagraph = fullParagraph ? `${fullParagraph}\n${imgMarkdown}` : imgMarkdown.trim();
+      const imgMarkdown = foundImages
+        .map((u) => `\n![Hình minh họa](${u})`)
+        .join('');
+      fullParagraph = fullParagraph
+        ? `${fullParagraph}\n${imgMarkdown}`
+        : imgMarkdown.trim();
     }
 
     return fullParagraph;
@@ -606,8 +646,10 @@ export interface UnifiedParsedQuestion {
   index: number;
   questionNumber: number;
   title: string;
-  questionType: 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'FILL_BLANK';
-  difficulty: 'RECOGNITION' | 'UNDERSTANDING' | 'APPLICATION' | 'ADVANCED_APPLICATION';
+  questionType:
+    'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'FILL_BLANK';
+  difficulty:
+    'RECOGNITION' | 'UNDERSTANDING' | 'APPLICATION' | 'ADVANCED_APPLICATION';
   chapter: string;
   content: string;
   imageUrls: string[];
@@ -617,16 +659,23 @@ export interface UnifiedParsedQuestion {
   answers: UnifiedParsedAnswer[];
 }
 
-function extractImagesFromText(raw: string): { cleanText: string; imageUrls: string[] } {
+function extractImagesFromText(raw: string): {
+  cleanText: string;
+  imageUrls: string[];
+} {
   const imageUrls: string[] = [];
-  const imgRegex = /!\[(?:[^\]]*)\]\((data:image\/[^;]+;base64,[^\s\)]+|https?:\/\/[^\s\)]+)\)/g;
+  const imgRegex =
+    /!\[(?:[^\]]*)\]\((data:image\/[^;]+;base64,[^\s\)]+|https?:\/\/[^\s\)]+)\)/g;
   let m: RegExpExecArray | null;
   while ((m = imgRegex.exec(raw)) !== null) {
     if (!imageUrls.includes(m[1])) {
       imageUrls.push(m[1]);
     }
   }
-  const cleanText = raw.replace(imgRegex, '').replace(/\n{2,}/g, '\n').trim();
+  const cleanText = raw
+    .replace(imgRegex, '')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
   return { cleanText, imageUrls };
 }
 
@@ -642,10 +691,15 @@ function cleanOptionContent(raw: string): string {
  * Phân tích văn bản đề thi đã giải mã MathType/OMML thành danh sách câu hỏi chuẩn,
  * tự động khớp BẢNG ĐÁP ÁN ở cuối file (Trắc nghiệm ABCD, Đúng/Sai a-b-c-d, Trả lời ngắn).
  */
-export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestion[] {
+export function parseExamTextWithMathAndKeys(
+  text: string,
+): UnifiedParsedQuestion[] {
   if (!text || !text.trim()) return [];
 
-  const allLines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const allLines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
 
   // 1. Tách phần thân đề thi và phần BẢNG ĐÁP ÁN ở cuối tài liệu
   let keyStartIndex = -1;
@@ -656,7 +710,11 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
     if (/^[-—=\s]*HẾT[-—=\s]*$/i.test(line)) {
       if (bodyEndIndex === allLines.length) bodyEndIndex = i;
     }
-    if (/^(?:[-—=\s]*BẢNG\s+ĐÁP\s+ÁN|PHẦN\s+ĐÁP\s+ÁN|ĐÁP\s+ÁN\s*(?:VÀ\s+HƯỚNG\s+DẪN)?|KEY\b)/i.test(line)) {
+    if (
+      /^(?:[-—=\s]*BẢNG\s+ĐÁP\s+ÁN|PHẦN\s+ĐÁP\s+ÁN|ĐÁP\s+ÁN\s*(?:VÀ\s+HƯỚNG\s+DẪN)?|KEY\b)/i.test(
+        line,
+      )
+    ) {
       keyStartIndex = i;
       if (bodyEndIndex === allLines.length) bodyEndIndex = i;
       break;
@@ -695,7 +753,8 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
             cells.forEach((c, idx) => {
               const numMatch = c.match(/(\d+)/);
               if (numMatch) {
-                mcKeyMap[parseInt(numMatch[1], 10)] = nextCells[idx].toUpperCase();
+                mcKeyMap[parseInt(numMatch[1], 10)] =
+                  nextCells[idx].toUpperCase();
               }
             });
             i += 1;
@@ -748,7 +807,8 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
         }
       } else {
         // Các cặp đáp án viết liền trên dòng: "1.A 2.B 3.C" hoặc "Câu 1: B"
-        const pairRegex = /(?:^|\s)(?:C|Câu\s*)?(\d+)[\s\.\:\-\=]+([A-Ea-e])(?=\s|$|\b)/g;
+        const pairRegex =
+          /(?:^|\s)(?:C|Câu\s*)?(\d+)[\s\.\:\-\=]+([A-Ea-e])(?=\s|$|\b)/g;
         let pm: RegExpExecArray | null;
         while ((pm = pairRegex.exec(line)) !== null) {
           mcKeyMap[parseInt(pm[1], 10)] = pm[2].toUpperCase();
@@ -780,7 +840,8 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
   const commitCurrentQuestion = () => {
     if (!currentQ) return;
     const rawStem = currentQ.stemLines.join('\n').trim();
-    const { cleanText: cleanStem, imageUrls: stemImgs } = extractImagesFromText(rawStem);
+    const { cleanText: cleanStem, imageUrls: stemImgs } =
+      extractImagesFromText(rawStem);
     const allImgs = [...currentQ.imageUrls];
     for (const u of stemImgs) {
       if (!allImgs.includes(u)) allImgs.push(u);
@@ -841,7 +902,7 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
       if (tfFlags && answers.length > 0) {
         answers = answers.map((a, idx) => ({
           ...a,
-          isCorrect: tfFlags![idx] ?? a.isCorrect,
+          isCorrect: tfFlags[idx] ?? a.isCorrect,
         }));
       }
     }
@@ -859,16 +920,14 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
         answers = [{ label: 'Đáp số', content: shortAnswer, isCorrect: true }];
         if (!explain) explain = `Đáp số đúng: ${shortAnswer}`;
       } else if (answers.length === 0) {
-        answers = [{ label: 'Đáp số', content: '(Điền đáp số)', isCorrect: true }];
+        answers = [
+          { label: 'Đáp số', content: '(Điền đáp số)', isCorrect: true },
+        ];
       }
     }
 
     const points =
-      qType === 'TRUE_FALSE'
-        ? 1.0
-        : qType === 'FILL_BLANK'
-          ? 0.5
-          : 0.25;
+      qType === 'TRUE_FALSE' ? 1.0 : qType === 'FILL_BLANK' ? 0.5 : 0.25;
 
     results.push({
       index: seqIndex,
@@ -890,7 +949,8 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
 
   for (const rawLine of bodyLines) {
     // Tách hình ảnh nếu dòng có chứa ![Hình minh họa](...)
-    const { cleanText: line, imageUrls: lineImgs } = extractImagesFromText(rawLine);
+    const { cleanText: line, imageUrls: lineImgs } =
+      extractImagesFromText(rawLine);
     if (lineImgs.length > 0 && currentQ) {
       for (const u of lineImgs) {
         if (!currentQ.imageUrls.includes(u)) currentQ.imageUrls.push(u);
@@ -900,7 +960,9 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
 
     // 1. Nhận diện chuyển Phần (Section I, II, III, B. Tự luận)
     if (
-      /^(?:PHẦN\s*(?:1|I)\b|I\.\s*CÂU\s*TRẮC\s*NGHIỆM\s*NHIỀU|I\.\s*TRẮC\s*NGHIỆM\s*NHIỀU)/i.test(line)
+      /^(?:PHẦN\s*(?:1|I)\b|I\.\s*CÂU\s*TRẮC\s*NGHIỆM\s*NHIỀU|I\.\s*TRẮC\s*NGHIỆM\s*NHIỀU)/i.test(
+        line,
+      )
     ) {
       commitCurrentQuestion();
       currentSection = 1;
@@ -908,7 +970,9 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
       continue;
     }
     if (
-      /^(?:PHẦN\s*(?:2|II)\b|II\.\s*CÂU\s*TRẮC\s*NGHIỆM\s*ĐÚNG|II\.\s*TRẮC\s*NGHIỆM\s*ĐÚNG)/i.test(line)
+      /^(?:PHẦN\s*(?:2|II)\b|II\.\s*CÂU\s*TRẮC\s*NGHIỆM\s*ĐÚNG|II\.\s*TRẮC\s*NGHIỆM\s*ĐÚNG)/i.test(
+        line,
+      )
     ) {
       commitCurrentQuestion();
       currentSection = 2;
@@ -917,7 +981,7 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
     }
     if (
       /^(?:PHẦN\s*(?:3|III)\b|III\.\s*CÂU\s*HỎI\s*TRẮC\s*NGHIỆM\s*TRẢ\s*LỜI\s*NGẮN|III\.\s*TRẮC\s*NGHIỆM\s*TRẢ\s*LỜI\s*NGẮN)/i.test(
-        line
+        line,
       )
     ) {
       commitCurrentQuestion();
@@ -926,7 +990,9 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
       continue;
     }
     if (
-      /^(?:PHẦN\s*(?:4|IV)\b|B\.\s*BÀI\s*TẬP\s*TỰ\s*LUẬN|IV\.\s*TỰ\s*LUẬN)/i.test(line)
+      /^(?:PHẦN\s*(?:4|IV)\b|B\.\s*BÀI\s*TẬP\s*TỰ\s*LUẬN|IV\.\s*TỰ\s*LUẬN)/i.test(
+        line,
+      )
     ) {
       commitCurrentQuestion();
       currentSection = 4;
@@ -938,14 +1004,16 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
     if (
       !currentQ &&
       /^(?:ĐỀ\s+CƯƠNG|ĐỀ\s+THI|ĐỀ\s+KIỂM\s+TRA|NĂM\s+HỌC|A\.\s*BÀI\s*TẬP|MÔN[\s\:]|THỜI\s+GIAN)/i.test(
-        line
+        line,
       )
     ) {
       continue;
     }
 
     // 2. Nhận diện bắt đầu Câu hỏi mới ("Câu 1.", "Bài 1.", "Question 1:")
-    const qStartMatch = line.match(/^(?:(Câu\s+hỏi|Câu|Bài|Question)\s*(\d+)[\.\:\)\-\]]+)\s*(.*)/i);
+    const qStartMatch = line.match(
+      /^(?:(Câu\s+hỏi|Câu|Bài|Question)\s*(\d+)[\.\:\)\-\]]+)\s*(.*)/i,
+    );
     if (qStartMatch) {
       commitCurrentQuestion();
       const prefixWord = qStartMatch[1];
@@ -963,7 +1031,10 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
                 ? 'RECOGNITION'
                 : 'UNDERSTANDING';
 
-      if (/\[(VDC|VẬN DỤNG CAO)\]/i.test(restText) || /vận dụng cao/i.test(restText)) {
+      if (
+        /\[(VDC|VẬN DỤNG CAO)\]/i.test(restText) ||
+        /vận dụng cao/i.test(restText)
+      ) {
         diff = 'ADVANCED_APPLICATION';
         restText = restText.replace(/\[(VDC|VẬN DỤNG CAO)\]/gi, '').trim();
       } else if (/\[(VD|VẬN DỤNG)\]/i.test(restText)) {
@@ -1002,7 +1073,9 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
     if (!currentQ) continue;
 
     // 3. Nhận diện dòng "Lời giải:" / "Hướng dẫn giải:"
-    const explainMatch = line.match(/^(?:Lời\s*giải|Hướng\s*dẫn\s*giải|Giải\s*chi\s*tiết)[\:\s]*(.*)/i);
+    const explainMatch = line.match(
+      /^(?:Lời\s*giải|Hướng\s*dẫn\s*giải|Giải\s*chi\s*tiết)[\:\s]*(.*)/i,
+    );
     if (explainMatch) {
       currentQ.inExplain = true;
       if (explainMatch[1].trim()) {
@@ -1027,8 +1100,8 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
       if (/^(?:\*|\[x\]\s*)?[A-Ea-e][\.\:\)\/]\s*/.test(normalizedLine)) {
         const optMatches = Array.from(
           normalizedLine.matchAll(
-            /(?:^|\t+|\s{2,})(\*|\[x\]\s*)?([A-Ea-e])[\.\:\)\/]\s*([\s\S]*?)(?=(?:\t+(?:\*|\[x\]\s*)?[A-Ea-e][\.\:\)\/]\s*|\s{2,}(?:\*|\[x\]\s*)?[A-Ea-e][\.\:\)\/]\s*|$))/g
-          )
+            /(?:^|\t+|\s{2,})(\*|\[x\]\s*)?([A-Ea-e])[\.\:\)\/]\s*([\s\S]*?)(?=(?:\t+(?:\*|\[x\]\s*)?[A-Ea-e][\.\:\)\/]\s*|\s{2,}(?:\*|\[x\]\s*)?[A-Ea-e][\.\:\)\/]\s*|$))/g,
+          ),
         );
         if (optMatches.length > 0) {
           for (const m of optMatches) {
@@ -1051,8 +1124,8 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
       if (/^(?:\*)?[a-d][\)\.\:]\s*/i.test(line)) {
         const tfMatches = Array.from(
           line.matchAll(
-            /(?:^|\t+|\s{2,})(\*)?([a-d])[\)\.\:]\s*([\s\S]*?)(?=(?:\t+\*?[a-d][\)\.\:]\s*|\s{2,}\*?[a-d][\)\.\:]\s*|$))/gi
-          )
+            /(?:^|\t+|\s{2,})(\*)?([a-d])[\)\.\:]\s*([\s\S]*?)(?=(?:\t+\*?[a-d][\)\.\:]\s*|\s{2,}\*?[a-d][\)\.\:]\s*|$))/gi,
+          ),
         );
         if (tfMatches.length > 0) {
           for (const m of tfMatches) {
@@ -1073,7 +1146,9 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
       currentQ.stemLines.push(line);
     } else if (currentQ.section === 3) {
       // Phần 3: Trả lời ngắn ("Đáp số: ......." hoặc "Trả lời: [[...]]")
-      const saLineMatch = line.match(/^(?:Đáp\s*số|Đáp\s*án|Trả\s*lời|Kết\s*quả)[\:\s]*(.*)/i);
+      const saLineMatch = line.match(
+        /^(?:Đáp\s*số|Đáp\s*án|Trả\s*lời|Kết\s*quả)[\:\s]*(.*)/i,
+      );
       if (saLineMatch) {
         const rawVal = saLineMatch[1]
           .replace(/\[\[(.*?)\]\]/, '$1')
@@ -1094,4 +1169,3 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
   commitCurrentQuestion();
   return results;
 }
-

@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, IsNumber, IsBoolean, IsArray, Min, Max } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsBoolean,
+  IsArray,
+  Min,
+  Max,
+} from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 export class EvaluateSemanticCheckpointDto {
@@ -13,7 +22,8 @@ export class EvaluateSemanticCheckpointDto {
 
   @ApiProperty({
     description: 'Đoạn văn hoặc câu trả lời tự luận của học sinh',
-    example: 'Quá trình quang hợp diễn ra chủ yếu ở bào quan lục lạp của tế bào thực vật nhờ có chất diệp lục.',
+    example:
+      'Quá trình quang hợp diễn ra chủ yếu ở bào quan lục lạp của tế bào thực vật nhờ có chất diệp lục.',
   })
   @IsNotEmpty({ message: 'studentAnswer không được để trống' })
   @IsString()
@@ -31,7 +41,8 @@ export class EvaluateSemanticCheckpointDto {
 export class AgentChatDto {
   @ApiProperty({
     description: 'Nội dung tin nhắn người dùng gửi cho AI Agent',
-    example: 'Em học lực khá, tạo cho em đề thi thử Toán 12 bám sát đề minh họa với',
+    example:
+      'Em học lực khá, tạo cho em đề thi thử Toán 12 bám sát đề minh họa với',
   })
   @IsNotEmpty({ message: 'message không được để trống' })
   @IsString()
@@ -70,7 +81,8 @@ export class AgentChatDto {
   grade?: number;
 
   @ApiPropertyOptional({
-    description: 'Dữ liệu ngữ cảnh bổ sung (câu hỏi đang làm, điểm số vừa đạt...)',
+    description:
+      'Dữ liệu ngữ cảnh bổ sung (câu hỏi đang làm, điểm số vừa đạt...)',
   })
   @IsOptional()
   context?: Record<string, any>;
@@ -99,7 +111,8 @@ export class AgentChatDto {
 
 export class DocxScanGenerateDto {
   @ApiProperty({
-    description: 'Số lượng câu hỏi muốn AI sinh ra trong phạm vi kiến thức của đề',
+    description:
+      'Số lượng câu hỏi muốn AI sinh ra trong phạm vi kiến thức của đề',
     example: 15,
     default: 15,
   })
@@ -111,7 +124,8 @@ export class DocxScanGenerateDto {
   targetCount?: number = 15;
 
   @ApiPropertyOptional({
-    description: 'Nội dung văn bản hoặc HTML đã bóc tách từ file .docx (nếu gửi qua JSON thay vì multipart file)',
+    description:
+      'Nội dung văn bản hoặc HTML đã bóc tách từ file .docx (nếu gửi qua JSON thay vì multipart file)',
   })
   @IsOptional()
   @IsString()
@@ -126,7 +140,8 @@ export class DocxScanGenerateDto {
   fileName?: string;
 
   @ApiPropertyOptional({
-    description: 'Môn học chỉ định (nếu để trống AI sẽ tự động nhận diện từ nội dung đề)',
+    description:
+      'Môn học chỉ định (nếu để trống AI sẽ tự động nhận diện từ nội dung đề)',
     example: 'toan-hoc',
   })
   @IsOptional()
@@ -143,7 +158,8 @@ export class DocxScanGenerateDto {
   grade?: number;
 
   @ApiPropertyOptional({
-    description: 'Tỉ lệ % hoặc cấu hình mức độ nhận thức Bloom mong muốn (JSON string hoặc Object)',
+    description:
+      'Tỉ lệ % hoặc cấu hình mức độ nhận thức Bloom mong muốn (JSON string hoặc Object)',
     example: { NHAN_BIET: 30, THONG_HIEU: 40, VAN_DUNG: 20, VAN_DUNG_CAO: 10 },
   })
   @IsOptional()
@@ -156,7 +172,8 @@ export class DocxScanGenerateDto {
   seedQuestions?: any;
 
   @ApiPropertyOptional({
-    description: 'Có tự động lưu ngay các câu hỏi sinh ra vào PostgreSQL Question Bank hay không',
+    description:
+      'Có tự động lưu ngay các câu hỏi sinh ra vào PostgreSQL Question Bank hay không',
     default: false,
   })
   @IsOptional()
@@ -167,7 +184,8 @@ export class DocxScanGenerateDto {
 
 export class SaveGeneratedQuestionsDto {
   @ApiProperty({
-    description: 'Danh sách câu hỏi đã được AI sinh và Admin duyệt để lưu vào Ngân hàng câu hỏi PostgreSQL',
+    description:
+      'Danh sách câu hỏi đã được AI sinh và Admin duyệt để lưu vào Ngân hàng câu hỏi PostgreSQL',
   })
   @IsArray()
   questions: any[];
@@ -191,7 +209,10 @@ export class SaveGeneratedQuestionsDto {
 }
 
 export class AgentChatResponseDataDto {
-  @ApiProperty({ description: 'Nguồn sinh câu trả lời', example: 'ANTIGRAVITY_AGENT' })
+  @ApiProperty({
+    description: 'Nguồn sinh câu trả lời',
+    example: 'ANTIGRAVITY_AGENT',
+  })
   source: string;
 
   @ApiProperty({
@@ -200,7 +221,10 @@ export class AgentChatResponseDataDto {
   })
   message: string;
 
-  @ApiProperty({ description: 'Danh sách thao tác điều hướng hoặc tương tác giao diện', example: [] })
+  @ApiProperty({
+    description: 'Danh sách thao tác điều hướng hoặc tương tác giao diện',
+    example: [],
+  })
   actions: any[];
 
   @ApiPropertyOptional({
@@ -235,7 +259,8 @@ export class AgentChatResponseDataDto {
   pointUsage?: any;
 
   @ApiPropertyOptional({
-    description: 'Danh sách 2-3 gợi ý hành động ngữ cảnh tiếp theo (Dynamic Suggestions)',
+    description:
+      'Danh sách 2-3 gợi ý hành động ngữ cảnh tiếp theo (Dynamic Suggestions)',
     example: ['Tạo đề Toán 12 mức độ khó', 'Gợi ý giải bài tập Socratic'],
   })
   suggestions?: string[];
@@ -251,4 +276,3 @@ export class AgentChatResponseDto {
   @ApiProperty({ type: () => AgentChatResponseDataDto })
   data: AgentChatResponseDataDto;
 }
-

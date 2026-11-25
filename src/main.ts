@@ -37,6 +37,14 @@ async function bootstrap() {
       ...extraOrigins,
     ],
     credentials: true,
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Cookie',
+      'x-user-id',
+      'x-user-role',
+      'x-school-id',
+    ],
   });
 
   // 3. Enable Global Validation Pipe
@@ -44,7 +52,7 @@ async function bootstrap() {
     new ValidationPipe({
       whitelist: true,
       transform: true,
-      forbidNonWhitelisted: true,
+      forbidNonWhitelisted: false,
     }),
   );
 

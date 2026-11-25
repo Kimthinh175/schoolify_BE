@@ -9,6 +9,7 @@ import { ExamsModule } from './modules/exams/exams.module';
 import { AgentModule } from './modules/agent/agent.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { ForumModule } from './modules/forum/forum.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ForumModule } from './modules/forum/forum.module';
     AgentModule,
     CatalogModule,
     ForumModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
