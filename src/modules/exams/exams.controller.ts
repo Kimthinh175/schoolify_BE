@@ -10,6 +10,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,6 +19,10 @@ import {
   ApiQuery,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { SystemRole } from '@prisma/client';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { ExamsService } from './exams.service';
 import {
   AdminAdjustPointsDto,
@@ -69,6 +74,18 @@ export class ExamsController {
       message: 'Sinh đề thi ma trận thành công',
       data,
     };
+  }
+
+  @Post('admin-matrix-generate')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Admin sinh N mã đề từ Ngân hàng câu hỏi PostgreSQL theo ma trận Blueprint GDPT 2018',
+  })
+  async generateAdminMatrixBlueprint(@Body() body: any) {
+    return this.examsService.generateAdminMatrixBlueprint(body);
   }
 
   /**
@@ -258,6 +275,8 @@ export class ExamsController {
 
   @Post('points/admin-adjust')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({
     summary:
@@ -389,6 +408,9 @@ export class ExamsController {
   }
 
   @Post('questions')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Thêm câu hỏi mới vào Ngân hàng đề' })
   async createQuestion(@Body() body: any) {
     const data = await this.examsService.createQuestion(body);
@@ -413,6 +435,9 @@ export class ExamsController {
   }
 
   @Patch('questions/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Cập nhật hoặc chỉnh sửa trực tiếp câu hỏi & câu trả lời trong Ngân hàng đề (PostgreSQL)' })
   async updateQuestion(@Param('id') id: string, @Body() body: any) {
     const data = await this.examsService.updateQuestion(id, body);
@@ -425,6 +450,9 @@ export class ExamsController {
 
   @Post('questions/:id/direct-edit')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Chỉnh sửa trực tiếp câu hỏi / đáp án ngay trong phòng thi (dành cho Admin)' })
   async directEditQuestion(@Param('id') id: string, @Body() body: any) {
     const data = await this.examsService.updateQuestion(id, body);
@@ -436,6 +464,9 @@ export class ExamsController {
   }
 
   @Delete('questions/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Xóa câu hỏi khỏi Ngân hàng đề' })
   async deleteQuestion(@Param('id') id: string) {
     const data = await this.examsService.deleteQuestion(id);
@@ -754,8 +785,10 @@ export class ExamsController {
   }
 
   @Patch('question-reports/:id/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Admin/Giáo viên đánh dấu đã xử lý hoặc mở lại báo cáo câu hỏi' })
+  @ApiOperation({ summary: 'Admin đánh dấu đã xử lý hoặc mở lại báo cáo câu hỏi' })
   @ApiResponse({ status: 200, description: 'Cập nhật trạng thái báo cáo thành công' })
   async updateQuestionBugReportStatus(
     @Req() req: any,
@@ -775,6 +808,8 @@ export class ExamsController {
   }
 
   @Delete('question-reports/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Xóa báo cáo sai sót câu hỏi' })
   @ApiResponse({ status: 200, description: 'Xóa báo cáo thành công' })

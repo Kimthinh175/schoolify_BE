@@ -32,18 +32,6 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    // Kiểm tra SchoolRole nếu có school context
-    const req = context.switchToHttp().getRequest();
-    const currentSchoolId = req.headers['x-school-id'] || req.params?.schoolId;
-    if (currentSchoolId && user.school_memberships) {
-      const membership = user.school_memberships.find(
-        (m: any) => m.school_id === currentSchoolId,
-      );
-      if (membership && requiredRoles.includes(membership.role)) {
-        return true;
-      }
-    }
-
     throw new ForbiddenException('Bạn không có quyền hạn cần thiết để thực hiện thao tác này');
   }
 }

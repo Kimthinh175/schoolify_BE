@@ -826,8 +826,6 @@ export function parseExamTextWithMathAndKeys(text: string): UnifiedParsedQuestio
         const correctCnt = answers.filter((a) => a.isCorrect).length;
         if (correctCnt > 1) {
           qType = 'MULTIPLE_CHOICE';
-        } else if (correctCnt === 0 && answers.length > 0) {
-          answers[0].isCorrect = true;
         }
       }
     } else if (qType === 'TRUE_FALSE') {

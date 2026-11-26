@@ -15,59 +15,13 @@ enum SystemRole {
   USER
 }
 
-enum SchoolRole {
-  PRINCIPAL
-  VICE_PRINCIPAL
-  HEAD_OF_DEPARTMENT
-  TEACHER
-  STUDENT
-  PARENT
-  STAFF
-}
-
-enum CustomRequestStatus {
-  PENDING
-  IN_PROGRESS
-  RESOLVED
-  REJECTED
-}
-
-enum CourseStatus {
-  DRAFT
-  PENDING
-  PUBLISHED
-  REJECTED
-  HIDDEN
-}
-
-enum ClassStatus {
-  DRAFT
-  PENDING
-  PUBLISHED
-  REJECTED
-  HIDDEN
-}
-
-enum MaterialType {
-  IMG
-  DOCX
-  EXCEL
-}
-
 enum ItemStatus {
   ACTIVE
   SOLDOUT
 }
 
-enum TransactionType {
-  PAYMENT_TO_ADMIN
-  COMMISSION_FEE
-  TEACHER_INCOME
-}
-
 enum OrderReferenceType {
   SUBSCRIPTION
-  COURSE
 }
 
 enum OrderStatus {
@@ -93,12 +47,6 @@ enum SubscriptionStatus {
   EXPIRED
   CANCELED
   UPGRADED
-}
-
-enum SchoolStatus {
-  ACTIVE
-  INACTIVE
-  SUSPENDED
 }
 
 enum QuestionType {
@@ -216,15 +164,10 @@ model User {
   created_at    DateTime   @default(now())
   updated_at    DateTime   @updatedAt
 
-  school_memberships         SchoolMember[]
-  teacher_profile            TeacherProfile?
   student_profile            StudentProfile?
-  parent_profile             ParentProfile?
-  custom_feature_requests    CustomFeatureRequest[]
   notifications              Notification[]
   orders_purchased           Order[]                @relation("OrderBuyer")
   orders_sold                Order[]                @relation("OrderSeller")
-  schools_owned              School[]               @relation("SchoolOwner")
   created_packages           SubscriptionPackage[]
   question_banks             QuestionBank[]
   store_items                StoreItem[]
@@ -237,46 +180,10 @@ model User {
   forum_reports_submitted ForumReport[]          @relation("ForumReportReporter")
   forum_reports_resolved  ForumReport[]          @relation("ForumReportResolver")
   forum_bookmarks         ForumBookmark[]
+  user_achievements       UserAchievement[]
 
   @@index([google_id])
   @@map("users")
-}
-
-model SchoolMember {
-  id        String     @id @default(uuid())
-  user_id   String
-  school_id String
-  role      SchoolRole @default(STUDENT)
-  joined_at DateTime   @default(now())
-
-  user   User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  school School @relation(fields: [school_id], references: [id], onDelete: Cascade)
-
-  @@unique([user_id, school_id])
-  @@index([user_id])
-  @@index([school_id])
-  @@map("school_members")
-}
-
-model TeacherProfile {
-  id               String  @id @default(uuid())
-  user_id          String  @unique
-  department_id    String?
-  bio              String?
-  expertise        String?
-  experience_years Int?
-
-  user               User                  @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  department         Department?           @relation("DepartmentTeachers", fields: [department_id], references: [id], onDelete: SetNull)
-  departments_headed Department[]          @relation("DepartmentHead")
-  courses            Course[]
-  subscriptions      TeacherSubscription[]
-  store_items        StoreItem[]
-  class_courses      ClassCourse[]
-  classes_managed    Class[]
-  sessions_taught    ClassSession[]
-
-  @@map("teacher_profile")
 }
 
 model StudentProfile {
@@ -290,16 +197,13 @@ model StudentProfile {
   active_package        String?   @default("FREE")
   package_expires_at    DateTime?
 
-  user            User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  enrollments     ClassEnrollment[]
-  inventory       StudentInventory[]
-  parent_students ParentStudent[]
-  submissions     ExamSubmission[]
-  progress        StudentProgress[]
-  exam_point_logs    ExamPointLog[]
-  topic_masteries    StudentTopicMastery[]
-  roadmap_steps      StudentRoadmapStep[]
-  behavior_histories StudentBehaviorHistory[]
+  user                User                       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  inventory           StudentInventory[]
+  submissions         ExamSubmission[]
+  exam_point_logs     ExamPointLog[]
+  topic_masteries     StudentTopicMastery[]
+  roadmap_steps       StudentRoadmapStep[]
+  behavior_histories  StudentBehaviorHistory[]
   chapter_progress    StudentChapterProgress[]
   pool_cursors        StudentPoolCursor[]
   subject_diagnostics StudentSubjectDiagnostic[]
@@ -307,96 +211,9 @@ model StudentProfile {
   @@map("student_profile")
 }
 
-model ParentProfile {
-  id        String  @id @default(uuid())
-  user_id   String  @unique
-  job_title String?
-  address   String?
-
-  user            User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  parent_students ParentStudent[]
-
-  @@map("parent_profile")
-}
-
-model ParentStudent {
-  id                String   @id @default(uuid())
-  parent_id         String
-  student_id        String
-  relationship_type String?  @default("PARENT")
-  created_at        DateTime @default(now())
-
-  parent  ParentProfile  @relation(fields: [parent_id], references: [id], onDelete: Cascade)
-  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
-
-  @@unique([parent_id, student_id])
-  @@index([parent_id])
-  @@index([student_id])
-  @@map("parent_students")
-}
-
-model CustomFeatureRequest {
-  id              String              @id @default(uuid())
-  user_id         String
-  request_content String
-  phone           String?
-  contact_info    String?
-  status          CustomRequestStatus @default(PENDING)
-  created_at      DateTime            @default(now())
-
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@index([user_id])
-  @@index([status])
-  @@map("custom_feature_requests")
-}
-
 // ----------------------------------------------------
-// SCHOOLS & SUBSCRIPTIONS (SAAS B2B)
+// SUBSCRIPTION PACKAGES
 // ----------------------------------------------------
-
-model School {
-  id         String       @id @default(uuid())
-  owner_id   String?
-  name       String
-  code       String       @unique
-  address    String?
-  phone      String?
-  email      String?
-  status     SchoolStatus @default(ACTIVE)
-  created_at DateTime     @default(now())
-  updated_at DateTime     @updatedAt
-
-  owner          User?                @relation("SchoolOwner", fields: [owner_id], references: [id], onDelete: SetNull)
-  members        SchoolMember[]
-  departments    Department[]
-  classes        Class[]
-  courses        Course[]
-  question_banks QuestionBank[]
-  subscriptions  SchoolSubscription[]
-  forum_posts    ForumPost[]
-
-  @@index([owner_id])
-  @@map("schools")
-}
-
-model Department {
-  id              String   @id @default(uuid())
-  school_id       String
-  name            String
-  head_teacher_id String?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-
-  school       School           @relation(fields: [school_id], references: [id], onDelete: Cascade)
-  head_teacher TeacherProfile?  @relation("DepartmentHead", fields: [head_teacher_id], references: [id], onDelete: SetNull)
-  teachers     TeacherProfile[] @relation("DepartmentTeachers")
-  courses      Course[]
-
-  @@index([school_id])
-  @@index([head_teacher_id])
-  @@map("departments")
-}
 
 model SubscriptionPackage {
   id                     String       @id @default(uuid())
@@ -418,52 +235,14 @@ model SubscriptionPackage {
   created_at             DateTime     @default(now())
   updated_at             DateTime     @updatedAt
 
-  creator               User?                 @relation(fields: [creator_id], references: [id], onDelete: SetNull)
-  teacher_subscriptions TeacherSubscription[]
-  school_subscriptions  SchoolSubscription[]
-  orders                Order[]
+  creator User?   @relation(fields: [creator_id], references: [id], onDelete: SetNull)
+  orders  Order[]
 
   @@map("subscription_packages")
 }
 
-model SchoolSubscription {
-  id                String             @id @default(uuid())
-  school_id         String
-  package_id        String
-  features_snapshot Json?
-  start_date        DateTime
-  end_date          DateTime
-  status            SubscriptionStatus @default(ACTIVE)
-  created_at        DateTime           @default(now())
-
-  school  School              @relation(fields: [school_id], references: [id], onDelete: Cascade)
-  package SubscriptionPackage @relation(fields: [package_id], references: [id], onDelete: Cascade)
-
-  @@index([school_id])
-  @@index([package_id])
-  @@map("school_subscriptions")
-}
-
-model TeacherSubscription {
-  id                String             @id @default(uuid())
-  teacher_id        String
-  package_id        String
-  features_snapshot Json?
-  start_date        DateTime
-  end_date          DateTime
-  status            SubscriptionStatus @default(ACTIVE)
-  created_at        DateTime           @default(now())
-
-  teacher TeacherProfile      @relation(fields: [teacher_id], references: [id], onDelete: Cascade)
-  package SubscriptionPackage @relation(fields: [package_id], references: [id], onDelete: Cascade)
-
-  @@index([teacher_id])
-  @@index([package_id])
-  @@map("teacher_subscriptions")
-}
-
 // ----------------------------------------------------
-// COURSES, LESSONS & CATEGORIES
+// CATEGORIES
 // ----------------------------------------------------
 
 model Category {
@@ -478,152 +257,10 @@ model Category {
 
   parent      Category?   @relation("CategoryHierarchy", fields: [parent_id], references: [id], onDelete: SetNull)
   children    Category[]  @relation("CategoryHierarchy")
-  courses     Course[]
   forum_posts ForumPost[]
 
   @@index([parent_id])
   @@map("categories")
-}
-
-model Course {
-  id             String       @id @default(uuid())
-  school_id      String?
-  department_id  String?
-  subject_id     String?
-  owner_id       String
-  title          String
-  description    String?
-  price          Decimal      @default(0.00) @db.Decimal(10, 2)
-  is_marketplace Boolean      @default(false)
-  status         CourseStatus @default(DRAFT)
-  published_at   DateTime?
-  created_at     DateTime     @default(now())
-  updated_at     DateTime     @updatedAt
-
-  school           School?           @relation(fields: [school_id], references: [id], onDelete: SetNull)
-  department       Department?       @relation(fields: [department_id], references: [id], onDelete: SetNull)
-  category         Category?         @relation(fields: [subject_id], references: [id], onDelete: SetNull)
-  teacher          TeacherProfile    @relation(fields: [owner_id], references: [id], onDelete: Cascade)
-  lessons          Lesson[]
-  class_courses    ClassCourse[]
-  orders           Order[]
-  student_progress StudentProgress[]
-
-  @@index([school_id])
-  @@index([department_id])
-  @@index([owner_id])
-  @@index([subject_id])
-  @@map("courses")
-}
-
-model Lesson {
-  id          String   @id @default(uuid())
-  course_id   String
-  title       String
-  content     String?
-  video_url   String?
-  order_index Int      @default(0)
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  course           Course            @relation(fields: [course_id], references: [id], onDelete: Cascade)
-  materials        LessonMaterial[]
-  questions        Question[]
-  exam_submissions ExamSubmission[]
-  student_progress StudentProgress[]
-
-  @@index([course_id])
-  @@map("lessons")
-}
-
-model LessonMaterial {
-  id            String       @id @default(uuid())
-  lesson_id     String
-  material_type MaterialType
-  url           String
-  content_data  String?
-  order_index   Int          @default(0)
-
-  lesson Lesson @relation(fields: [lesson_id], references: [id], onDelete: Cascade)
-
-  @@index([lesson_id])
-  @@map("lesson_materials")
-}
-
-// ----------------------------------------------------
-// CLASSES & ENROLLMENTS & TIMETABLE
-// ----------------------------------------------------
-
-model Class {
-  id         String      @id @default(uuid())
-  school_id  String?
-  teacher_id String?
-  course_id  String?
-  class_name String
-  status     ClassStatus @default(DRAFT)
-  created_at DateTime    @default(now())
-  updated_at DateTime    @updatedAt
-
-  school           School?           @relation(fields: [school_id], references: [id], onDelete: SetNull)
-  teacher          TeacherProfile?   @relation(fields: [teacher_id], references: [id], onDelete: SetNull)
-  enrollments      ClassEnrollment[]
-  class_courses    ClassCourse[]
-  exam_submissions ExamSubmission[]
-  sessions         ClassSession[]
-
-  @@index([school_id])
-  @@index([teacher_id])
-  @@map("classes")
-}
-
-model ClassEnrollment {
-  id          String   @id @default(uuid())
-  class_id    String
-  student_id  String
-  joined_date DateTime @default(now())
-
-  class   Class          @relation(fields: [class_id], references: [id], onDelete: Cascade)
-  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
-
-  @@index([class_id])
-  @@index([student_id])
-  @@map("class_enrollments")
-}
-
-model ClassCourse {
-  id         String  @id @default(uuid())
-  teacher_id String?
-  course_id  String
-  class_id   String
-
-  teacher TeacherProfile? @relation(fields: [teacher_id], references: [id], onDelete: SetNull)
-  course  Course          @relation(fields: [course_id], references: [id], onDelete: Cascade)
-  class   Class           @relation(fields: [class_id], references: [id], onDelete: Cascade)
-
-  @@index([class_id])
-  @@index([course_id])
-  @@map("class_courses")
-}
-
-model ClassSession {
-  id          String   @id @default(uuid())
-  class_id    String
-  teacher_id  String?
-  title       String?
-  start_time  DateTime
-  end_time    DateTime
-  room        String?
-  meeting_url String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  class   Class           @relation(fields: [class_id], references: [id], onDelete: Cascade)
-  teacher TeacherProfile? @relation(fields: [teacher_id], references: [id], onDelete: SetNull)
-
-  @@index([class_id])
-  @@index([teacher_id])
-  @@index([start_time])
-  @@map("class_sessions")
 }
 
 // ----------------------------------------------------
@@ -634,25 +271,21 @@ model QuestionBank {
   id         String   @id @default(uuid())
   title      String
   owner_id   String?
-  school_id  String?
   is_premium Boolean  @default(false)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   owner            User?            @relation(fields: [owner_id], references: [id], onDelete: SetNull)
-  school           School?          @relation(fields: [school_id], references: [id], onDelete: SetNull)
   questions        Question[]
   exam_submissions ExamSubmission[]
 
   @@index([owner_id])
-  @@index([school_id])
   @@map("question_banks")
 }
 
 model Question {
   id              String          @id @default(uuid())
   bank_id         String?
-  lesson_id       String?
   chapter_id      Int? // Chương SGK
   subject         String? // "toan-hoc", "vat-ly"...
   grade           Int? // Khối 1 - 12
@@ -670,12 +303,10 @@ model Question {
   created_at      DateTime        @default(now())
 
   bank               QuestionBank?      @relation(fields: [bank_id], references: [id], onDelete: SetNull)
-  lesson             Lesson?            @relation(fields: [lesson_id], references: [id], onDelete: SetNull)
   answers            Answer[]
   submission_answers SubmissionAnswer[]
 
   @@index([bank_id])
-  @@index([lesson_id])
   @@index([subject, grade, bloom_level])
   @@index([subject, grade, chapter_id, bloom_level, topic_tag, id])
   @@index([topic_tag])
@@ -707,8 +338,6 @@ model ExamSubmission {
   attempt_token      String?          @unique @db.VarChar(64)
   student_id         String
   bank_id            String?
-  lesson_id          String?
-  class_id           String?
   exam_title         String?          @db.VarChar(255)
   exam_type          String?          @default("STANDARD") // 'STANDARD' | 'OLYMPIAD'
   status             SubmissionStatus @default(IN_PROGRESS)
@@ -718,19 +347,14 @@ model ExamSubmission {
   started_at         DateTime         @default(now())
   submitted_at       DateTime?
   graded_at          DateTime?
-  teacher_notes      String?          @db.Text
   snapshot_data      Json? // JSONB: Lưu trọn vẹn toàn bộ bài thi + lời giải để FE mở modal tức thì
 
   student StudentProfile     @relation(fields: [student_id], references: [id], onDelete: Cascade)
   bank    QuestionBank?      @relation(fields: [bank_id], references: [id], onDelete: SetNull)
-  lesson  Lesson?            @relation(fields: [lesson_id], references: [id], onDelete: SetNull)
-  class   Class?             @relation(fields: [class_id], references: [id], onDelete: SetNull)
   answers SubmissionAnswer[]
 
   @@index([student_id])
   @@index([bank_id])
-  @@index([lesson_id])
-  @@index([class_id])
   @@index([submitted_at])
   @@map("exam_submissions")
 }
@@ -757,32 +381,12 @@ model SubmissionAnswer {
   @@map("submission_answers")
 }
 
-model StudentProgress {
-  id             String   @id @default(uuid())
-  student_id     String
-  course_id      String
-  lesson_id      String
-  completion_pct Int      @default(0)
-  last_accessed  DateTime @default(now())
-  is_completed   Boolean  @default(false)
-
-  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
-  course  Course         @relation(fields: [course_id], references: [id], onDelete: Cascade)
-  lesson  Lesson         @relation(fields: [lesson_id], references: [id], onDelete: Cascade)
-
-  @@unique([student_id, course_id])
-  @@index([student_id])
-  @@index([course_id])
-  @@map("student_progress")
-}
-
 // ----------------------------------------------------
 // GAMIFICATION / STORE ITEMS & INVENTORY
 // ----------------------------------------------------
 
 model StoreItem {
   id          String         @id @default(uuid())
-  teacher_id  String?
   user_id     String?
   type        StoreItemType? @default(OTHER)
   name        String
@@ -795,11 +399,9 @@ model StoreItem {
   created_at  DateTime       @default(now())
   updated_at  DateTime       @updatedAt
 
-  teacher   TeacherProfile?    @relation(fields: [teacher_id], references: [id], onDelete: SetNull)
   user      User?              @relation(fields: [user_id], references: [id], onDelete: SetNull)
   inventory StudentInventory[]
 
-  @@index([teacher_id])
   @@index([user_id])
   @@map("store_items")
 }
@@ -822,7 +424,7 @@ model StudentInventory {
 }
 
 // ----------------------------------------------------
-// ORDERS & TRANSACTIONS
+// ORDERS
 // ----------------------------------------------------
 
 model Order {
@@ -830,7 +432,6 @@ model Order {
   user_id             String
   reference_type      OrderReferenceType
   subscription_id     String?
-  course_id           String?
   item_name_snapshot  Json?
   item_price_snapshot Decimal            @db.Decimal(10, 2)
   status              OrderStatus        @default(PENDING)
@@ -842,26 +443,10 @@ model Order {
   user         User                 @relation("OrderBuyer", fields: [user_id], references: [id], onDelete: Cascade)
   seller       User?                @relation("OrderSeller", fields: [seller_id], references: [id], onDelete: SetNull)
   subscription SubscriptionPackage? @relation(fields: [subscription_id], references: [id], onDelete: SetNull)
-  course       Course?              @relation(fields: [course_id], references: [id], onDelete: SetNull)
-  transactions Transaction[]
 
   @@index([user_id])
   @@index([seller_id])
   @@map("orders")
-}
-
-model Transaction {
-  id               String          @id @default(uuid())
-  order_id         String?
-  transaction_type TransactionType
-  amount           Decimal         @db.Decimal(10, 2)
-  recipient_id     String?
-  created_at       DateTime        @default(now())
-
-  order Order? @relation(fields: [order_id], references: [id], onDelete: SetNull)
-
-  @@index([order_id])
-  @@map("transactions")
 }
 
 // ----------------------------------------------------
@@ -871,8 +456,10 @@ model Transaction {
 model Notification {
   id         String   @id @default(uuid())
   user_id    String
+  type       String?  @default("info")
   title      String
   message    String
+  link       String?
   is_read    Boolean  @default(false)
   created_at DateTime @default(now())
 
@@ -1233,7 +820,6 @@ model StudentPoolCursor {
 model ForumPost {
   id                  String          @id @default(uuid())
   author_id           String
-  school_id           String?
   category_id         String?
   title               String          @db.VarChar(500)
   slug                String?         @unique @db.VarChar(550)
@@ -1261,7 +847,6 @@ model ForumPost {
   updated_at          DateTime        @updatedAt
 
   author    User            @relation("ForumPostAuthor", fields: [author_id], references: [id], onDelete: Cascade)
-  school    School?         @relation(fields: [school_id], references: [id], onDelete: SetNull)
   category  Category?       @relation(fields: [category_id], references: [id], onDelete: SetNull)
   comments  ForumComment[]
   reactions ForumReaction[]
@@ -1269,7 +854,6 @@ model ForumPost {
   bookmarks ForumBookmark[]
 
   @@index([author_id])
-  @@index([school_id])
   @@index([category_id])
   @@index([subject, grade])
   @@index([subject, grade, chapter_id])
@@ -1378,4 +962,209 @@ model ForumBookmark {
   @@index([user_id, created_at]) // Lấy danh sách "Bài đã lưu" theo thời gian
   @@index([post_id])
   @@map("forum_bookmarks")
+}
+
+// ----------------------------------------------------
+// NEWS CMS
+// ----------------------------------------------------
+
+enum NewsStatus {
+  DRAFT
+  PENDING
+  SCHEDULED
+  PUBLISHED
+  HIDDEN
+  REJECTED
+  ARCHIVED
+}
+
+model NewsCategory {
+  id              String   @id @default(uuid())
+  parent_id       String?
+  name            String
+  slug            String   @unique
+  description     String?  @db.Text
+  icon            String?
+  color           String?
+  cover_image_url String?
+  order_index     Int      @default(0)
+  is_active       Boolean  @default(true)
+  is_featured     Boolean  @default(false)
+  meta_title      String?
+  meta_description String? @db.Text
+  meta_keywords   String[] @default([])
+  canonical_url   String?
+  og_image_url    String?
+  is_indexable    Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  parent   NewsCategory?  @relation("NewsCategoryHierarchy", fields: [parent_id], references: [id], onDelete: SetNull)
+  children NewsCategory[] @relation("NewsCategoryHierarchy")
+  articles NewsArticle[]
+
+  @@index([parent_id])
+  @@index([is_active, order_index])
+  @@map("news_categories")
+}
+
+model NewsArticle {
+  id                   String     @id @default(uuid())
+  category_id          String
+  title                String
+  slug                 String     @unique
+  excerpt              String     @db.Text
+  content              String     @db.Text
+  table_of_contents    Json?
+  thumbnail_url        String
+  cover_image_url      String?
+  image_alt            String?
+  image_caption        String?
+  attachments          Json?
+  reading_time_minutes Int        @default(1)
+  word_count           Int        @default(0)
+  view_count           Int        @default(0)
+  like_count           Int        @default(0)
+  share_count          Int        @default(0)
+  bookmark_count       Int        @default(0)
+  tags                 String[]   @default([])
+  grade_levels         Int[]      @default([])
+  subject_slugs        String[]   @default([])
+  target_roles         String[]   @default([])
+  search_text          String?    @db.Text
+  related_article_ids  String[]   @default([])
+  meta_title           String?
+  meta_description     String?    @db.Text
+  meta_keywords        String[]   @default([])
+  focus_keyword        String?
+  canonical_url        String?
+  og_title             String?
+  og_description       String?    @db.Text
+  og_image_url         String?
+  structured_data      Json?
+  is_indexable         Boolean    @default(true)
+  author_id            String?
+  author_name          String     @default("Ban Biên Tập Schoolify")
+  author_avatar        String?
+  author_role          String?
+  author_bio           String?    @db.Text
+  source_name          String?
+  source_url           String?
+  status               NewsStatus @default(DRAFT)
+  is_featured          Boolean    @default(false)
+  is_pinned            Boolean    @default(false)
+  is_breaking          Boolean    @default(false)
+  allow_comments       Boolean    @default(true)
+  reviewer_id          String?
+  rejected_reason      String?    @db.Text
+  published_at         DateTime?
+  scheduled_at         DateTime?
+  last_edited_by       String?
+  created_at           DateTime   @default(now())
+  updated_at           DateTime   @updatedAt
+  deleted_at           DateTime?
+
+  category NewsCategory @relation(fields: [category_id], references: [id], onDelete: Restrict)
+
+  @@index([category_id, status])
+  @@index([status, is_pinned, published_at])
+  @@map("news_articles")
+}
+
+// ----------------------------------------------------
+// LEADERBOARD SEASONS & REWARD DISTRIBUTION
+// ----------------------------------------------------
+
+enum SeasonStatus {
+  UPCOMING
+  ACTIVE
+  FREEZING
+  COMPLETED
+}
+
+model LeaderboardSeason {
+  id                  String       @id @default(uuid())
+  code                String       @unique
+  name                String
+  description         String       @db.Text
+  status              SeasonStatus @default(UPCOMING)
+  start_date          DateTime
+  end_date            DateTime
+  freeze_date         DateTime?
+  total_participants  Int          @default(0)
+  total_gems_pool     Int          @default(0)
+  is_frozen           Boolean      @default(false)
+  scoring_multiplier  Float        @default(1)
+  rules               Json?
+  rewards             Json?
+  settlement_date     DateTime?
+  distributed_gems    Int?
+  distribution_status String?      @default("NOT_STARTED")
+  distributed_by      String?
+  created_at          DateTime     @default(now())
+  updated_at          DateTime     @updatedAt
+
+  distribution_logs SeasonDistributionLog[]
+
+  @@index([status, start_date])
+  @@map("leaderboard_seasons")
+}
+
+model SeasonDistributionLog {
+  id                     String   @id @default(uuid())
+  season_id              String
+  season_name            String
+  season_code            String
+  settled_at             DateTime @default(now())
+  admin_name             String
+  admin_email            String
+  total_recipients       Int
+  total_gems_distributed Int
+  status                 String   @default("SUCCESS")
+  top_winners            Json?
+  audit_notes            String?  @db.Text
+  created_at             DateTime @default(now())
+
+  season LeaderboardSeason @relation(fields: [season_id], references: [id], onDelete: Cascade)
+
+  @@index([season_id])
+  @@map("season_distribution_logs")
+}
+
+// ----------------------------------------------------
+// ACHIEVEMENTS & GAMIFICATION BADGES
+// ----------------------------------------------------
+
+model Achievement {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  title           String
+  description     String
+  icon            String   @default("🏆")
+  category        String   @default("EXAM") // EXAM | SCORE | STREAK | FORUM
+  rule_type       String   // EXAM_COUNT | PERFECT_SCORE | HIGH_SCORE_COUNT | FORUM_COMMENT_COUNT | DAILY_CLAIM
+  threshold       Int      @default(1)
+  reward_diamonds Int      @default(10)
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+
+  user_achievements UserAchievement[]
+
+  @@index([category, is_active])
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id             String   @id @default(uuid())
+  user_id        String
+  achievement_id String
+  progress       Int      @default(0)
+  unlocked_at    DateTime @default(now())
+
+  user        User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievement_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, achievement_id])
+  @@index([user_id, unlocked_at])
+  @@map("user_achievements")
 }

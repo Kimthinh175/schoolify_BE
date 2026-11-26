@@ -657,6 +657,20 @@ export class AgentController {
     };
   }
 
+  @Post('docx-check-duplicates')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Kiểm tra câu hỏi trùng lặp hoặc xung đột đáp án trong lô nhập và với PostgreSQL',
+  })
+  @ApiResponse({ status: 201, description: 'Trả về kết quả kiểm tra trùng lặp và xung đột đáp án' })
+  async checkDocxQuestionsDuplicates(@Body() dto: SaveGeneratedQuestionsDto) {
+    const data = await this.docxGeneratorService.checkQuestionsDuplicates(dto);
+    return {
+      success: true,
+      data,
+    };
+  }
+
   @Post('docx-save-to-bank')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({

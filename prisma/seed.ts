@@ -797,25 +797,25 @@ async function seedDefaultUsers() {
   }
 
   const teacherUser = await prisma.user.upsert({
-    where: { email: 'teacher.nguyen@schoolify.edu.vn' },
+    where: { email: 'mentor.nguyen@schoolify.edu.vn' },
     update: { status: true },
     create: {
-      email: 'teacher.nguyen@schoolify.edu.vn',
-      fullname: 'ThS. Nguyễn Văn Hùng',
+      email: 'mentor.nguyen@schoolify.edu.vn',
+      fullname: 'Nguyễn Văn Hùng (Mentor)',
       phone: '0902000001',
       password_hash: passwordHash,
       role: SystemRole.USER,
       status: true,
     },
   });
-  await prisma.teacherProfile.upsert({
+  await prisma.studentProfile.upsert({
     where: { user_id: teacherUser.id },
     update: {},
     create: {
       user_id: teacherUser.id,
-      bio: 'Giảng viên Toán & Luyện thi THPT Quốc gia 10 năm kinh nghiệm.',
-      expertise: 'Toán học THPT & ĐGNL',
-      experience_years: 10,
+      grade_level: 'Lớp 12',
+      points: 1200,
+      exam_points: 18,
     },
   });
 

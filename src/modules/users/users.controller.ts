@@ -55,7 +55,7 @@ export class UsersController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(SystemRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Tạo người dùng mới từ Admin (SUPER_ADMIN / TEACHER / STUDENT)' })
+  @ApiOperation({ summary: 'Tạo người dùng mới từ Admin (SUPER_ADMIN / STUDENT)' })
   async createUser(
     @Body()
     body: {
@@ -63,7 +63,7 @@ export class UsersController {
       email: string;
       phone?: string;
       password?: string;
-      role?: 'SUPER_ADMIN' | 'TEACHER' | 'STUDENT';
+      role?: 'SUPER_ADMIN' | 'STUDENT';
     },
   ) {
     const created = await this.usersService.createAdminUser(body);
@@ -103,7 +103,7 @@ export class UsersController {
       status?: boolean;
       points?: number;
       grade_level?: string;
-      role?: 'SUPER_ADMIN' | 'TEACHER' | 'STUDENT';
+      role?: 'SUPER_ADMIN' | 'STUDENT';
     },
   ) {
     const isAdmin = currentUser?.role === SystemRole.SUPER_ADMIN;

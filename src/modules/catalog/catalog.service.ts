@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
+import { SeasonStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { PayOSService } from './payos.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class CatalogService {
@@ -21,6 +23,7 @@ export class CatalogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly payosService: PayOSService,
+    @Optional() private readonly notificationsService?: NotificationsService,
   ) {}
 
 
@@ -348,15 +351,6 @@ export class CatalogService {
       },
     });
 
-    const transaction = await this.prisma.transaction.create({
-      data: {
-        order_id: order.id,
-        transaction_type: 'PAYMENT_TO_ADMIN',
-        amount: order.item_price_snapshot,
-        recipient_id: order.user_id,
-      },
-    });
-
     // Kích hoạt gói học sinh (50k hoặc 100k) và cấp quyền lợi tương ứng
     const amount = Number(order.item_price_snapshot);
     const packageName = String((order.item_name_snapshot as any)?.packageName || '').toLowerCase();
@@ -423,7 +417,6 @@ export class CatalogService {
 
     return {
       order: this.normalizeOrderRecord(updatedOrder),
-      transaction,
       activePackage,
       bonusPointsAwarded: initialBonusXin,
       dailyFreeAllowance,
@@ -754,7 +747,6 @@ export class CatalogService {
       include: {
         user: { select: { id: true, fullname: true, email: true } },
         subscription: true,
-        transactions: true,
       },
       orderBy: { created_at: 'desc' },
       take: 100,
@@ -803,14 +795,14 @@ export class CatalogService {
             },
             {
               user_id: u2.id,
-              reference_type: 'COURSE',
-              subscription_id: proPkg.id,
+              reference_type: 'SUBSCRIPTION',
+              subscription_id: vipPkg.id,
               item_name_snapshot: {
-                packageName: 'Khóa Tổng Ôn Toán 12 & Luyện Đề GDPT 2018',
-                billingCycle: 'LIFETIME',
+                packageName: 'Gói Thủ Khoa VIP (Tháng)',
+                billingCycle: 'MONTHLY',
                 vietQrCode: 'ORD-2026-8803',
               },
-              item_price_snapshot: 499000,
+              item_price_snapshot: 100000,
               status: 'PAID',
               payment_method: 'BANK',
             },
@@ -821,7 +813,6 @@ export class CatalogService {
           include: {
             user: { select: { id: true, fullname: true, email: true } },
             subscription: true,
-            transactions: true,
           },
           orderBy: { created_at: 'desc' },
           take: 100,
@@ -833,9 +824,9 @@ export class CatalogService {
   }
 
   /**
-   * Bảng xếp hạng Học sinh (Leaderboard) từ PostgreSQL
+   * Bảng xếp hạng Học sinh (Leaderboard) từ PostgreSQL (hỗ trợ lọc grade, search, timeframe)
    */
-  async getLeaderboard() {
+  async getLeaderboard(params?: { timeframe?: string; grade?: string; search?: string }) {
     const students = await this.prisma.studentProfile.findMany({
       include: {
         user: {
@@ -844,20 +835,17 @@ export class CatalogService {
             fullname: true,
             email: true,
             avatar_url: true,
-            school_memberships: {
-              include: { school: true },
-            },
           },
         },
         submissions: {
-          select: { score: true, status: true },
+          select: { score: true, status: true, submitted_at: true },
         },
       },
       orderBy: { points: 'desc' },
-      take: 30,
+      take: 100,
     });
 
-    return students.map((st, idx) => {
+    const mapped = students.map((st, idx) => {
       const totalExams = st.submissions.length;
       const avgScore =
         totalExams > 0
@@ -869,8 +857,7 @@ export class CatalogService {
             )
           : 8.5;
 
-      const schoolName =
-        st.user.school_memberships?.[0]?.school?.name || 'THPT Chuyên Schoolify';
+      const schoolName = 'THPT Chuyên Schoolify';
       const gradeMatch = String(st.grade_level || '12').match(/\d+/);
       const numericGrade = gradeMatch ? Number(gradeMatch[0]) : 12;
 
@@ -884,13 +871,30 @@ export class CatalogService {
         schoolName,
         gradeLevel: String(numericGrade),
         grade: numericGrade,
-        points: Number(st.points || 1250 - idx * 60),
+        points: Number(st.points || 0),
         examPoints: Number(st.exam_points ?? 9),
         totalExams,
         avgScore,
-        streakDays: Math.max(3, 25 - idx * 2),
+        streakDays: Math.max(1, Math.min(30, totalExams + 3)),
       };
     });
+
+    const gradeFilter = params?.grade ? String(params.grade).match(/\d+/)?.[0] : undefined;
+    const searchLower = params?.search?.trim().toLowerCase();
+
+    const filtered = mapped.filter((entry) => {
+      if (gradeFilter && entry.gradeLevel !== gradeFilter) return false;
+      if (searchLower) {
+        const hay = `${entry.fullname} ${entry.schoolName} ${entry.email}`.toLowerCase();
+        if (!hay.includes(searchLower)) return false;
+      }
+      return true;
+    });
+
+    return filtered.slice(0, 50).map((item, idx) => ({
+      ...item,
+      rank: idx + 1,
+    }));
   }
 
   /**
@@ -900,11 +904,8 @@ export class CatalogService {
     const [
       totalUsers,
       totalStudents,
-      totalTeachers,
       totalQuestions,
       totalQuestionBanks,
-      totalCourses,
-      totalLessons,
       totalSubmissions,
       totalPackages,
       orders,
@@ -922,11 +923,8 @@ export class CatalogService {
     ] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.studentProfile.count(),
-      this.prisma.teacherProfile.count(),
       this.prisma.question.count(),
       this.prisma.questionBank.count(),
-      this.prisma.course.count(),
-      this.prisma.lesson.count(),
       this.prisma.examSubmission.count(),
       this.prisma.subscriptionPackage.count(),
       this.listOrders(),
@@ -986,7 +984,6 @@ export class CatalogService {
           role: true,
           status: true,
           created_at: true,
-          teacher_profile: { select: { id: true } },
           student_profile: { select: { id: true, grade_level: true, exam_points: true, points: true } },
         },
       }),
@@ -1008,13 +1005,11 @@ export class CatalogService {
 
     const paidOrders = orders.filter((o) => o.status === 'PAID');
     const pendingOrdersCount = orders.filter((o) => o.status === 'PENDING').length;
-    const practiceRevenue = paidOrders
-      .filter((o) => o.reference_type === 'SUBSCRIPTION')
-      .reduce((sum, o) => sum + Number(o.item_price_snapshot || 0), 0);
-    const courseRevenue = paidOrders
-      .filter((o) => o.reference_type === 'COURSE')
-      .reduce((sum, o) => sum + Number(o.item_price_snapshot || 0), 0);
-    const totalRevenue = practiceRevenue + courseRevenue;
+    const practiceRevenue = paidOrders.reduce(
+      (sum, o) => sum + Number(o.item_price_snapshot || 0),
+      0,
+    );
+    const totalRevenue = practiceRevenue;
 
     // Phân bố câu hỏi theo 4 mức độ tư duy Bloom
     const bloomDistribution = bloomGroups.reduce(
@@ -1076,12 +1071,7 @@ export class CatalogService {
       id: u.id,
       fullname: u.fullname,
       email: u.email,
-      role:
-        u.role === 'SUPER_ADMIN'
-          ? 'SUPER_ADMIN'
-          : u.teacher_profile
-            ? 'TEACHER'
-            : 'STUDENT',
+      role: u.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'STUDENT',
       status: u.status,
       gradeLevel: u.student_profile?.grade_level || null,
       examPoints: u.student_profile?.exam_points ?? null,
@@ -1148,11 +1138,8 @@ export class CatalogService {
     return {
       totalUsers,
       totalStudents,
-      totalTeachers,
       totalQuestions,
       totalQuestionBanks,
-      totalCourses,
-      totalLessons,
       totalSubmissions,
       totalPackages,
       totalOrders: orders.length,
@@ -1160,7 +1147,7 @@ export class CatalogService {
       pendingOrdersCount,
       totalRevenue,
       practiceRevenue,
-      courseRevenue,
+      courseRevenue: 0,
       monthlyRevenueStats,
       recentOrders: orders.slice(0, 6),
       aiMetrics: {
@@ -1455,6 +1442,18 @@ export class CatalogService {
         note: `Đổi quà "${item.name}" (Mã: ${voucherCode})`,
       },
     });
+
+    if (profile.user_id) {
+      await this.notificationsService
+        ?.createForUser({
+          userId: profile.user_id,
+          type: 'success',
+          title: `Đổi quà "${item.name}" thành công!`,
+          message: `Mã voucher của bạn: ${voucherCode}. Đã trừ ${requiredPoints} Tia Sáng.`,
+          link: '/student/rewards',
+        })
+        .catch(() => {});
+    }
 
     return {
       redeemed: true,
@@ -2132,10 +2131,6 @@ export class CatalogService {
       allPackages,
       allUsers,
       allStudentProfiles,
-      totalTeachers,
-      totalParents,
-      totalCourses,
-      totalLessons,
       chatSessions,
       behaviorHistories,
       topicMasteriesCount,
@@ -2232,10 +2227,6 @@ export class CatalogService {
           user: { select: { id: true, fullname: true, email: true } },
         },
       }),
-      this.prisma.teacherProfile.count(),
-      this.prisma.parentProfile.count(),
-      this.prisma.course.count(),
-      this.prisma.lesson.count(),
       this.prisma.chatSession.findMany({
         where: { createdAt: { gte: trackingSince } },
         select: { id: true, userId: true, messages: true },
@@ -3136,14 +3127,10 @@ export class CatalogService {
             grade10Count,
             otherGradesCount,
             incompleteProfileCount,
-            teachersCount: totalTeachers,
-            parentsCount: totalParents,
             adminsCount: allUsers.filter((u) => u.role === 'SUPER_ADMIN').length,
           };
         })(),
         contentAndCourses: {
-          totalCourses,
-          totalLessons,
           totalQuestionBanks,
           totalQuestions,
         },
@@ -3188,6 +3175,366 @@ export class CatalogService {
         },
       },
     };
+  }
+
+  // =========================================================================
+  // LEADERBOARD SEASONS & REWARD DISTRIBUTION (POSTGRESQL)
+  // =========================================================================
+
+  private async ensureDefaultSeasons() {
+    const count = await this.prisma.leaderboardSeason.count();
+    if (count > 0) return;
+
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 1);
+    const end = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+    const freeze = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+
+    await this.prisma.leaderboardSeason.create({
+      data: {
+        code: `SS-${now.getFullYear()}-Q1`,
+        name: `Mùa ${now.getFullYear()}: Thức Tỉnh Tri Thức`,
+        description:
+          'Mùa giải bảng xếp hạng học thuật chính thức toàn quốc trên Schoolify.',
+        status: SeasonStatus.ACTIVE,
+        start_date: start,
+        end_date: end,
+        freeze_date: freeze,
+        total_participants: await this.prisma.studentProfile.count(),
+        total_gems_pool: 25000,
+        is_frozen: false,
+        scoring_multiplier: 1.0,
+        rules: [
+          'Hoàn thành mỗi bài thi THPT/SGK với điểm >= 8.5 được cộng Điểm Xịn & XP xếp hạng.',
+          'Kết thúc mùa giải hệ thống đóng băng BXH 24h để chống gian lận trước khi phát thưởng.',
+        ],
+        rewards: [
+          {
+            id: 'tier-1',
+            tierRank: 'Hạng 1',
+            minRank: 1,
+            maxRank: 1,
+            gemReward: 500,
+            badgeName: 'Quán Quân Toàn Quốc',
+            titleName: 'Thủ Khoa Schoolify',
+            description: 'Tặng 500 Ngọc Tri Thức & Danh hiệu Quán Quân.',
+          },
+          {
+            id: 'tier-2-3',
+            tierRank: 'Hạng 2 - 3',
+            minRank: 2,
+            maxRank: 3,
+            gemReward: 300,
+            badgeName: 'Á Quân Học Thuật',
+            titleName: 'Bảng Vàng Danh Dự',
+            description: 'Tặng 300 Ngọc Tri Thức & Huy hiệu Á Quân.',
+          },
+          {
+            id: 'tier-4-10',
+            tierRank: 'Top 4 - 10',
+            minRank: 4,
+            maxRank: 10,
+            gemReward: 150,
+            badgeName: 'Tinh Hoa Top 10',
+            titleName: 'Học Giả Xuất Sắc',
+            description: 'Tặng 150 Ngọc Tri Thức & Huy hiệu Top 10.',
+          },
+          {
+            id: 'tier-11-50',
+            tierRank: 'Top 11 - 50',
+            minRank: 11,
+            maxRank: 50,
+            gemReward: 50,
+            badgeName: 'Ngôi Sao Triển Vọng',
+            titleName: 'Chiến Binh Bền Bỉ',
+            description: 'Tặng 50 Ngọc Tri Thức cho Top 50 toàn quốc.',
+          },
+        ],
+        distribution_status: 'NOT_STARTED',
+      },
+    });
+  }
+
+  private formatSeason(s: any) {
+    return {
+      id: s.id,
+      code: s.code,
+      name: s.name,
+      description: s.description,
+      status: s.status,
+      startDate: s.start_date?.toISOString?.() || s.start_date,
+      endDate: s.end_date?.toISOString?.() || s.end_date,
+      freezeDate: s.freeze_date?.toISOString?.() || s.freeze_date || undefined,
+      totalParticipants: Number(s.total_participants || 0),
+      totalGemsPool: Number(s.total_gems_pool || 0),
+      isFrozen: Boolean(s.is_frozen),
+      scoringMultiplier: Number(s.scoring_multiplier || 1),
+      rules: Array.isArray(s.rules) ? s.rules : [],
+      rewards: Array.isArray(s.rewards) ? s.rewards : [],
+      settlementDate: s.settlement_date?.toISOString?.() || undefined,
+      distributedGems: s.distributed_gems ?? undefined,
+      distributionStatus: s.distribution_status || 'NOT_STARTED',
+      distributedBy: s.distributed_by || undefined,
+    };
+  }
+
+  async listSeasons() {
+    await this.ensureDefaultSeasons();
+    const [seasons, participantsCount] = await Promise.all([
+      this.prisma.leaderboardSeason.findMany({
+        orderBy: { start_date: 'desc' },
+      }),
+      this.prisma.studentProfile.count(),
+    ]);
+
+    return seasons.map((s) =>
+      this.formatSeason({
+        ...s,
+        total_participants: s.total_participants || participantsCount,
+      }),
+    );
+  }
+
+  async createSeason(body: any) {
+    const code = String(body?.code || `SS-${Date.now()}`).trim().toUpperCase();
+    const name = String(body?.name || '').trim();
+    if (!name) {
+      throw new BadRequestException('Tên mùa giải không được để trống');
+    }
+
+    const startDate = body?.startDate ? new Date(body.startDate) : new Date();
+    const endDate = body?.endDate
+      ? new Date(body.endDate)
+      : new Date(startDate.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const freezeDate = body?.freezeDate
+      ? new Date(body.freezeDate)
+      : new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
+
+    const status = Object.values(SeasonStatus).includes(body?.status)
+      ? (body.status as SeasonStatus)
+      : SeasonStatus.UPCOMING;
+
+    const created = await this.prisma.leaderboardSeason.create({
+      data: {
+        code,
+        name,
+        description: String(body?.description || name),
+        status,
+        start_date: startDate,
+        end_date: endDate,
+        freeze_date: freezeDate,
+        total_participants: Number(body?.totalParticipants || 0),
+        total_gems_pool: Number(body?.totalGemsPool || 10000),
+        is_frozen: Boolean(body?.isFrozen),
+        scoring_multiplier: Number(body?.scoringMultiplier || 1),
+        rules: Array.isArray(body?.rules) ? body.rules : [],
+        rewards: Array.isArray(body?.rewards) ? body.rewards : [],
+        distribution_status: 'NOT_STARTED',
+      },
+    });
+
+    return this.formatSeason(created);
+  }
+
+  async updateSeason(id: string, body: any) {
+    const existing = await this.prisma.leaderboardSeason.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Không tìm thấy mùa giải');
+
+    const updated = await this.prisma.leaderboardSeason.update({
+      where: { id },
+      data: {
+        name: body?.name !== undefined ? String(body.name) : undefined,
+        description: body?.description !== undefined ? String(body.description) : undefined,
+        status:
+          body?.status && Object.values(SeasonStatus).includes(body.status)
+            ? (body.status as SeasonStatus)
+            : undefined,
+        start_date: body?.startDate ? new Date(body.startDate) : undefined,
+        end_date: body?.endDate ? new Date(body.endDate) : undefined,
+        freeze_date: body?.freezeDate ? new Date(body.freezeDate) : undefined,
+        total_gems_pool:
+          body?.totalGemsPool !== undefined ? Number(body.totalGemsPool) : undefined,
+        scoring_multiplier:
+          body?.scoringMultiplier !== undefined ? Number(body.scoringMultiplier) : undefined,
+        rules: Array.isArray(body?.rules) ? body.rules : undefined,
+        rewards: Array.isArray(body?.rewards) ? body.rewards : undefined,
+      },
+    });
+
+    return this.formatSeason(updated);
+  }
+
+  async toggleSeasonFreeze(id: string) {
+    const existing = await this.prisma.leaderboardSeason.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Không tìm thấy mùa giải');
+
+    const nextFrozen = !existing.is_frozen;
+    const nextStatus =
+      existing.status === SeasonStatus.COMPLETED
+        ? SeasonStatus.COMPLETED
+        : nextFrozen
+          ? SeasonStatus.FREEZING
+          : SeasonStatus.ACTIVE;
+
+    const updated = await this.prisma.leaderboardSeason.update({
+      where: { id },
+      data: {
+        is_frozen: nextFrozen,
+        status: nextStatus,
+      },
+    });
+
+    return this.formatSeason(updated);
+  }
+
+  async distributeSeasonRewards(
+    id: string,
+    adminUser?: { id?: string; fullname?: string; email?: string },
+  ) {
+    const season = await this.prisma.leaderboardSeason.findUnique({ where: { id } });
+    if (!season) throw new NotFoundException('Không tìm thấy mùa giải');
+    if (season.distribution_status === 'COMPLETED') {
+      throw new BadRequestException('Mùa giải này đã được phát thưởng trước đó');
+    }
+
+    const rewardTiers: Array<{
+      minRank: number;
+      maxRank: number;
+      gemReward: number;
+      badgeName?: string;
+    }> = Array.isArray(season.rewards) ? (season.rewards as any[]) : [];
+
+    const leaderboard = await this.getLeaderboard();
+    let totalGemsDistributed = 0;
+    let totalRecipients = 0;
+    const topWinners: Array<{
+      rank: number;
+      userName: string;
+      gemsAwarded: number;
+      badge: string;
+    }> = [];
+
+    for (const entry of leaderboard) {
+      const tier = rewardTiers.find(
+        (t) => entry.rank >= Number(t.minRank) && entry.rank <= Number(t.maxRank),
+      );
+      if (!tier || Number(tier.gemReward) <= 0) continue;
+
+      const award = Number(tier.gemReward);
+      totalGemsDistributed += award;
+      totalRecipients += 1;
+
+      if (topWinners.length < 5) {
+        topWinners.push({
+          rank: entry.rank,
+          userName: entry.fullname,
+          gemsAwarded: award,
+          badge: tier.badgeName || `Top ${tier.maxRank}`,
+        });
+      }
+
+      if (entry.studentId) {
+        const before = Number(entry.points || 0);
+        await this.prisma.studentProfile.update({
+          where: { id: entry.studentId },
+          data: { points: { increment: award } },
+        });
+        await this.prisma.examPointLog.create({
+          data: {
+            student_id: entry.studentId,
+            action_type: 'SEASON_REWARD',
+            exam_title: season.name,
+            points_before: before,
+            points_delta: award,
+            points_after: before + award,
+            note: `Thưởng Top ${entry.rank} mùa giải ${season.name} (${tier.badgeName || 'Vinh danh'})`,
+          },
+        });
+      }
+
+      if (entry.userId) {
+        await this.notificationsService
+          ?.createForUser({
+            userId: entry.userId,
+            type: 'success',
+            title: `Chúc mừng Top ${entry.rank} ${season.name}!`,
+            message: `Bạn nhận được +${award} Ngọc Tri Thức và danh hiệu "${tier.badgeName || 'Xuất Sắc'}".`,
+            link: '/leaderboard',
+          })
+          .catch(() => {});
+      }
+    }
+
+    const adminName = adminUser?.fullname || 'Quản trị viên Hệ thống';
+    const adminEmail = adminUser?.email || 'admin@schoolify.vn';
+
+    const [updatedSeason, log] = await this.prisma.$transaction([
+      this.prisma.leaderboardSeason.update({
+        where: { id },
+        data: {
+          status: SeasonStatus.COMPLETED,
+          is_frozen: true,
+          settlement_date: new Date(),
+          distributed_gems: totalGemsDistributed,
+          distribution_status: 'COMPLETED',
+          distributed_by: adminName,
+        },
+      }),
+      this.prisma.seasonDistributionLog.create({
+        data: {
+          season_id: season.id,
+          season_name: season.name,
+          season_code: season.code,
+          admin_name: adminName,
+          admin_email: adminEmail,
+          total_recipients: totalRecipients,
+          total_gems_distributed: totalGemsDistributed,
+          status: 'SUCCESS',
+          top_winners: topWinners,
+          audit_notes: `Phát thưởng hoàn tất cho ${totalRecipients} học sinh với tổng ${totalGemsDistributed} Ngọc Tri Thức.`,
+        },
+      }),
+    ]);
+
+    return {
+      season: this.formatSeason(updatedSeason),
+      log: {
+        id: log.id,
+        seasonId: log.season_id,
+        seasonName: log.season_name,
+        seasonCode: log.season_code,
+        settledAt: log.settled_at.toISOString(),
+        adminName: log.admin_name,
+        adminEmail: log.admin_email,
+        totalRecipients: log.total_recipients,
+        totalGemsDistributed: log.total_gems_distributed,
+        status: log.status,
+        topWinners,
+        auditNotes: log.audit_notes || undefined,
+      },
+    };
+  }
+
+  async listDistributionLogs() {
+    const logs = await this.prisma.seasonDistributionLog.findMany({
+      orderBy: { settled_at: 'desc' },
+      take: 50,
+    });
+
+    return logs.map((log) => ({
+      id: log.id,
+      seasonId: log.season_id,
+      seasonName: log.season_name,
+      seasonCode: log.season_code,
+      settledAt: log.settled_at.toISOString(),
+      adminName: log.admin_name,
+      adminEmail: log.admin_email,
+      totalRecipients: log.total_recipients,
+      totalGemsDistributed: log.total_gems_distributed,
+      status: log.status as 'SUCCESS' | 'WARNING' | 'FAILED',
+      topWinners: Array.isArray(log.top_winners) ? log.top_winners : [],
+      auditNotes: log.audit_notes || undefined,
+    }));
   }
 }
 

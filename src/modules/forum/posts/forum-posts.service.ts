@@ -260,14 +260,6 @@ export class ForumPostsService {
           email: 'student.minh@schoolify.edu.vn',
           role: 'USER',
         },
-        'mock-teacher-token': {
-          email: 'teacher.nguyen@schoolify.edu.vn',
-          role: 'USER',
-        },
-        'mock-google-token': {
-          email: 'teacher.nguyen@schoolify.edu.vn',
-          role: 'USER',
-        },
         'mock-super-admin-token-2026': {
           email: 'admin@schoolify.top',
           role: 'SUPER_ADMIN',
@@ -332,19 +324,8 @@ export class ForumPostsService {
         };
       }
 
-      // Hỗ trợ alias quen thuộc khi test: 'seed-student-01', 'seed-teacher-01', 'seed-admin-01'
-      if (candidateId.includes('teacher')) {
-        const t = await this.prisma.user.findUnique({
-          where: { email: 'teacher.nguyen@schoolify.edu.vn' },
-        });
-        if (t)
-          return {
-            id: t.id,
-            email: t.email,
-            fullname: t.fullname,
-            role: t.role,
-          };
-      } else if (candidateId.includes('admin')) {
+      // Hỗ trợ alias quen thuộc khi test: 'seed-student-01', 'seed-admin-01'
+      if (candidateId.includes('admin')) {
         const a = await this.prisma.user.findUnique({
           where: { email: 'admin@schoolify.top' },
         });
@@ -447,17 +428,12 @@ export class ForumPostsService {
     const authorRoleLabel =
       post.author?.role === SystemRole.SUPER_ADMIN
         ? 'Admin Diễn Đàn'
-        : post.author?.teacher_profile
-          ? 'Giáo viên'
-          : 'Học sinh';
+        : 'Học sinh';
 
     const authorGradeLabel =
       post.author?.role === SystemRole.SUPER_ADMIN
         ? 'Hệ Thống'
-        : post.author?.teacher_profile
-          ? post.author.teacher_profile.expertise || 'Tổ Chuyên Môn'
-          : post.author?.student_profile?.grade_level ||
-            `Lớp ${post.grade || 12}`;
+        : post.author?.student_profile?.grade_level || `Lớp ${post.grade || 12}`;
 
     return {
       id: post.id,
@@ -655,7 +631,6 @@ export class ForumPostsService {
           author: {
             select: {
               ...AUTHOR_SELECT,
-              teacher_profile: { select: { expertise: true } },
               student_profile: { select: { grade_level: true } },
             },
           },
@@ -788,7 +763,6 @@ export class ForumPostsService {
         author: {
           select: {
             ...AUTHOR_SELECT,
-            teacher_profile: { select: { expertise: true, bio: true } },
             student_profile: { select: { grade_level: true } },
           },
         },
@@ -1002,7 +976,6 @@ export class ForumPostsService {
         author: {
           select: {
             ...AUTHOR_SELECT,
-            teacher_profile: { select: { expertise: true } },
             student_profile: { select: { grade_level: true } },
           },
         },
@@ -1123,7 +1096,6 @@ export class ForumPostsService {
         author: {
           select: {
             ...AUTHOR_SELECT,
-            teacher_profile: { select: { expertise: true } },
             student_profile: { select: { grade_level: true } },
           },
         },
@@ -1357,7 +1329,6 @@ export class ForumPostsService {
             author: {
               select: {
                 ...AUTHOR_SELECT,
-                teacher_profile: { select: { expertise: true } },
                 student_profile: { select: { grade_level: true } },
               },
             },
@@ -1484,7 +1455,6 @@ export class ForumPostsService {
               fullname: true,
               avatar_url: true,
               role: true,
-              teacher_profile: { select: { expertise: true } },
               student_profile: { select: { grade_level: true, points: true } },
             },
           },
@@ -1579,9 +1549,7 @@ export class ForumPostsService {
       const roleLabel =
         c.author.role === SystemRole.SUPER_ADMIN
           ? 'Ban Quản Trị Schoolify'
-          : c.author.teacher_profile
-            ? `Giáo viên (${c.author.teacher_profile.expertise || 'THPT'})`
-            : c.author.student_profile?.grade_level || 'Học sinh THPT';
+          : c.author.student_profile?.grade_level || 'Học sinh THPT';
 
       const item = contributorMap.get(c.author_id) || {
         user_id: c.author.id,

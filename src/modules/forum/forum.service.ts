@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   ForumCommentStatus,
@@ -13,6 +14,7 @@ import {
   SystemRole,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { AchievementsService } from '../achievements/achievements.service';
 import {
   CommentSortOption,
   GetPostCommentsQueryDto,
@@ -42,7 +44,10 @@ type ReactionRecord = Prisma.ForumReactionGetPayload<{
 export class ForumService {
   private readonly logger = new Logger(ForumService.name);
 
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly achievementsService?: AchievementsService,
+  ) { }
 
   /**
    * Lấy danh sách lời giải & thảo luận phân cấp cha-con (2 cấp) của một bài viết.
@@ -623,6 +628,8 @@ export class ForumService {
           );
         }
       }
+
+      await this.achievementsService?.evaluateForUser(authorId).catch(() => null);
 
       return {
         comment,

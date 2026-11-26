@@ -192,9 +192,9 @@ export class AuthService {
    * Ported from /home/thinh/ca-nhan/src/modules/auth/services/otp.service.js
    */
   async sendOtp(dto: SendOtpDto) {
-    const cleanPhone = dto.phone.trim();
-    if (!cleanPhone) {
-      throw new BadRequestException('Vui lòng nhập số điện thoại');
+    const cleanPhone = dto.phone.replace(/[\s.-]/g, '').trim();
+    if (!/^(\+84|0)[0-9]{8,10}$/.test(cleanPhone)) {
+      throw new BadRequestException('Số điện thoại không hợp lệ (VD: 0987654321)');
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -207,19 +207,19 @@ export class AuthService {
       success: true,
       message: 'Mã OTP đã được gửi thành công (hiệu lực 5 phút)',
       phone: cleanPhone,
-      // Trả về devOtp phục vụ môi trường dev & E2E testing
-      devOtp: otp,
+      ...(process.env.NODE_ENV === 'test' ? { devOtp: otp } : {}),
     };
   }
 
   async verifyOtp(dto: VerifyOtpDto) {
-    const cleanPhone = dto.phone.trim();
+    const cleanPhone = dto.phone.replace(/[\s.-]/g, '').trim();
     const record = this.otpStore.get(cleanPhone);
 
-    // Chấp nhận mã OTP trong store hoặc mã mặc định '123456' cho E2E/Sandbox
+    const allowSandboxOtp =
+      process.env.NODE_ENV === 'test' || process.env.ALLOW_SANDBOX_OTP === 'true';
     const isValid =
-      (record && record.expiresAt >= Date.now() && record.otp === dto.otp) ||
-      dto.otp === '123456';
+      Boolean(record && record.expiresAt >= Date.now() && record.otp === dto.otp.trim()) ||
+      (allowSandboxOtp && dto.otp.trim() === '123456');
 
     if (!isValid) {
       throw new BadRequestException('Mã OTP không chính xác hoặc đã hết hạn');

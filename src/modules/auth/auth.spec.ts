@@ -66,7 +66,7 @@ describe('AuthModule (Unit Tests)', () => {
       email: 'nguyenvana@gmail.com',
       password: 'secret123',
       phone: '0987654321',
-      profile_type: 'TEACHER' as const,
+      profile_type: 'STUDENT' as const,
     };
 
     it('should successfully register user and return sanitized user with cookie set', async () => {

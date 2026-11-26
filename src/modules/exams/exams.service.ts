@@ -184,6 +184,17 @@ export class ExamsService {
   }
 
   /**
+   * Xóa cache RAM bể câu hỏi khi có thay đổi (thêm/sửa/xóa/import câu hỏi mới)
+   */
+  public invalidateQuestionPoolCache(subject?: string, grade?: number) {
+    if (subject && grade) {
+      this.questionPoolCache.delete(`${subject}:g${grade}`);
+      return;
+    }
+    this.questionPoolCache.clear();
+  }
+
+  /**
    * Tạo hoán vị cho 1 chu kỳ (Epoch):
    * - Dùng phép nhảy đồng dư nguyên tố cùng nhau (step * i + offset) mod M.
    * - Khi sang vòng lặp mới (epoch >= 1, đã gặp hết sạch bể):
@@ -573,14 +584,7 @@ export class ExamsService {
     const dbUser = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: {
-          include: {
-            parent_students: true,
-          },
-        },
-        school_memberships: true,
       },
     });
 
@@ -596,27 +600,13 @@ export class ExamsService {
       };
     }
 
-    const schoolRoles = (dbUser.school_memberships || []).map((m) => String(m.role));
-    const isTeacher =
-      Boolean(dbUser.teacher_profile) ||
-      schoolRoles.includes('TEACHER') ||
-      fallbackRole.toUpperCase() === 'TEACHER';
-    const isParent =
-      Boolean(dbUser.parent_profile) ||
-      schoolRoles.includes('PARENT') ||
-      fallbackRole.toUpperCase() === 'PARENT';
-    const linkedStudentIds = [
-      ...(dbUser.parent_profile?.parent_students?.map((ps) => ps.student_id) || []),
-      ...(Array.isArray(jwtLinkedStudentIds) ? jwtLinkedStudentIds : []),
-    ];
+    const isTeacher = fallbackRole.toUpperCase() === 'TEACHER';
+    const isParent = fallbackRole.toUpperCase() === 'PARENT';
+    const linkedStudentIds = Array.isArray(jwtLinkedStudentIds) ? jwtLinkedStudentIds : [];
 
     let resolvedRole = String(dbUser.role || fallbackRole).toUpperCase();
     if (resolvedRole === 'USER' && fallbackRole && fallbackRole.toUpperCase() !== 'USER') {
       resolvedRole = fallbackRole.toUpperCase();
-    } else if (resolvedRole === 'USER' && isTeacher) {
-      resolvedRole = 'TEACHER';
-    } else if (resolvedRole === 'USER' && isParent) {
-      resolvedRole = 'PARENT';
     }
 
     return {
@@ -624,7 +614,7 @@ export class ExamsService {
       email: dbUser.email,
       fullname: dbUser.fullname,
       role: resolvedRole,
-      schoolRoles,
+      schoolRoles: [resolvedRole],
       isTeacher,
       isParent,
       linkedStudentIds,
@@ -1131,6 +1121,392 @@ export class ExamsService {
     };
   }
 
+  private normalizeMatrixSubjectSlug(raw?: string): string {
+    const s = String(raw || 'toan-hoc')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/gi, 'd')
+      .toLowerCase()
+      .trim();
+    if (s.includes('toan')) return 'toan-hoc';
+    if (s.includes('tin')) return 'tin-hoc';
+    if (s.includes('vat') || s.includes('ly')) return 'vat-ly';
+    if (s.includes('hoa')) return 'hoa-hoc';
+    if (s.includes('sinh')) return 'sinh-hoc';
+    if (s.includes('anh')) return 'tieng-anh';
+    if (s.includes('van')) return 'ngu-van';
+    if (s.includes('su')) return 'lich-su';
+    if (s.includes('dia')) return 'dia-ly';
+    if (s.includes('gdcd') || s.includes('kinh te') || s.includes('phap luat')) return 'gdcd';
+    return s.replace(/\s+/g, '-');
+  }
+
+  private extractChapterNumber(raw?: string): number | null {
+    if (!raw) return null;
+    const m = String(raw).match(/(?:chương|chuong|ch\.?)\s*(\d+)/i);
+    if (m) return Number(m[1]);
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  private pickByBloomRatio<T extends { bloom_level: BloomLevel | null }>(
+    pool: T[],
+    targetCount: number,
+    bloomRatio: {
+      recognition_percentage?: number;
+      understanding_percentage?: number;
+      application_percentage?: number;
+      advanced_application_percentage?: number;
+    },
+  ): T[] {
+    if (pool.length === 0 || targetCount <= 0) return [];
+    const rec = Number(bloomRatio?.recognition_percentage ?? 40);
+    const und = Number(bloomRatio?.understanding_percentage ?? 30);
+    const app = Number(bloomRatio?.application_percentage ?? 20);
+    const adv = Number(bloomRatio?.advanced_application_percentage ?? 10);
+
+    const targets: Record<BloomLevel, number> = {
+      [BloomLevel.NHAN_BIET]: Math.round((targetCount * rec) / 100),
+      [BloomLevel.THONG_HIEU]: Math.round((targetCount * und) / 100),
+      [BloomLevel.VAN_DUNG]: Math.round((targetCount * app) / 100),
+      [BloomLevel.VAN_DUNG_CAO]: Math.round((targetCount * adv) / 100),
+    };
+    const sum = Object.values(targets).reduce((a, b) => a + b, 0);
+    targets[BloomLevel.THONG_HIEU] = Math.max(0, targets[BloomLevel.THONG_HIEU] + (targetCount - sum));
+
+    const shuffle = <X>(arr: X[]): X[] => {
+      const copy = [...arr];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    };
+
+    const selected: T[] = [];
+    const pickedIds = new Set<string>();
+    for (const lvl of [
+      BloomLevel.NHAN_BIET,
+      BloomLevel.THONG_HIEU,
+      BloomLevel.VAN_DUNG,
+      BloomLevel.VAN_DUNG_CAO,
+    ]) {
+      const needed = Math.max(0, targets[lvl]);
+      const bucket = shuffle(pool.filter((q) => (q.bloom_level || BloomLevel.THONG_HIEU) === lvl));
+      for (const item of bucket.slice(0, needed)) {
+        selected.push(item);
+        pickedIds.add((item as any).id);
+      }
+    }
+
+    if (selected.length < targetCount) {
+      const remaining = shuffle(pool.filter((q) => !pickedIds.has((q as any).id)));
+      selected.push(...remaining.slice(0, targetCount - selected.length));
+    }
+
+    return selected.slice(0, targetCount);
+  }
+
+  /**
+   * Sinh N mã đề hoàn chỉnh từ PostgreSQL cho Admin ExamMatrixBuilder (Blueprint 3 phần GDPT 2018)
+   */
+  async generateAdminMatrixBlueprint(payload: any) {
+    const examInfo = payload?.exam_info || {};
+    const scopeConfig = payload?.scope_config || {};
+    const blueprint = payload?.matrix_blueprint || {};
+    const variantsCfg = payload?.variants_config || {};
+
+    const subjectSlug = this.normalizeMatrixSubjectSlug(examInfo.subject);
+    const gradeNum = Number(examInfo.grade_level) || undefined;
+    const totalQuestions = Math.max(1, Number(blueprint.total_questions || 20));
+    const variantCount = Math.min(8, Math.max(1, Number(variantsCfg.variant_count || 4)));
+    const variantPrefix = String(variantsCfg.variant_prefix || '10');
+    const shouldShuffleQuestions = variantsCfg.shuffle_questions !== false;
+    const shouldShuffleChoices = variantsCfg.shuffle_choices !== false;
+
+    let dbRows = await this.prisma.question.findMany({
+      where: {
+        subject: subjectSlug,
+        ...(gradeNum ? { grade: gradeNum } : {}),
+        question_format: { not: QuestionFormat.ESSAY },
+      },
+      include: { answers: true },
+      orderBy: { id: 'asc' },
+    });
+
+    if (dbRows.length < totalQuestions && gradeNum) {
+      dbRows = await this.prisma.question.findMany({
+        where: {
+          subject: subjectSlug,
+          question_format: { not: QuestionFormat.ESSAY },
+        },
+        include: { answers: true },
+        orderBy: { id: 'asc' },
+      });
+    }
+
+    if (dbRows.length === 0) {
+      throw new BadRequestException(
+        `Ngân hàng câu hỏi PostgreSQL hiện chưa có câu hỏi nào cho môn "${examInfo.subject || subjectSlug}". Vui lòng import hoặc thêm câu hỏi trước khi sinh đề.`,
+      );
+    }
+
+    const catDist = blueprint.category_distribution || {};
+    const mcqTarget = Number(catDist.multiple_choice ?? Math.round(totalQuestions * 0.6));
+    const tfTarget = Number(catDist.true_false ?? Math.round(totalQuestions * 0.2));
+    const saTarget = Number(catDist.short_answer ?? Math.max(0, totalQuestions - mcqTarget - tfTarget));
+    const bloomRatio = blueprint.bloom_ratio || {};
+
+    const scopeMode = String(scopeConfig.scope_mode || 'CHAPTER_FOCUSED');
+    const currentChNum = this.extractChapterNumber(scopeConfig.current_chapter);
+    const prevChNums = new Set<number>(
+      (Array.isArray(scopeConfig.previous_chapters) ? scopeConfig.previous_chapters : [])
+        .map((c: string) => this.extractChapterNumber(c))
+        .filter((x: number | null): x is number => x !== null),
+    );
+    const semChNums = new Set<number>(
+      (Array.isArray(scopeConfig.selected_chapters) ? scopeConfig.selected_chapters : [])
+        .map((c: string) => this.extractChapterNumber(c))
+        .filter((x: number | null): x is number => x !== null),
+    );
+
+    const pickForCategory = (catPool: typeof dbRows, count: number) => {
+      if (count <= 0) return [];
+      const effectivePool = catPool.length > 0 ? catPool : dbRows;
+
+      if (scopeMode === 'CHAPTER_FOCUSED' && currentChNum !== null) {
+        const curRatio = Number(scopeConfig.scope_ratio?.current_chapter_percentage ?? 70);
+        const needCur = Math.round((count * curRatio) / 100);
+        const needPrev = count - needCur;
+        const curPool = effectivePool.filter((q) => Number(q.chapter_id) === currentChNum);
+        const prevPool = effectivePool.filter((q) => prevChNums.has(Number(q.chapter_id)));
+
+        const pickedCur = this.pickByBloomRatio(curPool.length > 0 ? curPool : effectivePool, needCur, bloomRatio);
+        const usedIds = new Set(pickedCur.map((x) => x.id));
+        const remPrev = (prevPool.length > 0 ? prevPool : effectivePool).filter((x) => !usedIds.has(x.id));
+        const pickedPrev = this.pickByBloomRatio(remPrev.length > 0 ? remPrev : effectivePool, needPrev, bloomRatio);
+        const combined = [...pickedCur, ...pickedPrev];
+        if (combined.length < count) {
+          const allUsed = new Set(combined.map((x) => x.id));
+          combined.push(
+            ...this.pickByBloomRatio(effectivePool.filter((x) => !allUsed.has(x.id)), count - combined.length, bloomRatio),
+          );
+        }
+        return combined.slice(0, count);
+      }
+
+      if (scopeMode === 'SEMESTER' && semChNums.size > 0) {
+        const semPool = effectivePool.filter((q) => semChNums.has(Number(q.chapter_id)));
+        return this.pickByBloomRatio(semPool.length > 0 ? semPool : effectivePool, count, bloomRatio);
+      }
+
+      return this.pickByBloomRatio(effectivePool, count, bloomRatio);
+    };
+
+    const mcqPool = dbRows.filter(
+      (q) => !q.question_format || q.question_format === QuestionFormat.SINGLE_CHOICE || q.question_format === QuestionFormat.MULTI_CHOICE,
+    );
+    const tfPool = dbRows.filter((q) => q.question_format === QuestionFormat.TRUE_FALSE);
+    const saPool = dbRows.filter((q) => q.question_format === QuestionFormat.SHORT_ANSWER);
+
+    const baseMcq = pickForCategory(mcqPool, mcqTarget);
+    const baseTf = pickForCategory(tfPool, tfTarget);
+    const baseSa = pickForCategory(saPool, saTarget);
+
+    const bloomMap: Record<BloomLevel, string> = {
+      [BloomLevel.NHAN_BIET]: 'RECOGNITION',
+      [BloomLevel.THONG_HIEU]: 'UNDERSTANDING',
+      [BloomLevel.VAN_DUNG]: 'APPLICATION',
+      [BloomLevel.VAN_DUNG_CAO]: 'ADVANCED_APPLICATION',
+    };
+
+    const shuffleArr = <X>(arr: X[]): X[] => {
+      if (!shouldShuffleQuestions) return [...arr];
+      const copy = [...arr];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    };
+
+    const toClientQuestion = (
+      q: (typeof dbRows)[number],
+      orderNum: number,
+      sectionTitle: string,
+      variantCode: string,
+    ) => {
+      const qFormat = q.question_format || QuestionFormat.SINGLE_CHOICE;
+      const isMcq = qFormat === QuestionFormat.SINGLE_CHOICE || qFormat === QuestionFormat.MULTI_CHOICE;
+      const canShuffle =
+        shouldShuffleChoices &&
+        isMcq &&
+        q.answers.length >= 2 &&
+        !this.hasPositionDependentAnswerText(q.answers.map((a) => a.content));
+
+      const orderedAnswers = canShuffle
+        ? this.permuteAnswerChoicesGuaranteedShift(q.answers, `${variantCode}:${q.id}:${Date.now()}`)
+        : q.answers;
+
+      const mappedAnswers = orderedAnswers.map((a, aIdx) => ({
+        id: a.id,
+        question_id: q.id,
+        content: a.content,
+        is_answer: Boolean(a.is_answer),
+        label:
+          qFormat === QuestionFormat.TRUE_FALSE
+            ? String(a.sub_label || ['a', 'b', 'c', 'd'][aIdx] || 'a').toLowerCase()
+            : canShuffle
+              ? String.fromCharCode(65 + aIdx)
+              : String(a.sub_label || String.fromCharCode(65 + aIdx)).toUpperCase(),
+        explain: a.explain || undefined,
+      }));
+
+      const statements =
+        qFormat === QuestionFormat.TRUE_FALSE
+          ? mappedAnswers.map((a, aIdx) => ({
+              subId: (a.label || ['a', 'b', 'c', 'd'][aIdx] || 'a') as 'a' | 'b' | 'c' | 'd',
+              statement: a.content,
+              isCorrect: a.is_answer,
+            }))
+          : undefined;
+
+      const shortAnswerCorrect =
+        qFormat === QuestionFormat.SHORT_ANSWER
+          ? q.answer || mappedAnswers.find((a) => a.is_answer)?.content || ''
+          : undefined;
+
+      const correctLabels = mappedAnswers.filter((a) => a.is_answer).map((a) => a.label);
+
+      const feType =
+        qFormat === QuestionFormat.TRUE_FALSE
+          ? 'TRUE_FALSE'
+          : qFormat === QuestionFormat.SHORT_ANSWER
+            ? 'FILL_BLANK'
+            : qFormat === QuestionFormat.MULTI_CHOICE
+              ? 'MULTIPLE_CHOICE'
+              : 'SINGLE_CHOICE';
+
+      return {
+        id: q.id,
+        type: feType,
+        title: `Câu ${orderNum}`,
+        content: q.question,
+        difficulty: bloomMap[q.bloom_level || BloomLevel.THONG_HIEU] || 'UNDERSTANDING',
+        subject: examInfo.subject || subjectSlug,
+        grade_level: String(q.grade || gradeNum || 12),
+        chapter: `Chương ${q.chapter_id || 1}`,
+        points:
+          Number(q.default_points) ||
+          (qFormat === QuestionFormat.TRUE_FALSE ? 1.0 : qFormat === QuestionFormat.SHORT_ANSWER ? 0.5 : 0.25),
+        explain: q.explanation || undefined,
+        answers: mappedAnswers,
+        statements,
+        shortAnswerCorrect,
+        correctChoice: correctLabels[0] || 'A',
+        section_title: sectionTitle,
+      };
+    };
+
+    const variants: any[] = [];
+    for (let v = 0; v < variantCount; v++) {
+      const code = `${variantPrefix}${v + 1}`;
+      const sec1 = 'PHẦN I. CÂU HỎI TRẮC NGHIỆM NHIỀU PHƯƠNG ÁN LỰA CHỌN';
+      const sec2 = 'PHẦN II. CÂU HỎI TRẮC NGHIỆM ĐÚNG / SAI';
+      const sec3 = 'PHẦN III. CÂU HỎI TRẮC NGHIỆM TRẢ LỜI NGẮN';
+
+      const shuffledMcq = shuffleArr(baseMcq);
+      const shuffledTf = shuffleArr(baseTf);
+      const shuffledSa = shuffleArr(baseSa);
+
+      let cursor = 1;
+      const varMcq = shuffledMcq.map((q) => toClientQuestion(q, cursor++, sec1, code));
+      const varTf = shuffledTf.map((q) => toClientQuestion(q, cursor++, sec2, code));
+      const varSa = shuffledSa.map((q) => toClientQuestion(q, cursor++, sec3, code));
+      const allQuestions = [...varMcq, ...varTf, ...varSa];
+
+      const parts: any[] = [];
+      if (varMcq.length > 0) {
+        parts.push({
+          part_number: 1,
+          title: sec1,
+          description: 'Thí sinh chọn phương án đúng (A, B, C hoặc D).',
+          question_type: 'MULTIPLE_CHOICE',
+          questions: varMcq,
+          points_per_question: 0.25,
+          total_points: Number((varMcq.length * 0.25).toFixed(2)),
+        });
+      }
+      if (varTf.length > 0) {
+        parts.push({
+          part_number: 2,
+          title: sec2,
+          description: 'Thí sinh trả lời Đúng/Sai cho từng ý a, b, c, d.',
+          question_type: 'TRUE_FALSE',
+          questions: varTf,
+          points_per_question: 1.0,
+          total_points: Number((varTf.length * 1.0).toFixed(2)),
+        });
+      }
+      if (varSa.length > 0) {
+        parts.push({
+          part_number: 3,
+          title: sec3,
+          description: 'Thí sinh điền đáp số trực tiếp vào ô kết quả.',
+          question_type: 'FILL_BLANK',
+          questions: varSa,
+          points_per_question: 0.5,
+          total_points: Number((varSa.length * 0.5).toFixed(2)),
+        });
+      }
+
+      const answerKey: Record<string, string | string[]> = {};
+      allQuestions.forEach((q, idx) => {
+        const keyName = `Câu ${idx + 1}`;
+        if (q.type === 'TRUE_FALSE') {
+          answerKey[keyName] = (q.statements || [])
+            .map((st: any) => `${st.subId}-${st.isCorrect ? 'Đ' : 'S'}`)
+            .join('; ');
+        } else if (q.type === 'FILL_BLANK') {
+          answerKey[keyName] = q.shortAnswerCorrect || 'Đáp số';
+        } else {
+          const corrects = (q.answers || []).filter((a: any) => a.is_answer).map((a: any) => a.label);
+          answerKey[keyName] = corrects.length > 0 ? corrects.join(', ') : q.correctChoice || 'A';
+        }
+      });
+
+      const totalScore = parts.reduce((acc, p) => acc + p.total_points, 0);
+      variants.push({
+        variant_code: code,
+        title: `${examInfo.title || 'Đề Ma Trận'} - Mã đề ${code}`,
+        total_questions: allQuestions.length,
+        duration_minutes: Number(examInfo.duration_minutes || 45),
+        questions: allQuestions,
+        answer_key: answerKey,
+        parts,
+        total_score: totalScore > 0 ? Number(totalScore.toFixed(2)) : 10.0,
+      });
+    }
+
+    return {
+      success: true,
+      source: 'POSTGRESQL',
+      message: `PostgreSQL đã sinh thành công ${variants.length} mã đề từ ${dbRows.length} câu hỏi thực tế!`,
+      server_timestamp: new Date().toISOString(),
+      standards: 'GDPT 2018 - MOET 2025',
+      variants,
+      summary: {
+        total_variants: variants.length,
+        total_questions: variants[0]?.total_questions || 0,
+        pool_size: dbRows.length,
+        subject_slug: subjectSlug,
+        category_distribution: catDist,
+        bloom_ratio: bloomRatio,
+        scope_mode: scopeMode,
+      },
+    };
+  }
+
   /**
    * Nộp bài thi, chấm điểm, sinh mã bảo mật attemptToken (CSPRNG att_[a-f0-9]{32}),
    * lưu ExamSubmission và tự động cộng/trừ điểm làm đề
@@ -1591,19 +1967,8 @@ export class ExamsService {
         student: {
           include: {
             user: true,
-            parent_students: {
-              include: {
-                parent: true,
-              },
-            },
-            enrollments: {
-              include: {
-                class: true,
-              },
-            },
           },
         },
-        class: true,
         answers: {
           include: {
             question: {
@@ -1623,19 +1988,8 @@ export class ExamsService {
           student: {
             include: {
               user: true,
-              parent_students: {
-                include: {
-                  parent: true,
-                },
-              },
-              enrollments: {
-                include: {
-                  class: true,
-                },
-              },
             },
           },
-          class: true,
           answers: {
             include: {
               question: {
@@ -1677,11 +2031,8 @@ export class ExamsService {
       currentUser.schoolRoles.includes('TEACHER');
 
     const isLinkedParent =
-      (submission.student?.parent_students || []).some(
-        (ps) => ps.parent?.user_id === currentUser.id,
-      ) ||
       currentUser.linkedStudentIds.includes(submission.student_id) ||
-      ( submissionOwnerUserId
+      (submissionOwnerUserId
         ? currentUser.linkedStudentIds.includes(submissionOwnerUserId)
         : false);
 
@@ -1958,6 +2309,7 @@ export class ExamsService {
       include: { answers: true, bank: true },
     });
 
+    this.invalidateQuestionPoolCache();
     return created;
   }
 
@@ -2181,6 +2533,7 @@ export class ExamsService {
       });
     }
 
+    this.invalidateQuestionPoolCache();
     return this.prisma.question.findUnique({
       where: { id },
       include: { answers: true },
@@ -2200,6 +2553,7 @@ export class ExamsService {
     await this.prisma.submissionAnswer.deleteMany({ where: { question_id: id } });
     await this.prisma.question.delete({ where: { id } });
 
+    this.invalidateQuestionPoolCache();
     return { deletedId: id };
   }
 

@@ -11,14 +11,7 @@ export class UsersService {
     return this.prisma.user.findUnique({
       where: { email: email.toLowerCase() },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: true,
-        school_memberships: {
-          include: {
-            school: true,
-          },
-        },
       },
     });
   }
@@ -27,14 +20,7 @@ export class UsersService {
     return this.prisma.user.findUnique({
       where: { id },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: true,
-        school_memberships: {
-          include: {
-            school: true,
-          },
-        },
       },
     });
   }
@@ -45,7 +31,7 @@ export class UsersService {
     phone?: string;
     password_hash: string;
     role?: SystemRole;
-    profile_type?: 'TEACHER' | 'STUDENT' | 'PARENT';
+    profile_type?: 'STUDENT';
     google_id?: string;
     avatar_url?: string;
     grade_level?: string | null;
@@ -71,30 +57,14 @@ export class UsersService {
         },
       });
 
-      const profileType = data.profile_type || 'STUDENT';
-      if (profileType === 'TEACHER') {
-        await tx.teacherProfile.create({
-          data: { user_id: user.id },
-        });
-      } else if (profileType === 'PARENT') {
-        await tx.parentProfile.create({
-          data: { user_id: user.id },
-        });
-      } else {
-        await tx.studentProfile.create({
-          data: { user_id: user.id, grade_level: data.grade_level || null, points: 100 },
-        });
-      }
+      await tx.studentProfile.create({
+        data: { user_id: user.id, grade_level: data.grade_level || null, points: 100 },
+      });
 
       return tx.user.findUnique({
         where: { id: user.id },
         include: {
-          teacher_profile: true,
           student_profile: true,
-          parent_profile: true,
-          school_memberships: {
-            include: { school: true },
-          },
         },
       });
     });
@@ -105,11 +75,10 @@ export class UsersService {
     email: string;
     phone?: string;
     password?: string;
-    role?: 'SUPER_ADMIN' | 'TEACHER' | 'STUDENT';
+    role?: 'SUPER_ADMIN' | 'STUDENT';
   }) {
     const hashedPassword = await bcrypt.hash(data.password || '123456', 10);
     const isSuperAdmin = data.role === 'SUPER_ADMIN';
-    const profileType = data.role === 'TEACHER' ? 'TEACHER' : 'STUDENT';
 
     const created = await this.create({
       fullname: data.fullname,
@@ -117,7 +86,7 @@ export class UsersService {
       phone: data.phone,
       password_hash: hashedPassword,
       role: isSuperAdmin ? SystemRole.SUPER_ADMIN : SystemRole.USER,
-      profile_type: profileType,
+      profile_type: 'STUDENT',
     });
 
     if (!created) return null;
@@ -133,7 +102,7 @@ export class UsersService {
     name: string;
     googleId: string;
     avatarUrl?: string;
-    profile_type?: 'STUDENT' | 'TEACHER' | 'PARENT';
+    profile_type?: 'STUDENT';
   }) {
     const normalizedEmail = data.email.toLowerCase().trim();
 
@@ -142,12 +111,7 @@ export class UsersService {
         OR: [{ google_id: data.googleId }, { email: normalizedEmail }],
       },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: true,
-        school_memberships: {
-          include: { school: true },
-        },
       },
     });
 
@@ -162,7 +126,7 @@ export class UsersService {
         password_hash: hashedPassword,
         google_id: data.googleId,
         avatar_url: data.avatarUrl,
-        profile_type: data.profile_type || 'STUDENT',
+        profile_type: 'STUDENT',
       });
     } else {
       // Quy tắc nghiệp vụ: Chỉ lấy avatar của Google khi login lần đầu nếu người dùng chưa có avatar.
@@ -183,12 +147,7 @@ export class UsersService {
             last_login_at: new Date(),
           },
           include: {
-            teacher_profile: true,
             student_profile: true,
-            parent_profile: true,
-            school_memberships: {
-              include: { school: true },
-            },
           },
         });
       } else {
@@ -209,12 +168,7 @@ export class UsersService {
         OR: [{ email: lookupEmail }, { phone: phoneOrEmail.trim() }],
       },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: true,
-        school_memberships: {
-          include: { school: true },
-        },
       },
     });
 
@@ -243,22 +197,13 @@ export class UsersService {
   }
 
   private formatUserItem(u: any) {
-    let appRole: 'SUPER_ADMIN' | 'TEACHER' | 'STUDENT' = 'STUDENT';
-    if (u.role === 'SUPER_ADMIN') {
-      appRole = 'SUPER_ADMIN';
-    } else if (u.teacher_profile) {
-      appRole = 'TEACHER';
-    } else {
-      appRole = 'STUDENT';
-    }
+    const appRole: 'SUPER_ADMIN' | 'STUDENT' =
+      u.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'STUDENT';
 
     const schoolName =
-      u.school_memberships?.[0]?.school?.name ||
-      (appRole === 'SUPER_ADMIN'
-        ? 'Nền Tảng Gốc Schoolify'
-        : appRole === 'TEACHER'
-          ? 'Hội Đồng Giảng Viên Schoolify'
-          : 'Học Sinh Toàn Quốc');
+      appRole === 'SUPER_ADMIN'
+        ? 'Quản Trị Hệ Thống Schoolify'
+        : 'Học Sinh Luyện Thi Schoolify';
 
     return {
       ...u,
@@ -291,12 +236,8 @@ export class UsersService {
     }
     if (query.role === 'SUPER_ADMIN') {
       where.role = 'SUPER_ADMIN';
-    } else if (query.role === 'TEACHER') {
-      where.role = 'USER';
-      where.teacher_profile = { isNot: null };
     } else if (query.role === 'STUDENT') {
       where.role = 'USER';
-      where.teacher_profile = { is: null };
     }
 
     const [items, total] = await Promise.all([
@@ -306,12 +247,7 @@ export class UsersService {
         take: limit,
         orderBy: { created_at: 'desc' },
         include: {
-          teacher_profile: true,
           student_profile: true,
-          parent_profile: true,
-          school_memberships: {
-            include: { school: true },
-          },
         },
       }),
       this.prisma.user.count({ where }),
@@ -337,12 +273,12 @@ export class UsersService {
       status?: boolean;
       points?: number;
       grade_level?: string;
-      role?: 'SUPER_ADMIN' | 'TEACHER' | 'STUDENT';
+      role?: 'SUPER_ADMIN' | 'STUDENT';
     },
   ) {
     const existing = await this.prisma.user.findUnique({
       where: { id },
-      include: { student_profile: true, teacher_profile: true },
+      include: { student_profile: true },
     });
     if (!existing) {
       throw new NotFoundException('Không tìm thấy người dùng');
@@ -351,19 +287,8 @@ export class UsersService {
     let systemRoleUpdate: SystemRole | undefined = undefined;
     if (data.role === 'SUPER_ADMIN') {
       systemRoleUpdate = SystemRole.SUPER_ADMIN;
-    } else if (data.role === 'TEACHER' || data.role === 'STUDENT') {
+    } else if (data.role === 'STUDENT') {
       systemRoleUpdate = SystemRole.USER;
-    }
-
-    if (data.role === 'TEACHER' && !existing.teacher_profile) {
-      await this.prisma.teacherProfile.create({ data: { user_id: id } });
-    } else if (data.role === 'STUDENT' && existing.teacher_profile) {
-      await this.prisma.teacherProfile.delete({ where: { id: existing.teacher_profile.id } });
-      if (!existing.student_profile) {
-        await this.prisma.studentProfile.create({
-          data: { user_id: id, grade_level: 'Lớp 12', points: 100 },
-        });
-      }
     }
 
     if (existing.student_profile && (data.points !== undefined || data.grade_level !== undefined)) {
@@ -376,7 +301,6 @@ export class UsersService {
       });
     } else if (
       !existing.student_profile &&
-      !existing.teacher_profile &&
       existing.role !== 'SUPER_ADMIN' &&
       data.grade_level !== undefined
     ) {
@@ -400,12 +324,7 @@ export class UsersService {
         ...(systemRoleUpdate !== undefined ? { role: systemRoleUpdate } : {}),
       },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: true,
-        school_memberships: {
-          include: { school: true },
-        },
       },
     });
 
