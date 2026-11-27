@@ -1,23 +1,34 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Tin cậy reverse proxy (Nginx/Plesk) để đọc đúng X-Forwarded-Proto / IP
+  app.set('trust proxy', 1);
 
   // 1. Enable Cookie Parser for reading HTTP-Only cookies
   app.use(cookieParser());
 
-  // 2. Enable CORS with credentials for Next.js Frontend (hỗ trợ cả port 3000 và 3050)
+  // 2. Enable CORS with credentials for Next.js Frontend
+  const extraOrigins = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
   app.enableCors({
     origin: [
       process.env.FRONTEND_URL || 'http://localhost:3000',
+      'https://schoolify.top',
+      'https://www.schoolify.top',
       'http://localhost:3000',
       'http://localhost:3050',
       'http://127.0.0.1:3000',
       'http://127.0.0.1:3050',
+      ...extraOrigins,
     ],
     credentials: true,
   });
@@ -65,7 +76,8 @@ async function bootstrap() {
   });
 
   const port = process.env.PORT ?? 3001;
-  await app.listen(port, '0.0.0.0');
+  const host = process.env.HOST ?? '0.0.0.0';
+  await app.listen(port, host);
   console.log(`🚀 Schoolify Backend is running on http://localhost:${port}`);
   console.log(`📚 Swagger API Docs available at http://localhost:${port}/api/docs`);
 }

@@ -15,59 +15,13 @@ enum SystemRole {
   USER
 }
 
-enum SchoolRole {
-  PRINCIPAL
-  VICE_PRINCIPAL
-  HEAD_OF_DEPARTMENT
-  TEACHER
-  STUDENT
-  PARENT
-  STAFF
-}
-
-enum CustomRequestStatus {
-  PENDING
-  IN_PROGRESS
-  RESOLVED
-  REJECTED
-}
-
-enum CourseStatus {
-  DRAFT
-  PENDING
-  PUBLISHED
-  REJECTED
-  HIDDEN
-}
-
-enum ClassStatus {
-  DRAFT
-  PENDING
-  PUBLISHED
-  REJECTED
-  HIDDEN
-}
-
-enum MaterialType {
-  IMG
-  DOCX
-  EXCEL
-}
-
 enum ItemStatus {
   ACTIVE
   SOLDOUT
 }
 
-enum TransactionType {
-  PAYMENT_TO_ADMIN
-  COMMISSION_FEE
-  TEACHER_INCOME
-}
-
 enum OrderReferenceType {
   SUBSCRIPTION
-  COURSE
 }
 
 enum OrderStatus {
@@ -95,12 +49,6 @@ enum SubscriptionStatus {
   UPGRADED
 }
 
-enum SchoolStatus {
-  ACTIVE
-  INACTIVE
-  SUSPENDED
-}
-
 enum QuestionType {
   MULTIPLE_CHOICE
   SINGLE_CHOICE
@@ -113,14 +61,14 @@ enum QuestionFormat {
   MULTI_CHOICE   // Chọn nhiều đáp án đúng
   TRUE_FALSE     // Đúng/Sai 4 ý con a, b, c, d
   SHORT_ANSWER   // Điền số / Trả lời ngắn
-  ESSAY          // Tự luận theo barem điểm
+  ESSAY          // Deprecated (đã gỡ bỏ module tự luận)
 }
 
 enum BloomLevel {
-  NHAN_BIET       // Nhận biết (Easy)
-  THONG_HIEU      // Thông hiểu (Medium)
-  VAN_DUNG        // Vận dụng (Hard)
-  VAN_DUNG_CAO    // Vận dụng cao (Very Hard)
+  NHAN_BIET // Nhận biết (Easy)
+  THONG_HIEU // Thông hiểu (Medium)
+  VAN_DUNG // Vận dụng (Hard)
+  VAN_DUNG_CAO // Vận dụng cao (Very Hard)
 }
 
 enum StoreItemType {
@@ -150,6 +98,54 @@ enum QuestionBugReportStatus {
   RESOLVED
 }
 
+enum ForumPostStatus {
+  DRAFT
+  PENDING
+  PUBLISHED
+  HIDDEN
+  REJECTED
+  DELETED
+}
+
+enum ForumCommentStatus {
+  ACTIVE
+  HIDDEN
+  FLAGGED
+  DELETED
+}
+
+enum ForumTargetType {
+  POST
+  COMMENT
+}
+
+enum ForumReactionType {
+  LIKE
+  UPVOTE
+  DOWNVOTE
+  HELPFUL
+  LOVE
+  HAHA
+}
+
+enum ForumReportReason {
+  SPAM
+  INAPPROPRIATE
+  HARASSMENT
+  COPYRIGHT
+  WRONG_SUBJECT
+  OFFENSIVE_LANGUAGE
+  MISINFORMATION
+  OTHER
+}
+
+enum ForumReportStatus {
+  PENDING
+  REVIEWING
+  RESOLVED
+  REJECTED
+}
+
 // ----------------------------------------------------
 // CORE & USER MODELS
 // ----------------------------------------------------
@@ -168,60 +164,25 @@ model User {
   created_at    DateTime   @default(now())
   updated_at    DateTime   @updatedAt
 
-  school_memberships      SchoolMember[]
-  teacher_profile         TeacherProfile?
-  student_profile         StudentProfile?
-  parent_profile          ParentProfile?
-  custom_feature_requests CustomFeatureRequest[]
-  notifications           Notification[]
-  orders_purchased        Order[]                @relation("OrderBuyer")
-  orders_sold             Order[]                @relation("OrderSeller")
-  schools_owned           School[]               @relation("SchoolOwner")
+  student_profile            StudentProfile?
+  orders_purchased           Order[]                @relation("OrderBuyer")
+  orders_sold                Order[]                @relation("OrderSeller")
   created_packages           SubscriptionPackage[]
   question_banks             QuestionBank[]
   store_items                StoreItem[]
   question_reports_submitted QuestionBugReport[]   @relation("QuestionReportReporter")
   question_reports_resolved  QuestionBugReport[]   @relation("QuestionReportResolver")
+  forum_posts             ForumPost[]            @relation("ForumPostAuthor")
+  forum_comments          ForumComment[]         @relation("ForumCommentAuthor")
+  forum_replies_received  ForumComment[]         @relation("ForumCommentReplyToUser")
+  forum_reactions         ForumReaction[]
+  forum_reports_submitted ForumReport[]          @relation("ForumReportReporter")
+  forum_reports_resolved  ForumReport[]          @relation("ForumReportResolver")
+  forum_bookmarks         ForumBookmark[]
+  user_achievements       UserAchievement[]
 
   @@index([google_id])
   @@map("users")
-}
-
-model SchoolMember {
-  id        String     @id @default(uuid())
-  user_id   String
-  school_id String
-  role      SchoolRole @default(STUDENT)
-  joined_at DateTime   @default(now())
-
-  user   User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  school School @relation(fields: [school_id], references: [id], onDelete: Cascade)
-
-  @@unique([user_id, school_id])
-  @@index([user_id])
-  @@index([school_id])
-  @@map("school_members")
-}
-
-model TeacherProfile {
-  id               String  @id @default(uuid())
-  user_id          String  @unique
-  department_id    String?
-  bio              String?
-  expertise        String?
-  experience_years Int?
-
-  user               User                  @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  department         Department?           @relation("DepartmentTeachers", fields: [department_id], references: [id], onDelete: SetNull)
-  departments_headed Department[]          @relation("DepartmentHead")
-  courses            Course[]
-  subscriptions      TeacherSubscription[]
-  store_items        StoreItem[]
-  class_courses      ClassCourse[]
-  classes_managed    Class[]
-  sessions_taught    ClassSession[]
-
-  @@map("teacher_profile")
 }
 
 model StudentProfile {
@@ -229,113 +190,33 @@ model StudentProfile {
   user_id               String    @unique
   date_of_birth         DateTime?
   grade_level           String?
+  school_name           String?   @db.VarChar(255)
+  province              String?   @db.VarChar(120)
+  bio                   String?   @db.Text
+  equipped_frame        String?   @db.VarChar(120)
   points                Float     @default(0)
   exam_points           Int       @default(9)
   last_daily_grant_date String?   @db.VarChar(20)
   active_package        String?   @default("FREE")
   package_expires_at    DateTime?
 
-
-  user            User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  enrollments     ClassEnrollment[]
-  inventory       StudentInventory[]
-  parent_students ParentStudent[]
-  submissions     ExamSubmission[]
-  progress        StudentProgress[]
-  exam_point_logs ExamPointLog[]
+  user                User                       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  inventory           StudentInventory[]
+  submissions         ExamSubmission[]
+  exam_point_logs     ExamPointLog[]
+  topic_masteries     StudentTopicMastery[]
+  roadmap_steps       StudentRoadmapStep[]
+  behavior_histories  StudentBehaviorHistory[]
+  chapter_progress    StudentChapterProgress[]
+  pool_cursors        StudentPoolCursor[]
+  subject_diagnostics StudentSubjectDiagnostic[]
 
   @@map("student_profile")
 }
 
-model ParentProfile {
-  id        String  @id @default(uuid())
-  user_id   String  @unique
-  job_title String?
-  address   String?
-
-  user            User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  parent_students ParentStudent[]
-
-  @@map("parent_profile")
-}
-
-model ParentStudent {
-  id                String   @id @default(uuid())
-  parent_id         String
-  student_id        String
-  relationship_type String?  @default("PARENT")
-  created_at        DateTime @default(now())
-
-  parent  ParentProfile  @relation(fields: [parent_id], references: [id], onDelete: Cascade)
-  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
-
-  @@unique([parent_id, student_id])
-  @@index([parent_id])
-  @@index([student_id])
-  @@map("parent_students")
-}
-
-model CustomFeatureRequest {
-  id              String              @id @default(uuid())
-  user_id         String
-  request_content String
-  phone           String?
-  contact_info    String?
-  status          CustomRequestStatus @default(PENDING)
-  created_at      DateTime            @default(now())
-
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@index([user_id])
-  @@index([status])
-  @@map("custom_feature_requests")
-}
-
 // ----------------------------------------------------
-// SCHOOLS & SUBSCRIPTIONS (SAAS B2B)
+// SUBSCRIPTION PACKAGES
 // ----------------------------------------------------
-
-model School {
-  id         String       @id @default(uuid())
-  owner_id   String?
-  name       String
-  code       String       @unique
-  address    String?
-  phone      String?
-  email      String?
-  status     SchoolStatus @default(ACTIVE)
-  created_at DateTime     @default(now())
-  updated_at DateTime     @updatedAt
-
-  owner          User?                @relation("SchoolOwner", fields: [owner_id], references: [id], onDelete: SetNull)
-  members        SchoolMember[]
-  departments    Department[]
-  classes        Class[]
-  courses        Course[]
-  question_banks QuestionBank[]
-  subscriptions  SchoolSubscription[]
-
-  @@index([owner_id])
-  @@map("schools")
-}
-
-model Department {
-  id              String   @id @default(uuid())
-  school_id       String
-  name            String
-  head_teacher_id String?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-
-  school       School           @relation(fields: [school_id], references: [id], onDelete: Cascade)
-  head_teacher TeacherProfile?  @relation("DepartmentHead", fields: [head_teacher_id], references: [id], onDelete: SetNull)
-  teachers     TeacherProfile[] @relation("DepartmentTeachers")
-  courses      Course[]
-
-  @@index([school_id])
-  @@index([head_teacher_id])
-  @@map("departments")
-}
 
 model SubscriptionPackage {
   id                     String       @id @default(uuid())
@@ -357,52 +238,14 @@ model SubscriptionPackage {
   created_at             DateTime     @default(now())
   updated_at             DateTime     @updatedAt
 
-  creator               User?                 @relation(fields: [creator_id], references: [id], onDelete: SetNull)
-  teacher_subscriptions TeacherSubscription[]
-  school_subscriptions  SchoolSubscription[]
-  orders                Order[]
+  creator User?   @relation(fields: [creator_id], references: [id], onDelete: SetNull)
+  orders  Order[]
 
   @@map("subscription_packages")
 }
 
-model SchoolSubscription {
-  id                String             @id @default(uuid())
-  school_id         String
-  package_id        String
-  features_snapshot Json?
-  start_date        DateTime
-  end_date          DateTime
-  status            SubscriptionStatus @default(ACTIVE)
-  created_at        DateTime           @default(now())
-
-  school  School              @relation(fields: [school_id], references: [id], onDelete: Cascade)
-  package SubscriptionPackage @relation(fields: [package_id], references: [id], onDelete: Cascade)
-
-  @@index([school_id])
-  @@index([package_id])
-  @@map("school_subscriptions")
-}
-
-model TeacherSubscription {
-  id                String             @id @default(uuid())
-  teacher_id        String
-  package_id        String
-  features_snapshot Json?
-  start_date        DateTime
-  end_date          DateTime
-  status            SubscriptionStatus @default(ACTIVE)
-  created_at        DateTime           @default(now())
-
-  teacher TeacherProfile      @relation(fields: [teacher_id], references: [id], onDelete: Cascade)
-  package SubscriptionPackage @relation(fields: [package_id], references: [id], onDelete: Cascade)
-
-  @@index([teacher_id])
-  @@index([package_id])
-  @@map("teacher_subscriptions")
-}
-
 // ----------------------------------------------------
-// COURSES, LESSONS & CATEGORIES
+// CATEGORIES
 // ----------------------------------------------------
 
 model Category {
@@ -415,153 +258,12 @@ model Category {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  parent   Category?  @relation("CategoryHierarchy", fields: [parent_id], references: [id], onDelete: SetNull)
-  children Category[] @relation("CategoryHierarchy")
-  courses  Course[]
+  parent      Category?   @relation("CategoryHierarchy", fields: [parent_id], references: [id], onDelete: SetNull)
+  children    Category[]  @relation("CategoryHierarchy")
+  forum_posts ForumPost[]
 
   @@index([parent_id])
   @@map("categories")
-}
-
-model Course {
-  id             String       @id @default(uuid())
-  school_id      String?
-  department_id  String?
-  subject_id     String?
-  owner_id       String
-  title          String
-  description    String?
-  price          Decimal      @default(0.00) @db.Decimal(10, 2)
-  is_marketplace Boolean      @default(false)
-  status         CourseStatus @default(DRAFT)
-  published_at   DateTime?
-  created_at     DateTime     @default(now())
-  updated_at     DateTime     @updatedAt
-
-  school           School?           @relation(fields: [school_id], references: [id], onDelete: SetNull)
-  department       Department?       @relation(fields: [department_id], references: [id], onDelete: SetNull)
-  category         Category?         @relation(fields: [subject_id], references: [id], onDelete: SetNull)
-  teacher          TeacherProfile    @relation(fields: [owner_id], references: [id], onDelete: Cascade)
-  lessons          Lesson[]
-  class_courses    ClassCourse[]
-  orders           Order[]
-  student_progress StudentProgress[]
-
-  @@index([school_id])
-  @@index([department_id])
-  @@index([owner_id])
-  @@index([subject_id])
-  @@map("courses")
-}
-
-model Lesson {
-  id          String   @id @default(uuid())
-  course_id   String
-  title       String
-  content     String?
-  video_url   String?
-  order_index Int      @default(0)
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  course           Course            @relation(fields: [course_id], references: [id], onDelete: Cascade)
-  materials        LessonMaterial[]
-  questions        Question[]
-  exam_submissions ExamSubmission[]
-  student_progress StudentProgress[]
-
-  @@index([course_id])
-  @@map("lessons")
-}
-
-model LessonMaterial {
-  id            String       @id @default(uuid())
-  lesson_id     String
-  material_type MaterialType
-  url           String
-  content_data  String?
-  order_index   Int          @default(0)
-
-  lesson Lesson @relation(fields: [lesson_id], references: [id], onDelete: Cascade)
-
-  @@index([lesson_id])
-  @@map("lesson_materials")
-}
-
-// ----------------------------------------------------
-// CLASSES & ENROLLMENTS & TIMETABLE
-// ----------------------------------------------------
-
-model Class {
-  id         String      @id @default(uuid())
-  school_id  String?
-  teacher_id String?
-  course_id  String?
-  class_name String
-  status     ClassStatus @default(DRAFT)
-  created_at DateTime    @default(now())
-  updated_at DateTime    @updatedAt
-
-  school           School?           @relation(fields: [school_id], references: [id], onDelete: SetNull)
-  teacher          TeacherProfile?   @relation(fields: [teacher_id], references: [id], onDelete: SetNull)
-  enrollments      ClassEnrollment[]
-  class_courses    ClassCourse[]
-  exam_submissions ExamSubmission[]
-  sessions         ClassSession[]
-
-  @@index([school_id])
-  @@index([teacher_id])
-  @@map("classes")
-}
-
-model ClassEnrollment {
-  id          String   @id @default(uuid())
-  class_id    String
-  student_id  String
-  joined_date DateTime @default(now())
-
-  class   Class          @relation(fields: [class_id], references: [id], onDelete: Cascade)
-  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
-
-  @@index([class_id])
-  @@index([student_id])
-  @@map("class_enrollments")
-}
-
-model ClassCourse {
-  id         String  @id @default(uuid())
-  teacher_id String?
-  course_id  String
-  class_id   String
-
-  teacher TeacherProfile? @relation(fields: [teacher_id], references: [id], onDelete: SetNull)
-  course  Course          @relation(fields: [course_id], references: [id], onDelete: Cascade)
-  class   Class           @relation(fields: [class_id], references: [id], onDelete: Cascade)
-
-  @@index([class_id])
-  @@index([course_id])
-  @@map("class_courses")
-}
-
-model ClassSession {
-  id          String   @id @default(uuid())
-  class_id    String
-  teacher_id  String?
-  title       String?
-  start_time  DateTime
-  end_time    DateTime
-  room        String?
-  meeting_url String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  class   Class           @relation(fields: [class_id], references: [id], onDelete: Cascade)
-  teacher TeacherProfile? @relation(fields: [teacher_id], references: [id], onDelete: SetNull)
-
-  @@index([class_id])
-  @@index([teacher_id])
-  @@index([start_time])
-  @@map("class_sessions")
 }
 
 // ----------------------------------------------------
@@ -572,34 +274,30 @@ model QuestionBank {
   id         String   @id @default(uuid())
   title      String
   owner_id   String?
-  school_id  String?
   is_premium Boolean  @default(false)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   owner            User?            @relation(fields: [owner_id], references: [id], onDelete: SetNull)
-  school           School?          @relation(fields: [school_id], references: [id], onDelete: SetNull)
   questions        Question[]
   exam_submissions ExamSubmission[]
 
   @@index([owner_id])
-  @@index([school_id])
   @@map("question_banks")
 }
 
 model Question {
   id              String          @id @default(uuid())
   bank_id         String?
-  lesson_id       String?
-  chapter_id      Int?            // Chương SGK
-  subject         String?         // "toan-hoc", "vat-ly"...
-  grade           Int?            // Khối 1 - 12
+  chapter_id      Int? // Chương SGK
+  subject         String? // "toan-hoc", "vat-ly"...
+  grade           Int? // Khối 1 - 12
   bloom_level     BloomLevel?     @default(THONG_HIEU)
   question_format QuestionFormat? @default(SINGLE_CHOICE)
   type            QuestionType?   @default(MULTIPLE_CHOICE)
-  topic_tag       String?         // Chuyên đề / Dạng bài cụ thể (GDPT 2018)
-  cognitive_tag   String?         // Nhận biết | Thông hiểu | Vận dụng | Vận dụng cao
-  trap_tag        String?         // Bẫy sai lầm phổ biến (Trap Tag)
+  topic_tag       String? // Chuyên đề / Dạng bài cụ thể (GDPT 2018)
+  cognitive_tag   String? // Nhận biết | Thông hiểu | Vận dụng | Vận dụng cao
+  trap_tag        String? // Bẫy sai lầm phổ biến (Trap Tag)
   title           String?
   question        String          @db.Text
   answer          String?         @db.Text
@@ -608,25 +306,24 @@ model Question {
   created_at      DateTime        @default(now())
 
   bank               QuestionBank?      @relation(fields: [bank_id], references: [id], onDelete: SetNull)
-  lesson             Lesson?            @relation(fields: [lesson_id], references: [id], onDelete: SetNull)
   answers            Answer[]
   submission_answers SubmissionAnswer[]
 
   @@index([bank_id])
-  @@index([lesson_id])
   @@index([subject, grade, bloom_level])
+  @@index([subject, grade, chapter_id, bloom_level, topic_tag, id])
   @@index([topic_tag])
   @@map("questions")
 }
 
 model Answer {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   question_id String
-  content     String   @db.Text
-  explain     String?  @db.Text
-  img_url     String?  @db.Text
-  is_answer   Boolean  @default(false)
-  sub_label   String?  // 'a', 'b', 'c', 'd' (dành cho Đúng/Sai 4 ý con)
+  content     String  @db.Text
+  explain     String? @db.Text
+  img_url     String? @db.Text
+  is_answer   Boolean @default(false)
+  sub_label   String? // 'a', 'b', 'c', 'd' (dành cho Đúng/Sai 4 ý con)
 
   question           Question           @relation(fields: [question_id], references: [id], onDelete: Cascade)
   submission_answers SubmissionAnswer[]
@@ -644,8 +341,6 @@ model ExamSubmission {
   attempt_token      String?          @unique @db.VarChar(64)
   student_id         String
   bank_id            String?
-  lesson_id          String?
-  class_id           String?
   exam_title         String?          @db.VarChar(255)
   exam_type          String?          @default("STANDARD") // 'STANDARD' | 'OLYMPIAD'
   status             SubmissionStatus @default(IN_PROGRESS)
@@ -655,34 +350,29 @@ model ExamSubmission {
   started_at         DateTime         @default(now())
   submitted_at       DateTime?
   graded_at          DateTime?
-  teacher_notes      String?          @db.Text
-  snapshot_data      Json?            // JSONB: Lưu trọn vẹn toàn bộ bài thi + lời giải để FE mở modal tức thì
+  snapshot_data      Json? // JSONB: Lưu trọn vẹn toàn bộ bài thi + lời giải để FE mở modal tức thì
 
   student StudentProfile     @relation(fields: [student_id], references: [id], onDelete: Cascade)
   bank    QuestionBank?      @relation(fields: [bank_id], references: [id], onDelete: SetNull)
-  lesson  Lesson?            @relation(fields: [lesson_id], references: [id], onDelete: SetNull)
-  class   Class?             @relation(fields: [class_id], references: [id], onDelete: SetNull)
   answers SubmissionAnswer[]
 
   @@index([student_id])
   @@index([bank_id])
-  @@index([lesson_id])
-  @@index([class_id])
   @@index([submitted_at])
   @@map("exam_submissions")
 }
 
 model SubmissionAnswer {
-  id                 String   @id @default(uuid())
-  submission_id      String
-  question_id        String
-  selected_answer_id String?
-  student_text_answer String? @db.Text // Điền số / Trả lời ngắn / Tự luận
-  sub_answers_json   Json?    // JSONB: Lưu lựa chọn a: true, b: false... của câu Đúng/Sai 4 ý
-  text_answer        String?  @db.Text
-  is_correct         Boolean?
-  points_earned      Decimal? @db.Decimal(5, 2)
-  teacher_feedback   String?  @db.Text
+  id                  String   @id @default(uuid())
+  submission_id       String
+  question_id         String
+  selected_answer_id  String?
+  student_text_answer String?  @db.Text // Điền số / Trả lời ngắn / Tự luận
+  sub_answers_json    Json? // JSONB: Lưu lựa chọn a: true, b: false... của câu Đúng/Sai 4 ý
+  text_answer         String?  @db.Text
+  is_correct          Boolean?
+  points_earned       Decimal? @db.Decimal(5, 2)
+  teacher_feedback    String?  @db.Text
 
   submission      ExamSubmission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
   question        Question       @relation(fields: [question_id], references: [id], onDelete: Cascade)
@@ -694,32 +384,12 @@ model SubmissionAnswer {
   @@map("submission_answers")
 }
 
-model StudentProgress {
-  id             String   @id @default(uuid())
-  student_id     String
-  course_id      String
-  lesson_id      String
-  completion_pct Int      @default(0)
-  last_accessed  DateTime @default(now())
-  is_completed   Boolean  @default(false)
-
-  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
-  course  Course         @relation(fields: [course_id], references: [id], onDelete: Cascade)
-  lesson  Lesson         @relation(fields: [lesson_id], references: [id], onDelete: Cascade)
-
-  @@unique([student_id, course_id])
-  @@index([student_id])
-  @@index([course_id])
-  @@map("student_progress")
-}
-
 // ----------------------------------------------------
 // GAMIFICATION / STORE ITEMS & INVENTORY
 // ----------------------------------------------------
 
 model StoreItem {
   id          String         @id @default(uuid())
-  teacher_id  String?
   user_id     String?
   type        StoreItemType? @default(OTHER)
   name        String
@@ -732,11 +402,9 @@ model StoreItem {
   created_at  DateTime       @default(now())
   updated_at  DateTime       @updatedAt
 
-  teacher   TeacherProfile?    @relation(fields: [teacher_id], references: [id], onDelete: SetNull)
   user      User?              @relation(fields: [user_id], references: [id], onDelete: SetNull)
   inventory StudentInventory[]
 
-  @@index([teacher_id])
   @@index([user_id])
   @@map("store_items")
 }
@@ -759,7 +427,7 @@ model StudentInventory {
 }
 
 // ----------------------------------------------------
-// ORDERS & TRANSACTIONS
+// ORDERS
 // ----------------------------------------------------
 
 model Order {
@@ -767,7 +435,6 @@ model Order {
   user_id             String
   reference_type      OrderReferenceType
   subscription_id     String?
-  course_id           String?
   item_name_snapshot  Json?
   item_price_snapshot Decimal            @db.Decimal(10, 2)
   status              OrderStatus        @default(PENDING)
@@ -779,26 +446,10 @@ model Order {
   user         User                 @relation("OrderBuyer", fields: [user_id], references: [id], onDelete: Cascade)
   seller       User?                @relation("OrderSeller", fields: [seller_id], references: [id], onDelete: SetNull)
   subscription SubscriptionPackage? @relation(fields: [subscription_id], references: [id], onDelete: SetNull)
-  course       Course?              @relation(fields: [course_id], references: [id], onDelete: SetNull)
-  transactions Transaction[]
 
   @@index([user_id])
   @@index([seller_id])
   @@map("orders")
-}
-
-model Transaction {
-  id               String          @id @default(uuid())
-  order_id         String?
-  transaction_type TransactionType
-  amount           Decimal         @db.Decimal(10, 2)
-  recipient_id     String?
-  created_at       DateTime        @default(now())
-
-  order Order? @relation(fields: [order_id], references: [id], onDelete: SetNull)
-
-  @@index([order_id])
-  @@map("transactions")
 }
 
 // ----------------------------------------------------
@@ -807,13 +458,14 @@ model Transaction {
 
 model Notification {
   id         String   @id @default(uuid())
-  user_id    String
+  user_id    String   @db.VarChar(64)
+  type       String   @default("INFO") @db.VarChar(32)
+  category   String   @default("SYSTEM") @db.VarChar(64)
   title      String
-  message    String
+  message    String   @db.Text
+  link       String?  @db.VarChar(500)
   is_read    Boolean  @default(false)
   created_at DateTime @default(now())
-
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([is_read])
@@ -827,13 +479,13 @@ model Notification {
 model SemanticCache {
   id               String   @id @default(uuid())
   query_text       String   @db.Text
-  query_vector     Float[]  // Vector embedding (1024 dimensions)
+  query_vector     Float[] // Vector embedding (1024 dimensions)
   response_text    String   @db.Text
-  client_actions   Json?    // Array of Client Tool Actions (JSON)
-  emotion          String?  // Biểu cảm robot (happy, thinking, stunned...)
-  suggestions      Json?    // Array of string (Dynamic contextual suggestion chips)
-  subject          String?  // e.g. "toan-hoc", "vat-ly"
-  grade            Int?     // 10, 11, 12
+  client_actions   Json? // Array of Client Tool Actions (JSON)
+  emotion          String? // Biểu cảm robot (happy, thinking, stunned...)
+  suggestions      Json? // Array of string (Dynamic contextual suggestion chips)
+  subject          String? // e.g. "toan-hoc", "vat-ly"
+  grade            Int? // 10, 11, 12
   hit_count        Int      @default(1)
   ttl_days         Int?     @default(7)
   last_accessed_at DateTime @default(now())
@@ -844,16 +496,23 @@ model SemanticCache {
 }
 
 model ChatSession {
-  id         String   @id @default(uuid())
-  sessionKey String   @unique @map("session_key")
-  userId     String?  @map("user_id")
-  messages   Json     // Mảng tin nhắn ChatMessage[] (Sliding window 40 tin)
-  expiresAt  DateTime @map("expires_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  sessionKey         String   @unique @map("session_key")
+  userId             String?  @map("user_id")
+  title              String   @default("Cuộc trò chuyện mới")
+  isPinned           Boolean  @default(false) @map("is_pinned")
+  messageCount       Int      @default(0) @map("message_count")
+  lastMessagePreview String?  @map("last_message_preview")
+  summaryText        String?  @map("summary_text")
+  sessionVector      Json?    @map("session_vector")
+  messages           Json     // Mảng tin nhắn ChatMessage[]
+  expiresAt          DateTime @map("expires_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
-  @@index([userId])
+  @@index([userId, isPinned, updatedAt])
   @@index([sessionKey])
+  @@index([expiresAt])
   @@map("chat_sessions")
 }
 
@@ -884,13 +543,232 @@ model ExamPointLog {
   points_delta  Float
   points_after  Float
 
-  note          String?  @db.Text
-  created_at    DateTime @default(now())
+  note       String?  @db.Text
+  created_at DateTime @default(now())
 
   student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
 
   @@index([student_id, created_at])
   @@map("exam_point_logs")
+}
+
+// ----------------------------------------------------
+// STUDENT KNOWLEDGE PROFILING & ADAPTIVE ROADMAP
+// ----------------------------------------------------
+
+model StudentTopicMastery {
+  id                          String   @id @default(uuid())
+  student_id                  String
+  subject                     String   @db.VarChar(64)  // "toan-hoc", "tin-hoc", ...
+  grade                       Int      @default(12)
+  chapter_id                  Int      @default(1)
+  chapter_name                String?  @db.VarChar(255)
+  topic_tag                   String   @db.VarChar(255)
+  total_attempted             Int      @default(0)
+  total_correct               Int      @default(0)
+  total_wrong                 Int      @default(0)
+  nhan_biet_attempted         Int      @default(0)
+  nhan_biet_correct           Int      @default(0)
+  thong_hieu_attempted        Int      @default(0)
+  thong_hieu_correct          Int      @default(0)
+  van_dung_attempted          Int      @default(0)
+  van_dung_correct            Int      @default(0)
+  van_dung_cao_attempted      Int      @default(0)
+  van_dung_cao_correct        Int      @default(0)
+  remediation_attempted       Int      @default(0)
+  remediation_correct         Int      @default(0)
+  quick_drill_sessions        Int      @default(0)
+  quick_drill_completed_turns Int      @default(0)
+  quick_drill_skipped_turns   Int      @default(0)
+  quick_drill_correct_turns   Int      @default(0)
+  learning_spirit_score       Float    @default(70)
+  learning_spirit_tag         String?  @db.VarChar(64)
+  intelligence_score          Float    @default(70)
+  intelligence_tag            String?  @db.VarChar(64)
+  total_time_seconds          Int      @default(0)
+  mastery_score               Float    @default(0)      // 0..100
+  mastery_status              String   @default("UNTESTED") @db.VarChar(32) // WEAK | REVIEW | MASTERED | UNTESTED
+  trap_counts                 Json?    // Record<string, number>
+  recent_history              Json?    // Array<{ isCorrect: boolean; bloomLevel: string; at: string }>
+  last_practiced_at           DateTime @default(now())
+  created_at                  DateTime @default(now())
+  updated_at                  DateTime @updatedAt
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, subject, grade, topic_tag])
+  @@index([student_id, subject, grade])
+  @@index([mastery_status])
+  @@map("student_topic_masteries")
+}
+
+model StudentRoadmapStep {
+  id                       String    @id @default(uuid())
+  student_id               String
+  subject                  String    @db.VarChar(64)
+  grade                    Int       @default(12)
+  phase                    Int       @default(1) // 1: Vá lỗ hổng (<50%), 2: Củng cố (50-74%), 3: Bứt phá VDC (>=75% / Mở khóa)
+  step_order               Int       @default(1)
+  chapter_id               Int       @default(1)
+  chapter_name             String?   @db.VarChar(255)
+  topic_tag                String    @db.VarChar(255)
+  title                    String    @db.VarChar(255)
+  diagnostic_reason        String    @db.Text
+  recommended_level        String    @default("BASIC") @db.VarChar(32)      // BASIC | MEDIUM | ADVANCED
+  recommended_bloom        String    @default("THONG_HIEU") @db.VarChar(32) // NHAN_BIET | THONG_HIEU | VAN_DUNG | VAN_DUNG_CAO
+  question_count           Int       @default(10)
+  duration_minutes         Int       @default(15)
+  current_mastery          Float     @default(0)
+  target_mastery           Float     @default(75)
+  attempted_count          Int       @default(0)
+  correct_count            Int       @default(0)
+  top_trap_tag             String?   @db.VarChar(255)
+  special_behavior_tag     String?   @db.VarChar(64)
+  learning_spirit_tag      String?   @db.VarChar(64)
+  learning_spirit_label    String?   @db.VarChar(255)
+  learning_spirit_score    Float?
+  intelligence_tag         String?   @db.VarChar(64)
+  intelligence_label       String?   @db.VarChar(255)
+  intelligence_score       Float?
+  behavior_adaptation_note String?   @db.Text
+  status                   String    @default("RECOMMENDED") @db.VarChar(32) // RECOMMENDED | IN_PROGRESS | COMPLETED | LOCKED
+  completed_at             DateTime?
+  created_at               DateTime  @default(now())
+  updated_at               DateTime  @updatedAt
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, subject, grade, topic_tag])
+  @@index([student_id, subject, grade, phase, step_order])
+  @@map("student_roadmap_steps")
+}
+
+model StudentBehaviorHistory {
+  id                      String   @id @default(uuid())
+  student_id              String
+  submission_id           String?
+  attempt_token           String?  @db.VarChar(64)
+  subject                 String   @db.VarChar(64)
+  grade                   Int      @default(12)
+  chapter_id              Int      @default(1)
+  chapter_name            String?  @db.VarChar(255)
+  topic_tag               String   @db.VarChar(255)
+  source_question_id      String?  @db.VarChar(128)
+  source_question_title   String?  @db.VarChar(255)
+  bloom_level             String   @default("THONG_HIEU") @db.VarChar(32)
+  trap_tag                String?  @db.VarChar(255)
+  special_tag             String   @default("#LUYEN_LAI_3_LAN_CUNG_DANG") @db.VarChar(64)
+  is_scored               Boolean  @default(false)
+  total_turns             Int      @default(3)
+  completed_turns         Int      @default(0)
+  skipped_turns           Int      @default(0)
+  correct_turns           Int      @default(0)
+  wrong_turns             Int      @default(0)
+  used_ai_example         Boolean  @default(false)
+  total_time_seconds      Int      @default(0)
+  turn_outcomes           Json?    // Array<{ turn: number; status: 'CORRECT'|'WRONG'|'SKIPPED'; selectedAnswer?: string; correctAnswer?: string; timeSpentSeconds: number }>
+  learning_spirit_tag     String   @db.VarChar(64)  // HIGH_GRIT_PERSISTENT | MODERATE_INITIATIVE | LOW_PATIENCE_PARTIAL_SKIP | AVOIDANCE_SKIPPED
+  learning_spirit_label   String   @db.VarChar(255)
+  learning_spirit_score   Float    @default(50)     // 0..100
+  intelligence_tag        String   @db.VarChar(64)  // FAST_ISOMORPHIC_TRANSFER | RAPID_SELF_CORRECTION | DEVELOPING_PATTERN_LOGIC | NEEDS_STEP_BY_STEP_SCAFFOLDING
+  intelligence_label      String   @db.VarChar(255)
+  intelligence_score      Float    @default(50)     // 0..100
+  roadmap_strategy_tag    String?  @db.VarChar(64)  // ACCELERATE_ADVANCED | MICRO_SPRINT_ANTI_BOREDOM | SCAFFOLD_STEP_BY_STEP | WARMUP_LOW_FRICTION
+  roadmap_adaptation_note String?  @db.Text
+  created_at              DateTime @default(now())
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@index([student_id, subject, grade, created_at])
+  @@index([student_id, topic_tag])
+  @@index([special_tag])
+  @@map("student_behavior_histories")
+}
+
+/// Nhật ký lượt truy cập website & sự kiện điều hướng (Real-time Web Traffic & Page Views)
+model WebVisitLog {
+  id                String   @id @default(uuid()) @db.Uuid
+  path              String   @db.VarChar(255)
+  page_title        String?  @db.VarChar(255)
+  user_id           String?  @db.VarChar(128)
+  user_role         String?  @default("GUEST") @db.VarChar(32)
+  session_id        String?  @db.VarChar(128)
+  device_type       String?  @default("DESKTOP") @db.VarChar(32)
+  os_name           String?  @db.VarChar(64)
+  browser_name      String?  @db.VarChar(64)
+  device_model      String?  @db.VarChar(128)
+  screen_resolution String?  @db.VarChar(32)
+  ip_address        String?  @db.VarChar(64)
+  country_code      String?  @db.VarChar(8)
+  country_name      String?  @db.VarChar(64)
+  region_name       String?  @db.VarChar(128)
+  city_name         String?  @db.VarChar(128)
+  isp_name          String?  @db.VarChar(128)
+  timezone          String?  @db.VarChar(64)
+  language          String?  @db.VarChar(32)
+  referrer          String?  @db.VarChar(512)
+  user_agent        String?  @db.Text
+  created_at        DateTime @default(now())
+
+  @@index([path, created_at(sort: Desc)])
+  @@index([session_id])
+  @@index([user_id])
+  @@index([country_code, city_name])
+  @@index([created_at(sort: Desc)])
+  @@map("web_visit_logs")
+}
+
+/// Tiến độ chinh phục từng Chương theo lộ trình kiểu Duolingo (3 cấp độ: Cơ bản, Trung bình, Nâng cao)
+model StudentChapterProgress {
+  id                  String   @id @default(uuid())
+  student_id          String
+  subject             String   @db.VarChar(64)                // 'toan-hoc' | 'tin-hoc'
+  grade               Int      @default(12)                   // 10 | 11 | 12
+  track               String   @default("DEFAULT") @db.VarChar(32) // 'TOAN_SO' | 'TOAN_HINH' | 'DEFAULT'
+  chapter_id          Int
+  basic_completed     Boolean  @default(false)
+  basic_best_score    Float    @default(0)
+  medium_completed    Boolean  @default(false)
+  medium_best_score   Float    @default(0)
+  advanced_completed         Boolean  @default(false)
+  advanced_best_score        Float    @default(0)
+  unlocked_manually          Boolean  @default(false)                // Tương thích ngược (Cơ bản)
+  basic_unlocked_manually    Boolean  @default(false)                // Nhảy cóc chương ở lộ trình Cơ bản
+  medium_unlocked_manually   Boolean  @default(false)                // Nhảy cóc chương ở lộ trình Trung bình
+  advanced_unlocked_manually Boolean  @default(false)                // Nhảy cóc chương ở lộ trình Nâng cao
+  crowns_earned              Int      @default(0)                    // 0..3 sao
+  attempts_count             Int      @default(0)
+  last_practiced_at          DateTime @default(now())
+  created_at                 DateTime @default(now())
+  updated_at                 DateTime @updatedAt
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, subject, grade, chapter_id])
+  @@index([student_id, subject, grade, track])
+  @@map("student_chapter_progress")
+}
+
+/// Kết quả kiểm tra đánh giá năng lực đầu vào theo từng Môn học & Khối lớp
+model StudentSubjectDiagnostic {
+  id              String   @id @default(uuid())
+  student_id      String
+  subject         String   @db.VarChar(64)
+  grade           Int      @default(12)
+  assigned_level  String   @default("BASIC") @db.VarChar(32)
+  overall_score   Float    @default(0)
+  track_scores    Json?
+  bloom_breakdown Json?
+  submission_id   String?
+  completed_at    DateTime @default(now())
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, subject, grade])
+  @@index([student_id, subject, grade])
+  @@map("student_subject_diagnostics")
 }
 
 model QuestionBugReport {
@@ -920,3 +798,375 @@ model QuestionBugReport {
   @@map("question_bug_reports")
 }
 
+/// Con trỏ chu kỳ sinh đề ứng biến (Multi-Epoch LCG Stride) cho từng học sinh & bể câu hỏi (>100,000 users)
+model StudentPoolCursor {
+  id                String   @id @default(uuid())
+  student_id        String
+  pool_key          String   @db.VarChar(180)
+  cursor_pos        Int      @default(0)
+  epoch             Int      @default(0)
+  last_boundary_ids Json?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  student StudentProfile @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, pool_key])
+  @@index([student_id])
+  @@map("student_pool_cursors")
+}
+
+// FORUM / COMMUNITY DISCUSSION & MODERATION
+// ----------------------------------------------------
+
+model ForumPost {
+  id                  String          @id @default(uuid())
+  author_id           String
+  category_id         String?
+  title               String          @db.VarChar(500)
+  slug                String?         @unique @db.VarChar(550)
+  content             String          @db.Text // Nội dung gốc Markdown + LaTeX ($...$ inline, $$...$$ block)
+  content_format      String          @default("MARKDOWN_LATEX") @db.VarChar(30) // MARKDOWN_LATEX | PLAIN_TEXT | HTML
+  content_plain       String?         @db.Text // Bản text đã lược bỏ công thức -> phục vụ tìm kiếm / preview / SEO
+  has_math            Boolean         @default(false) // true nếu content chứa công thức LaTeX -> FE bật KaTeX/MathJax
+  subject             String?         @db.VarChar(120) // e.g. "Toán Học", "Vật Lý", "toan-hoc"...
+  grade               Int?            @default(12) // Khối 10, 11, 12
+  chapter_id          Int? // Chương SGK (đồng bộ với Question.chapter_id)
+  chapter_name        String?         @db.VarChar(255) // Tên chương snapshot: "Chương 1: Ứng dụng đạo hàm..."
+  tags                Json? // Mảng nhãn chủ đề: ["Đạo hàm", "Đơn điệu", "Lớp 12"]
+  thumbnail_url       String?         @db.Text
+  attachments         Json? // Mảng URL ảnh đề bài / tài liệu đính kèm
+  views_count         Int             @default(0)
+  likes_count         Int             @default(0)
+  comments_count      Int             @default(0)
+  bookmarks_count     Int             @default(0) // Số lượt lưu bài (ForumBookmark)
+  is_solved           Boolean         @default(false)
+  is_pinned           Boolean         @default(false)
+  is_locked           Boolean         @default(false)
+  accepted_comment_id String?
+  status              ForumPostStatus @default(PUBLISHED)
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+
+  author    User            @relation("ForumPostAuthor", fields: [author_id], references: [id], onDelete: Cascade)
+  category  Category?       @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  comments  ForumComment[]
+  reactions ForumReaction[]
+  reports   ForumReport[]
+  bookmarks ForumBookmark[]
+
+  @@index([author_id])
+  @@index([category_id])
+  @@index([subject, grade])
+  @@index([subject, grade, chapter_id])
+  @@index([status, is_pinned, created_at])
+  @@index([is_solved])
+  @@map("forum_posts")
+}
+
+model ForumComment {
+  id               String             @id @default(uuid())
+  post_id          String
+  author_id        String
+  parent_id        String? // null = Bình luận gốc (Cấp 1); khác null = Trả lời lồng (Cấp 2)
+  reply_to_user_id String? // Người dùng được phản hồi trực tiếp (@mention) trong chuỗi cấp 2
+  depth            Int                @default(1) // 1: Cấp 1 (Root comment), 2: Cấp 2 (Nested reply - tối đa 2 cấp)
+  content          String             @db.Text // Nội dung thảo luận / lời giải (hỗ trợ LaTeX)
+  attachments      Json? // Ảnh chụp bài giải hoặc file đính kèm
+  likes_count      Int                @default(0)
+  replies_count    Int                @default(0) // Số lượng phản hồi cấp 2 của bình luận gốc
+  is_accepted      Boolean            @default(false) // Đánh dấu câu trả lời đúng / lời giải hay nhất (Best Answer)
+  is_edited        Boolean            @default(false)
+  status           ForumCommentStatus @default(ACTIVE)
+  created_at       DateTime           @default(now())
+  updated_at       DateTime           @updatedAt
+
+  post          ForumPost       @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  author        User            @relation("ForumCommentAuthor", fields: [author_id], references: [id], onDelete: Cascade)
+  reply_to_user User?           @relation("ForumCommentReplyToUser", fields: [reply_to_user_id], references: [id], onDelete: SetNull)
+  parent        ForumComment?   @relation("ForumCommentReplies", fields: [parent_id], references: [id], onDelete: Cascade)
+  replies       ForumComment[]  @relation("ForumCommentReplies")
+  reactions     ForumReaction[]
+  reports       ForumReport[]
+
+  @@index([post_id, parent_id, created_at])
+  @@index([parent_id])
+  @@index([author_id])
+  @@index([reply_to_user_id])
+  @@index([status])
+  @@map("forum_comments")
+}
+
+model ForumReaction {
+  id            String            @id @default(uuid())
+  user_id       String
+  target_type   ForumTargetType   @default(POST) // POST | COMMENT
+  post_id       String?
+  comment_id    String?
+  reaction_type ForumReactionType @default(LIKE) // LIKE | UPVOTE | DOWNVOTE | HELPFUL | LOVE | HAHA
+  created_at    DateTime          @default(now())
+  updated_at    DateTime          @updatedAt
+
+  user    User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post    ForumPost?    @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  comment ForumComment? @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, post_id])
+  @@unique([user_id, comment_id])
+  @@index([post_id, reaction_type])
+  @@index([comment_id, reaction_type])
+  @@index([user_id])
+  @@map("forum_reactions")
+}
+
+model ForumReport {
+  id                String            @id @default(uuid())
+  reporter_id       String
+  target_type       ForumTargetType   @default(POST) // POST | COMMENT
+  post_id           String?
+  comment_id        String?
+  reason            ForumReportReason @default(OTHER)
+  description       String?           @db.Text
+  evidence_urls     Json? // Mảng URL ảnh chụp bằng chứng vi phạm
+  status            ForumReportStatus @default(PENDING)
+  resolved_by_id    String?
+  admin_note        String?           @db.Text
+  moderation_action String?           @db.VarChar(100) // NONE | HIDE_CONTENT | DELETE_CONTENT | WARN_USER | BAN_USER
+  resolved_at       DateTime?
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+
+  reporter    User          @relation("ForumReportReporter", fields: [reporter_id], references: [id], onDelete: Cascade)
+  resolved_by User?         @relation("ForumReportResolver", fields: [resolved_by_id], references: [id], onDelete: SetNull)
+  post        ForumPost?    @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  comment     ForumComment? @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+
+  @@index([status, created_at])
+  @@index([target_type, status])
+  @@index([post_id])
+  @@index([comment_id])
+  @@index([reporter_id])
+  @@index([resolved_by_id])
+  @@map("forum_reports")
+}
+
+model ForumBookmark {
+  id         String   @id @default(uuid())
+  user_id    String
+  post_id    String
+  note       String?  @db.Text // Ghi chú cá nhân khi lưu bài (VD: "Ôn lại dạng này trước thi")
+  created_at DateTime @default(now())
+
+  user User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post ForumPost @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, post_id]) // Mỗi user chỉ lưu 1 bài viết 1 lần (toggle bookmark)
+  @@index([user_id, created_at]) // Lấy danh sách "Bài đã lưu" theo thời gian
+  @@index([post_id])
+  @@map("forum_bookmarks")
+}
+
+// ----------------------------------------------------
+// NEWS CMS
+// ----------------------------------------------------
+
+enum NewsStatus {
+  DRAFT
+  PENDING
+  SCHEDULED
+  PUBLISHED
+  HIDDEN
+  REJECTED
+  ARCHIVED
+}
+
+model NewsCategory {
+  id              String   @id @default(uuid())
+  parent_id       String?
+  name            String
+  slug            String   @unique
+  description     String?  @db.Text
+  icon            String?
+  color           String?
+  cover_image_url String?
+  order_index     Int      @default(0)
+  is_active       Boolean  @default(true)
+  is_featured     Boolean  @default(false)
+  meta_title      String?
+  meta_description String? @db.Text
+  meta_keywords   String[] @default([])
+  canonical_url   String?
+  og_image_url    String?
+  is_indexable    Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  parent   NewsCategory?  @relation("NewsCategoryHierarchy", fields: [parent_id], references: [id], onDelete: SetNull)
+  children NewsCategory[] @relation("NewsCategoryHierarchy")
+  articles NewsArticle[]
+
+  @@index([parent_id])
+  @@index([is_active, order_index])
+  @@map("news_categories")
+}
+
+model NewsArticle {
+  id                   String     @id @default(uuid())
+  category_id          String
+  title                String
+  slug                 String     @unique
+  excerpt              String     @db.Text
+  content              String     @db.Text
+  table_of_contents    Json?
+  thumbnail_url        String
+  cover_image_url      String?
+  image_alt            String?
+  image_caption        String?
+  attachments          Json?
+  reading_time_minutes Int        @default(1)
+  word_count           Int        @default(0)
+  view_count           Int        @default(0)
+  like_count           Int        @default(0)
+  share_count          Int        @default(0)
+  bookmark_count       Int        @default(0)
+  tags                 String[]   @default([])
+  grade_levels         Int[]      @default([])
+  subject_slugs        String[]   @default([])
+  target_roles         String[]   @default([])
+  search_text          String?    @db.Text
+  related_article_ids  String[]   @default([])
+  meta_title           String?
+  meta_description     String?    @db.Text
+  meta_keywords        String[]   @default([])
+  focus_keyword        String?
+  canonical_url        String?
+  og_title             String?
+  og_description       String?    @db.Text
+  og_image_url         String?
+  structured_data      Json?
+  is_indexable         Boolean    @default(true)
+  author_id            String?
+  author_name          String     @default("Ban Biên Tập Schoolify")
+  author_avatar        String?
+  author_role          String?
+  author_bio           String?    @db.Text
+  source_name          String?
+  source_url           String?
+  status               NewsStatus @default(DRAFT)
+  is_featured          Boolean    @default(false)
+  is_pinned            Boolean    @default(false)
+  is_breaking          Boolean    @default(false)
+  allow_comments       Boolean    @default(true)
+  reviewer_id          String?
+  rejected_reason      String?    @db.Text
+  published_at         DateTime?
+  scheduled_at         DateTime?
+  last_edited_by       String?
+  created_at           DateTime   @default(now())
+  updated_at           DateTime   @updatedAt
+  deleted_at           DateTime?
+
+  category NewsCategory @relation(fields: [category_id], references: [id], onDelete: Restrict)
+
+  @@index([category_id, status])
+  @@index([status, is_pinned, published_at])
+  @@map("news_articles")
+}
+
+// ----------------------------------------------------
+// LEADERBOARD SEASONS & REWARD DISTRIBUTION
+// ----------------------------------------------------
+
+enum SeasonStatus {
+  UPCOMING
+  ACTIVE
+  FREEZING
+  COMPLETED
+}
+
+model LeaderboardSeason {
+  id                  String       @id @default(uuid())
+  code                String       @unique
+  name                String
+  description         String       @db.Text
+  status              SeasonStatus @default(UPCOMING)
+  start_date          DateTime
+  end_date            DateTime
+  freeze_date         DateTime?
+  total_participants  Int          @default(0)
+  total_gems_pool     Int          @default(0)
+  is_frozen           Boolean      @default(false)
+  scoring_multiplier  Float        @default(1)
+  rules               Json?
+  rewards             Json?
+  settlement_date     DateTime?
+  distributed_gems    Int?
+  distribution_status String?      @default("NOT_STARTED")
+  distributed_by      String?
+  created_at          DateTime     @default(now())
+  updated_at          DateTime     @updatedAt
+
+  distribution_logs SeasonDistributionLog[]
+
+  @@index([status, start_date])
+  @@map("leaderboard_seasons")
+}
+
+model SeasonDistributionLog {
+  id                     String   @id @default(uuid())
+  season_id              String
+  season_name            String
+  season_code            String
+  settled_at             DateTime @default(now())
+  admin_name             String
+  admin_email            String
+  total_recipients       Int
+  total_gems_distributed Int
+  status                 String   @default("SUCCESS")
+  top_winners            Json?
+  audit_notes            String?  @db.Text
+  created_at             DateTime @default(now())
+
+  season LeaderboardSeason @relation(fields: [season_id], references: [id], onDelete: Cascade)
+
+  @@index([season_id])
+  @@map("season_distribution_logs")
+}
+
+// ----------------------------------------------------
+// ACHIEVEMENTS & GAMIFICATION BADGES
+// ----------------------------------------------------
+
+model Achievement {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  title           String
+  description     String
+  icon            String   @default("🏆")
+  category        String   @default("EXAM") // EXAM | SCORE | STREAK | FORUM
+  rule_type       String   // EXAM_COUNT | PERFECT_SCORE | HIGH_SCORE_COUNT | FORUM_COMMENT_COUNT | DAILY_CLAIM
+  threshold       Int      @default(1)
+  reward_diamonds Int      @default(10)
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+
+  user_achievements UserAchievement[]
+
+  @@index([category, is_active])
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id             String   @id @default(uuid())
+  user_id        String
+  achievement_id String
+  progress       Int      @default(0)
+  unlocked_at    DateTime @default(now())
+
+  user        User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievement_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, achievement_id])
+  @@index([user_id, unlocked_at])
+  @@map("user_achievements")
+}

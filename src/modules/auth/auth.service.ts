@@ -192,9 +192,9 @@ export class AuthService {
    * Ported from /home/thinh/ca-nhan/src/modules/auth/services/otp.service.js
    */
   async sendOtp(dto: SendOtpDto) {
-    const cleanPhone = dto.phone.trim();
-    if (!cleanPhone) {
-      throw new BadRequestException('Vui lòng nhập số điện thoại');
+    const cleanPhone = dto.phone.replace(/[\s.-]/g, '').trim();
+    if (!/^(\+84|0)[0-9]{8,10}$/.test(cleanPhone)) {
+      throw new BadRequestException('Số điện thoại không hợp lệ (VD: 0987654321)');
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -207,19 +207,19 @@ export class AuthService {
       success: true,
       message: 'Mã OTP đã được gửi thành công (hiệu lực 5 phút)',
       phone: cleanPhone,
-      // Trả về devOtp phục vụ môi trường dev & E2E testing
-      devOtp: otp,
+      ...(process.env.NODE_ENV === 'test' ? { devOtp: otp } : {}),
     };
   }
 
   async verifyOtp(dto: VerifyOtpDto) {
-    const cleanPhone = dto.phone.trim();
+    const cleanPhone = dto.phone.replace(/[\s.-]/g, '').trim();
     const record = this.otpStore.get(cleanPhone);
 
-    // Chấp nhận mã OTP trong store hoặc mã mặc định '123456' cho E2E/Sandbox
+    const allowSandboxOtp =
+      process.env.NODE_ENV === 'test' || process.env.ALLOW_SANDBOX_OTP === 'true';
     const isValid =
-      (record && record.expiresAt >= Date.now() && record.otp === dto.otp) ||
-      dto.otp === '123456';
+      Boolean(record && record.expiresAt >= Date.now() && record.otp === dto.otp.trim()) ||
+      (allowSandboxOtp && dto.otp.trim() === '123456');
 
     if (!isValid) {
       throw new BadRequestException('Mã OTP không chính xác hoặc đã hết hạn');
@@ -247,12 +247,60 @@ export class AuthService {
     };
   }
 
+  async changePassword(userId: string, currentPassword?: string, newPassword?: string) {
+    if (!newPassword || newPassword.trim().length < 6) {
+      throw new BadRequestException('Mật khẩu mới phải có ít nhất 6 ký tự');
+    }
+
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('Không tìm thấy tài khoản');
+    }
+
+    // Nếu tài khoản có mật khẩu cũ và có gửi currentPassword thì kiểm tra
+    if (currentPassword && user.password_hash) {
+      const isMatch = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!isMatch) {
+        throw new BadRequestException('Mật khẩu hiện tại không chính xác');
+      }
+    }
+
+    const hashed = await bcrypt.hash(newPassword.trim(), 10);
+    await this.usersService.updatePasswordHash(userId, hashed);
+
+    return {
+      success: true,
+      message: 'Đổi mật khẩu thành công',
+    };
+  }
+
   sanitizeUser(user: any) {
     const { password_hash, ...sanitized } = user;
+    const sp = user.student_profile || null;
+    const appRole = user.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'STUDENT';
     return {
       ...sanitized,
+      appRole,
       avatarUrl: user.avatar_url,
       avatar: user.avatar_url,
+      date_of_birth: sp?.date_of_birth ?? null,
+      dateOfBirth: sp?.date_of_birth ?? null,
+      grade_level: sp?.grade_level || null,
+      gradeLevel: sp?.grade_level || null,
+      school_name: sp?.school_name || null,
+      schoolName: sp?.school_name || (appRole === 'SUPER_ADMIN' ? 'Nền Tảng Gốc Schoolify' : 'Học Sinh Toàn Quốc'),
+      province: sp?.province || null,
+      bio: sp?.bio || null,
+      equipped_frame: sp?.equipped_frame || null,
+      equippedFrame: sp?.equipped_frame || null,
+      points: sp?.points ?? 0,
+      exam_points: sp?.exam_points ?? 9,
+      examPoints: sp?.exam_points ?? 9,
+      last_daily_grant_date: sp?.last_daily_grant_date || null,
+      active_package: sp?.active_package || 'FREE',
+      activePackage: sp?.active_package || 'FREE',
+      package_expires_at: sp?.package_expires_at ?? null,
+      packageExpiresAt: sp?.package_expires_at ?? null,
     };
   }
 }

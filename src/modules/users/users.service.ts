@@ -11,14 +11,7 @@ export class UsersService {
     return this.prisma.user.findUnique({
       where: { email: email.toLowerCase() },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: true,
-        school_memberships: {
-          include: {
-            school: true,
-          },
-        },
       },
     });
   }
@@ -27,14 +20,7 @@ export class UsersService {
     return this.prisma.user.findUnique({
       where: { id },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: true,
-        school_memberships: {
-          include: {
-            school: true,
-          },
-        },
       },
     });
   }
@@ -45,9 +31,10 @@ export class UsersService {
     phone?: string;
     password_hash: string;
     role?: SystemRole;
-    profile_type?: 'TEACHER' | 'STUDENT' | 'PARENT';
+    profile_type?: 'STUDENT';
     google_id?: string;
     avatar_url?: string;
+    grade_level?: string | null;
   }) {
     const existing = await this.prisma.user.findUnique({
       where: { email: data.email.toLowerCase() },
@@ -70,30 +57,14 @@ export class UsersService {
         },
       });
 
-      const profileType = data.profile_type || 'STUDENT';
-      if (profileType === 'TEACHER') {
-        await tx.teacherProfile.create({
-          data: { user_id: user.id },
-        });
-      } else if (profileType === 'PARENT') {
-        await tx.parentProfile.create({
-          data: { user_id: user.id },
-        });
-      } else {
-        await tx.studentProfile.create({
-          data: { user_id: user.id, grade_level: 'Lớp 12', points: 100 },
-        });
-      }
+      await tx.studentProfile.create({
+        data: { user_id: user.id, grade_level: data.grade_level || null, points: 100 },
+      });
 
       return tx.user.findUnique({
         where: { id: user.id },
         include: {
-          teacher_profile: true,
           student_profile: true,
-          parent_profile: true,
-          school_memberships: {
-            include: { school: true },
-          },
         },
       });
     });
@@ -104,11 +75,10 @@ export class UsersService {
     email: string;
     phone?: string;
     password?: string;
-    role?: 'SUPER_ADMIN' | 'TEACHER' | 'STUDENT';
+    role?: 'SUPER_ADMIN' | 'STUDENT';
   }) {
     const hashedPassword = await bcrypt.hash(data.password || '123456', 10);
     const isSuperAdmin = data.role === 'SUPER_ADMIN';
-    const profileType = data.role === 'TEACHER' ? 'TEACHER' : 'STUDENT';
 
     const created = await this.create({
       fullname: data.fullname,
@@ -116,7 +86,7 @@ export class UsersService {
       phone: data.phone,
       password_hash: hashedPassword,
       role: isSuperAdmin ? SystemRole.SUPER_ADMIN : SystemRole.USER,
-      profile_type: profileType,
+      profile_type: 'STUDENT',
     });
 
     if (!created) return null;
@@ -132,7 +102,7 @@ export class UsersService {
     name: string;
     googleId: string;
     avatarUrl?: string;
-    profile_type?: 'STUDENT' | 'TEACHER' | 'PARENT';
+    profile_type?: 'STUDENT';
   }) {
     const normalizedEmail = data.email.toLowerCase().trim();
 
@@ -141,12 +111,7 @@ export class UsersService {
         OR: [{ google_id: data.googleId }, { email: normalizedEmail }],
       },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: true,
-        school_memberships: {
-          include: { school: true },
-        },
       },
     });
 
@@ -161,7 +126,7 @@ export class UsersService {
         password_hash: hashedPassword,
         google_id: data.googleId,
         avatar_url: data.avatarUrl,
-        profile_type: data.profile_type || 'STUDENT',
+        profile_type: 'STUDENT',
       });
     } else {
       // Quy tắc nghiệp vụ: Chỉ lấy avatar của Google khi login lần đầu nếu người dùng chưa có avatar.
@@ -182,12 +147,7 @@ export class UsersService {
             last_login_at: new Date(),
           },
           include: {
-            teacher_profile: true,
             student_profile: true,
-            parent_profile: true,
-            school_memberships: {
-              include: { school: true },
-            },
           },
         });
       } else {
@@ -208,12 +168,7 @@ export class UsersService {
         OR: [{ email: lookupEmail }, { phone: phoneOrEmail.trim() }],
       },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: true,
-        school_memberships: {
-          include: { school: true },
-        },
       },
     });
 
@@ -241,23 +196,16 @@ export class UsersService {
     });
   }
 
-  private formatUserItem(u: any) {
-    let appRole: 'SUPER_ADMIN' | 'TEACHER' | 'STUDENT' = 'STUDENT';
-    if (u.role === 'SUPER_ADMIN') {
-      appRole = 'SUPER_ADMIN';
-    } else if (u.teacher_profile) {
-      appRole = 'TEACHER';
-    } else {
-      appRole = 'STUDENT';
-    }
+  formatUserItem(u: any) {
+    const appRole: 'SUPER_ADMIN' | 'STUDENT' =
+      u.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'STUDENT';
 
+    const sp = u.student_profile || null;
     const schoolName =
-      u.school_memberships?.[0]?.school?.name ||
+      sp?.school_name ||
       (appRole === 'SUPER_ADMIN'
         ? 'Nền Tảng Gốc Schoolify'
-        : appRole === 'TEACHER'
-          ? 'Hội Đồng Giảng Viên Schoolify'
-          : 'Học Sinh Toàn Quốc');
+        : 'Học Sinh Toàn Quốc');
 
     return {
       ...u,
@@ -265,17 +213,38 @@ export class UsersService {
       avatarUrl: u.avatar_url,
       avatar: u.avatar_url,
       appRole,
+      date_of_birth: sp?.date_of_birth ?? null,
+      dateOfBirth: sp?.date_of_birth ?? null,
+      grade_level: sp?.grade_level || null,
+      gradeLevel: sp?.grade_level || null,
+      school_name: sp?.school_name || null,
       schoolName,
-      points: u.student_profile?.points ?? 0,
-      examPoints: u.student_profile?.exam_points ?? 9,
-      gradeLevel: u.student_profile?.grade_level || 'Lớp 12',
+      province: sp?.province || null,
+      bio: sp?.bio || null,
+      equipped_frame: sp?.equipped_frame || null,
+      equippedFrame: sp?.equipped_frame || null,
+      points: sp?.points ?? 0,
+      exam_points: sp?.exam_points ?? 9,
+      examPoints: sp?.exam_points ?? 9,
+      last_daily_grant_date: sp?.last_daily_grant_date || null,
+      lastDailyGrantDate: sp?.last_daily_grant_date || null,
+      active_package: sp?.active_package || 'FREE',
+      activePackage: sp?.active_package || 'FREE',
+      package_expires_at: sp?.package_expires_at ?? null,
+      packageExpiresAt: sp?.package_expires_at ?? null,
     };
   }
 
   /**
    * Danh sách người dùng phân trang cho Admin (/users)
    */
-  async findAll(query: { page?: number; limit?: number; search?: string; role?: string }) {
+  async findAll(query: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    role?: string;
+    status?: string;
+  }) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(200, Math.max(1, Number(query.limit) || 50));
     const skip = (page - 1) * limit;
@@ -290,12 +259,30 @@ export class UsersService {
     }
     if (query.role === 'SUPER_ADMIN') {
       where.role = 'SUPER_ADMIN';
-    } else if (query.role === 'TEACHER') {
-      where.role = 'USER';
-      where.teacher_profile = { isNot: null };
     } else if (query.role === 'STUDENT') {
       where.role = 'USER';
-      where.teacher_profile = { is: null };
+    }
+
+    if (
+      query.status !== undefined &&
+      query.status !== '' &&
+      query.status.toUpperCase() !== 'ALL'
+    ) {
+      const normalizedStatus = query.status.trim().toLowerCase();
+      if (
+        normalizedStatus === 'true' ||
+        normalizedStatus === 'active' ||
+        normalizedStatus === '1'
+      ) {
+        where.status = true;
+      } else if (
+        normalizedStatus === 'false' ||
+        normalizedStatus === 'locked' ||
+        normalizedStatus === 'inactive' ||
+        normalizedStatus === '0'
+      ) {
+        where.status = false;
+      }
     }
 
     const [items, total] = await Promise.all([
@@ -305,12 +292,7 @@ export class UsersService {
         take: limit,
         orderBy: { created_at: 'desc' },
         include: {
-          teacher_profile: true,
           student_profile: true,
-          parent_profile: true,
-          school_memberships: {
-            include: { school: true },
-          },
         },
       }),
       this.prisma.user.count({ where }),
@@ -327,21 +309,56 @@ export class UsersService {
     };
   }
 
+  private normalizeGradeLevel(
+    raw?: string | number | null,
+  ): string | null | undefined {
+    if (raw === undefined) return undefined;
+    if (raw === null || raw === '') return null;
+    const str = String(raw).trim();
+    if (/^(10|11|12)$/.test(str)) return `Lớp ${str}`;
+    return str;
+  }
+
+  private parseOptionalDate(
+    raw?: string | Date | null,
+  ): Date | null | undefined {
+    if (raw === undefined) return undefined;
+    if (raw === null || raw === '') return null;
+    const d = raw instanceof Date ? raw : new Date(raw);
+    return Number.isNaN(d.getTime()) ? undefined : d;
+  }
+
   async updateUser(
     id: string,
     data: {
       fullname?: string;
       phone?: string;
       avatar_url?: string;
+      avatarUrl?: string;
       status?: boolean;
       points?: number;
-      grade_level?: string;
-      role?: 'SUPER_ADMIN' | 'TEACHER' | 'STUDENT';
+      exam_points?: number;
+      examPoints?: number;
+      date_of_birth?: string | Date | null;
+      dateOfBirth?: string | Date | null;
+      grade_level?: string | number | null;
+      gradeLevel?: string | number | null;
+      school_name?: string | null;
+      schoolName?: string | null;
+      province?: string | null;
+      bio?: string | null;
+      equipped_frame?: string | null;
+      equippedFrame?: string | null;
+      active_package?: string | null;
+      activePackage?: string | null;
+      package_expires_at?: string | Date | null;
+      packageExpiresAt?: string | Date | null;
+      role?: 'SUPER_ADMIN' | 'STUDENT';
     },
   ) {
     const existing = await this.prisma.user.findUnique({
       where: { id },
-      include: { student_profile: true, teacher_profile: true },
+      include: { student_profile: true },
     });
     if (!existing) {
       throw new NotFoundException('Không tìm thấy người dùng');
@@ -350,27 +367,68 @@ export class UsersService {
     let systemRoleUpdate: SystemRole | undefined = undefined;
     if (data.role === 'SUPER_ADMIN') {
       systemRoleUpdate = SystemRole.SUPER_ADMIN;
-    } else if (data.role === 'TEACHER' || data.role === 'STUDENT') {
+    } else if (data.role === 'STUDENT') {
       systemRoleUpdate = SystemRole.USER;
     }
 
-    if (data.role === 'TEACHER' && !existing.teacher_profile) {
-      await this.prisma.teacherProfile.create({ data: { user_id: id } });
-    } else if (data.role === 'STUDENT' && existing.teacher_profile) {
-      await this.prisma.teacherProfile.delete({ where: { id: existing.teacher_profile.id } });
-      if (!existing.student_profile) {
-        await this.prisma.studentProfile.create({
-          data: { user_id: id, grade_level: 'Lớp 12', points: 100 },
-        });
-      }
-    }
+    const avatarUrl =
+      data.avatar_url !== undefined ? data.avatar_url : data.avatarUrl;
+    const examPoints =
+      data.exam_points !== undefined ? data.exam_points : data.examPoints;
+    const dateOfBirth = this.parseOptionalDate(
+      data.date_of_birth !== undefined ? data.date_of_birth : data.dateOfBirth,
+    );
+    const gradeLevel = this.normalizeGradeLevel(
+      data.grade_level !== undefined ? data.grade_level : data.gradeLevel,
+    );
+    const schoolName =
+      data.school_name !== undefined ? data.school_name : data.schoolName;
+    const equippedFrame =
+      data.equipped_frame !== undefined
+        ? data.equipped_frame
+        : data.equippedFrame;
+    const activePackage =
+      data.active_package !== undefined
+        ? data.active_package
+        : data.activePackage;
+    const packageExpiresAt = this.parseOptionalDate(
+      data.package_expires_at !== undefined
+        ? data.package_expires_at
+        : data.packageExpiresAt,
+    );
 
-    if (existing.student_profile && (data.points !== undefined || data.grade_level !== undefined)) {
+    const studentProfilePatch: any = {
+      ...(data.points !== undefined ? { points: Number(data.points) } : {}),
+      ...(examPoints !== undefined ? { exam_points: Number(examPoints) } : {}),
+      ...(dateOfBirth !== undefined ? { date_of_birth: dateOfBirth } : {}),
+      ...(gradeLevel !== undefined ? { grade_level: gradeLevel } : {}),
+      ...(schoolName !== undefined ? { school_name: schoolName } : {}),
+      ...(data.province !== undefined ? { province: data.province } : {}),
+      ...(data.bio !== undefined ? { bio: data.bio } : {}),
+      ...(equippedFrame !== undefined ? { equipped_frame: equippedFrame } : {}),
+      ...(activePackage !== undefined ? { active_package: activePackage } : {}),
+      ...(packageExpiresAt !== undefined
+        ? { package_expires_at: packageExpiresAt }
+        : {}),
+    };
+
+    const hasProfilePatch = Object.keys(studentProfilePatch).length > 0;
+    if (existing.student_profile && hasProfilePatch) {
       await this.prisma.studentProfile.update({
         where: { id: existing.student_profile.id },
+        data: studentProfilePatch,
+      });
+    } else if (
+      !existing.student_profile &&
+      existing.role !== 'SUPER_ADMIN' &&
+      hasProfilePatch
+    ) {
+      await this.prisma.studentProfile.create({
         data: {
-          ...(data.points !== undefined ? { points: Number(data.points) } : {}),
-          ...(data.grade_level !== undefined ? { grade_level: data.grade_level } : {}),
+          user_id: id,
+          points: 10,
+          exam_points: 9,
+          ...studentProfilePatch,
         },
       });
     }
@@ -380,17 +438,12 @@ export class UsersService {
       data: {
         ...(data.fullname !== undefined ? { fullname: data.fullname } : {}),
         ...(data.phone !== undefined ? { phone: data.phone } : {}),
-        ...(data.avatar_url !== undefined ? { avatar_url: data.avatar_url } : {}),
+        ...(avatarUrl !== undefined ? { avatar_url: avatarUrl } : {}),
         ...(data.status !== undefined ? { status: data.status } : {}),
         ...(systemRoleUpdate !== undefined ? { role: systemRoleUpdate } : {}),
       },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: true,
-        school_memberships: {
-          include: { school: true },
-        },
       },
     });
 
@@ -405,5 +458,12 @@ export class UsersService {
     }
     await this.prisma.user.delete({ where: { id } });
     return { deletedId: id };
+  }
+
+  async updatePasswordHash(id: string, password_hash: string) {
+    return this.prisma.user.update({
+      where: { id },
+      data: { password_hash },
+    });
   }
 }

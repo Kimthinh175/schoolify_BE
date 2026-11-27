@@ -12,10 +12,14 @@ import {
   CreateQuestionBugReportDto,
   DailyClaimPointsDto,
   GenerateMatrixExamDto,
+  RecordQuickDrillBehaviorDto,
   SettleExamPointsDto,
   StartExamWithPointsDto,
   SubmitExamDto,
+  SubmitRemediationDto,
+  SyncGuestOnboardingDto,
   SyncOfflineSubmissionsDto,
+  UnlockChapterJumpDto,
   UpdateQuestionBugReportStatusDto,
 } from './dto/exam.dto';
 import {
@@ -24,6 +28,15 @@ import {
   QuestionFormat,
   QuestionIssueType,
 } from '@prisma/client';
+import { KnowledgeRoadmapService } from './knowledge-roadmap.service';
+import {
+  CurriculumChapterDef,
+  CurriculumTrackCode,
+  getCurrentRealTimeSemester,
+  getCurriculumChapters,
+  getNextCurriculumChapterInTrack,
+  parseStudentGradeNumber,
+} from './curriculum-chapters.constant';
 
 export const DAILY_EXAM_POINT_ALLOWANCE = 9;
 export const EXAM_LEVEL_COSTS = {
@@ -52,7 +65,405 @@ export function generateSecureAttemptToken(): string {
 
 @Injectable()
 export class ExamsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly questionPoolCache = new Map<
+    string,
+    {
+      expiresAt: number;
+      items: Array<{
+        id: string;
+        chapter_id: number | null;
+        bloom_level: BloomLevel | null;
+        topic_tag: string | null;
+      }>;
+    }
+  >();
+
+  private readonly guestCursorCache = new Map<
+    string,
+    {
+      cursorPos: number;
+      epoch: number;
+      lastBoundaryIds: string[];
+      updatedAt: number;
+    }
+  >();
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly knowledgeRoadmapService: KnowledgeRoadmapService,
+  ) {}
+
+  /**
+   * Băm chuỗi thành số nguyên 32-bit không dấu (FNV-1a + Murmur3 avalanche)
+   */
+  private hashStringToUint32(input: string): number {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < input.length; i++) {
+      h ^= input.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    h ^= h >>> 16;
+    h = Math.imul(h, 0x85ebca6b);
+    h ^= h >>> 13;
+    h = Math.imul(h, 0xc2b2ae35);
+    h ^= h >>> 16;
+    return h >>> 0;
+  }
+
+  private gcd(a: number, b: number): number {
+    let x = Math.abs(a);
+    let y = Math.abs(b);
+    while (y !== 0) {
+      const t = x % y;
+      x = y;
+      y = t;
+    }
+    return x;
+  }
+
+  /**
+   * Sinh bộ tham số đồng dư tuyến tính (step, offset) với gcd(step, poolSize) = 1
+   * Đảm bảo đi qua đúng 100% câu hỏi trong bể kích thước M mà KHÔNG BAO GIỜ trùng lặp trong cùng 1 chu kỳ (Epoch).
+   */
+  private buildCoprimeStrideParams(
+    seedStr: string,
+    poolSize: number,
+  ): { step: number; offset: number } {
+    if (poolSize <= 1) {
+      return { step: 1, offset: 0 };
+    }
+    const rawStep = (this.hashStringToUint32(`${seedStr}:step`) % (poolSize - 1)) + 1;
+    let step = rawStep;
+    for (let delta = 0; delta < poolSize; delta++) {
+      const candidate = ((rawStep - 1 + delta) % (poolSize - 1)) + 1;
+      if (this.gcd(candidate, poolSize) === 1) {
+        step = candidate;
+        break;
+      }
+    }
+    const offset = this.hashStringToUint32(`${seedStr}:offset`) % poolSize;
+    return { step, offset };
+  }
+
+  /**
+   * Lấy danh sách metadata (id, chapter_id, bloom_level, topic_tag) của toàn bộ bể câu hỏi theo môn + khối lớp.
+   * Đọc từ Covering Index (Index-Only Scan) và cache trên RAM 5 phút để chịu tải >100,000 users với ~0ms latency.
+   */
+  private async getCachedSubjectGradePoolMeta(subject: string, grade: number) {
+    const cacheKey = `${subject}:g${grade}`;
+    const now = Date.now();
+    const cached = this.questionPoolCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.items;
+    }
+
+    const rows = await this.prisma.question.findMany({
+      where: {
+        subject,
+        grade,
+        question_format: {
+          not: QuestionFormat.ESSAY,
+        },
+      },
+      select: {
+        id: true,
+        chapter_id: true,
+        bloom_level: true,
+        topic_tag: true,
+      },
+      orderBy: {
+        id: 'asc',
+      },
+    });
+
+    this.questionPoolCache.set(cacheKey, {
+      expiresAt: now + 5 * 60 * 1000,
+      items: rows,
+    });
+    return rows;
+  }
+
+  /**
+   * Xóa cache RAM bể câu hỏi khi có thay đổi (thêm/sửa/xóa/import câu hỏi mới)
+   */
+  public invalidateQuestionPoolCache(subject?: string, grade?: number) {
+    if (subject && grade) {
+      this.questionPoolCache.delete(`${subject}:g${grade}`);
+      return;
+    }
+    this.questionPoolCache.clear();
+  }
+
+  /**
+   * Tạo hoán vị cho 1 chu kỳ (Epoch):
+   * - Dùng phép nhảy đồng dư nguyên tố cùng nhau (step * i + offset) mod M.
+   * - Khi sang vòng lặp mới (epoch >= 1, đã gặp hết sạch bể):
+   *   1. Ưu tiên đưa các câu từng làm SAI (wrongQuestionIdSet) lên đầu chu kỳ mới.
+   *   2. Đẩy các câu vừa xuất hiện ở đề giáp ranh cuối vòng trước (boundaryCooldownSet) xuống cuối chu kỳ
+   *      để không bao giờ lặp lại câu vừa mới thi ở đề liền trước.
+   */
+  private buildEpochPermutation<
+    T extends { id: string; topic_tag: string | null },
+  >(params: {
+    pool: T[];
+    seedStr: string;
+    epoch: number;
+    wrongQuestionIdSet: Set<string>;
+    weakTopicSet: Set<string>;
+    boundaryCooldownSet: Set<string>;
+  }): T[] {
+    const {
+      pool,
+      seedStr,
+      epoch,
+      wrongQuestionIdSet,
+      weakTopicSet,
+      boundaryCooldownSet,
+    } = params;
+    const m = pool.length;
+    if (m <= 1) return [...pool];
+
+    const { step, offset } = this.buildCoprimeStrideParams(seedStr, m);
+    const permuted: T[] = new Array(m);
+    for (let i = 0; i < m; i++) {
+      const idx = (step * i + offset) % m;
+      permuted[i] = pool[idx];
+    }
+
+    if (epoch === 0) {
+      return permuted;
+    }
+
+    // Ở Epoch >= 1 (khi đã làm hết toàn bộ bể câu hỏi và bắt đầu quay vòng):
+    // Ưu tiên: Câu từng làm SAI -> Câu thuộc Topic yếu -> Câu bình thường -> Câu giáp ranh cuối vòng trước (Cooldown)
+    const wrongBucket: T[] = [];
+    const weakTopicBucket: T[] = [];
+    const normalBucket: T[] = [];
+    const cooldownBucket: T[] = [];
+
+    for (const item of permuted) {
+      if (boundaryCooldownSet.has(item.id)) {
+        cooldownBucket.push(item);
+      } else if (wrongQuestionIdSet.has(item.id)) {
+        wrongBucket.push(item);
+      } else if (item.topic_tag && weakTopicSet.has(item.topic_tag.toLowerCase())) {
+        weakTopicBucket.push(item);
+      } else {
+        normalBucket.push(item);
+      }
+    }
+
+    return [...wrongBucket, ...weakTopicBucket, ...normalBucket, ...cooldownBucket];
+  }
+
+  /**
+   * Bốc K câu hỏi từ bể theo con trỏ chu kỳ (StudentPoolCursor trong PostgreSQL):
+   * - Chưa hết bể (epoch = 0): Bốc tuần tự trên hoán vị đồng dư -> 0% trùng lặp.
+   * - Chạm đáy bể (cursorPos >= M): Tự động tăng epoch + 1, reseed hoán vị mới, ưu tiên câu từng sai,
+   *   chặn trùng giáp ranh (boundaryCooldown) và đánh dấu servedEpoch >= 1 để tự động đảo đáp án A/B/C/D.
+   */
+  private async sampleAdaptivePoolWithCursor<
+    T extends { id: string; topic_tag: string | null },
+  >(params: {
+    pool: T[];
+    targetCount: number;
+    studentProfileId: string | null;
+    identitySeed: string;
+    poolKey: string;
+    wrongQuestionIdSet: Set<string>;
+    weakTopicSet: Set<string>;
+  }): Promise<Array<T & { servedEpoch: number }>> {
+    const {
+      pool,
+      targetCount,
+      studentProfileId,
+      identitySeed,
+      poolKey,
+      wrongQuestionIdSet,
+      weakTopicSet,
+    } = params;
+
+    const m = pool.length;
+    if (m === 0) return [];
+
+    let cursorPos = 0;
+    let epoch = 0;
+    let epochBoundaryIds: string[] = [];
+
+    const guestCacheKey = `${identitySeed}::${poolKey}`;
+
+    if (studentProfileId) {
+      try {
+        const existingCursor = await this.prisma.studentPoolCursor.findUnique({
+          where: {
+            student_id_pool_key: {
+              student_id: studentProfileId,
+              pool_key: poolKey,
+            },
+          },
+        });
+        if (existingCursor) {
+          cursorPos = Math.max(0, existingCursor.cursor_pos % m);
+          epoch = Math.max(0, existingCursor.epoch);
+          if (Array.isArray(existingCursor.last_boundary_ids)) {
+            epochBoundaryIds = (existingCursor.last_boundary_ids as unknown[]).filter(
+              (x): x is string => typeof x === 'string',
+            );
+          }
+        }
+      } catch {}
+    } else {
+      const guestCursor = this.guestCursorCache.get(guestCacheKey);
+      if (guestCursor) {
+        cursorPos = Math.max(0, guestCursor.cursorPos % m);
+        epoch = Math.max(0, guestCursor.epoch);
+        epochBoundaryIds = guestCursor.lastBoundaryIds || [];
+      }
+    }
+
+    const desiredCount = Math.min(targetCount, m);
+    const cooldownWindow = Math.min(desiredCount, Math.max(1, Math.floor(m / 2)));
+
+    const picked: Array<T & { servedEpoch: number }> = [];
+    const pickedIdsSet = new Set<string>();
+    let activeBoundaryIds = [...epochBoundaryIds];
+
+    let currentEpoch = epoch;
+    let currentCursor = cursorPos;
+    let currentPermutation = this.buildEpochPermutation({
+      pool,
+      seedStr: `${identitySeed}:${poolKey}:ep:${currentEpoch}`,
+      epoch: currentEpoch,
+      wrongQuestionIdSet,
+      weakTopicSet,
+      boundaryCooldownSet: new Set<string>(activeBoundaryIds),
+    });
+
+    let safetySteps = 0;
+    const maxSafetySteps = m * 3 + desiredCount;
+
+    while (picked.length < desiredCount && safetySteps < maxSafetySteps) {
+      safetySteps++;
+      if (currentCursor >= m) {
+        // Đã vét cạn 100% câu hỏi của chu kỳ hiện tại -> chốt các câu cuối chu kỳ vào Boundary Cooldown và sang Epoch mới!
+        const tailOfFinishedEpoch = currentPermutation
+          .slice(Math.max(0, m - cooldownWindow))
+          .map((item) => item.id);
+        activeBoundaryIds = Array.from(
+          new Set([...tailOfFinishedEpoch, ...picked.map((p) => p.id)]),
+        ).slice(0, cooldownWindow);
+
+        currentEpoch += 1;
+        currentCursor = 0;
+        currentPermutation = this.buildEpochPermutation({
+          pool,
+          seedStr: `${identitySeed}:${poolKey}:ep:${currentEpoch}`,
+          epoch: currentEpoch,
+          wrongQuestionIdSet,
+          weakTopicSet,
+          boundaryCooldownSet: new Set<string>(activeBoundaryIds),
+        });
+      }
+
+      const candidate = currentPermutation[currentCursor];
+      currentCursor += 1;
+
+      if (candidate && !pickedIdsSet.has(candidate.id)) {
+        pickedIdsSet.add(candidate.id);
+        picked.push({
+          ...candidate,
+          servedEpoch: currentEpoch,
+        });
+      }
+    }
+
+    // Nếu sau khi lấy xong đề này mà con trỏ chạm đúng đáy bể M -> chốt Boundary Cooldown và sang sẵn Epoch kế tiếp
+    let nextEpoch = currentEpoch;
+    let nextCursorPos = currentCursor;
+    if (nextCursorPos >= m) {
+      const tailOfFinishedEpoch = currentPermutation
+        .slice(Math.max(0, m - cooldownWindow))
+        .map((item) => item.id);
+      activeBoundaryIds = tailOfFinishedEpoch;
+      nextEpoch += 1;
+      nextCursorPos = nextCursorPos % m;
+    }
+
+    if (studentProfileId) {
+      try {
+        await this.prisma.studentPoolCursor.upsert({
+          where: {
+            student_id_pool_key: {
+              student_id: studentProfileId,
+              pool_key: poolKey,
+            },
+          },
+          create: {
+            student_id: studentProfileId,
+            pool_key: poolKey,
+            cursor_pos: nextCursorPos,
+            epoch: nextEpoch,
+            last_boundary_ids: activeBoundaryIds,
+          },
+          update: {
+            cursor_pos: nextCursorPos,
+            epoch: nextEpoch,
+            last_boundary_ids: activeBoundaryIds,
+          },
+        });
+      } catch {}
+    } else {
+      if (this.guestCursorCache.size > 5000) {
+        const oldestKey = this.guestCursorCache.keys().next().value;
+        if (oldestKey) this.guestCursorCache.delete(oldestKey);
+      }
+      this.guestCursorCache.set(guestCacheKey, {
+        cursorPos: nextCursorPos,
+        epoch: nextEpoch,
+        lastBoundaryIds: activeBoundaryIds,
+        updatedAt: Date.now(),
+      });
+    }
+
+    return picked;
+  }
+
+  /**
+   * Kiểm tra xem các phương án trả lời có chứa cụm từ phụ thuộc vào vị trí chữ cái A/B/C/D hay không
+   * (Ví dụ: "Cả A và B đều đúng", "Tất cả các đáp án trên", "A, B, C đều sai")
+   */
+  private hasPositionDependentAnswerText(contents: string[]): boolean {
+    const positionalRegex =
+      /(cả\s+[abc]\b|tất\s+cả\s+(đều|các|ý|phương\s+án)|không\s+có\s+(đáp\s+án|phương\s+án)|đáp\s+án\s+khác|[abc]\s+và\s+[bcd]\s+đều|[abc]\s*,\s*[bcd]\s+(đều|đúng|sai))/i;
+    return contents.some((text) => positionalRegex.test(String(text || '')));
+  }
+
+  /**
+   * Đảo vị trí 4 phương án A, B, C, D với cam kết dịch chuyển khác vị trí gốc (Derangement / Non-Identity Shift)
+   * sao cho đáp án đúng chắc chắn đổi sang chữ cái khác khi học sinh làm lại đề hoặc sang vòng lặp mới (Epoch >= 1).
+   */
+  private permuteAnswerChoicesGuaranteedShift<T>(choices: T[], seedStr: string): T[] {
+    const n = choices.length;
+    if (n <= 1) return [...choices];
+
+    const h1 = this.hashStringToUint32(`${seedStr}:shift`);
+    const shift = (h1 % (n - 1)) + 1; // 1 .. n-1 (cam kết không bao giờ dịch 0!)
+    const shifted: T[] = new Array(n);
+    for (let i = 0; i < n; i++) {
+      shifted[(i + shift) % n] = choices[i];
+    }
+
+    // Hoán vị thêm giữa các phần tử để không bị đoán quy luật dịch vòng tròn
+    if (n >= 4) {
+      const h2 = this.hashStringToUint32(`${seedStr}:swap`);
+      if (h2 % 2 === 1) {
+        const tmp = shifted[1];
+        shifted[1] = shifted[3];
+        shifted[3] = tmp;
+      }
+    }
+    return shifted;
+  }
 
   /**
    * Trích xuất và xác thực người dùng từ Authorization Bearer Token hoặc Cookie access_token.
@@ -88,45 +499,40 @@ export class ExamsService {
       return null;
     }
 
-    const headerUserId =
-      (req?.headers?.['x-user-id'] as string | undefined)?.trim() || undefined;
-    const headerUserRole =
-      (req?.headers?.['x-user-role'] as string | undefined)?.trim()?.toUpperCase() || undefined;
-
-    // 1. Hỗ trợ các token phiên đăng nhập trên Frontend (mock-*-token) kèm định danh người dùng
-    const mockTokenRoleMap: Record<string, { defaultId: string; role: string }> = {
-      'mock-student-token': { defaultId: 'usr-student-01', role: 'STUDENT' },
-      'mock-google-student-token': { defaultId: 'usr-student-01', role: 'STUDENT' },
-      'mock-jwt-token': { defaultId: 'usr-student-01', role: 'STUDENT' },
-      'mock-teacher-token': { defaultId: 'usr-teacher-01', role: 'TEACHER' },
-      'mock-google-token': { defaultId: 'usr-teacher-01', role: 'TEACHER' },
-      'mock-parent-token': { defaultId: 'usr-parent-01', role: 'PARENT' },
-      'mock-school-token': { defaultId: 'usr-principal-01', role: 'PRINCIPAL' },
-      'mock-google-school-token': { defaultId: 'usr-principal-01', role: 'PRINCIPAL' },
-      'mock-super-admin-token-2026': { defaultId: 'usr-admin-01', role: 'SUPER_ADMIN' },
-    };
+    // 1. Chỉ hỗ trợ mock token trong môi trường Automated Test (tuyệt đối khóa trên dev/production)
+    const mockTokenRoleMap: Record<string, { defaultId: string; role: string }> =
+      process.env.NODE_ENV === 'test'
+        ? {
+            'mock-student-token': { defaultId: 'usr-student-01', role: 'STUDENT' },
+            'mock-super-admin-token-2026': { defaultId: 'usr-admin-01', role: 'SUPER_ADMIN' },
+          }
+        : {};
 
     if (mockTokenRoleMap[token]) {
       const mapped = mockTokenRoleMap[token];
-      const uid = headerUserId || mapped.defaultId;
-      const urole = headerUserRole || mapped.role;
-      return this.enrichAuthenticatedUser(uid, urole);
+      return this.enrichAuthenticatedUser(mapped.defaultId, mapped.role);
     }
 
     // 2. Xác thực chuẩn JWT (HS256)
     const payload = this.verifyJwtToken(token);
     if (!payload) {
-      throw new UnauthorizedException(
-        'Access token không hợp lệ hoặc phiên đăng nhập đã hết hạn (401 Unauthorized).',
-      );
+      if (requireStrictAuth) {
+        throw new UnauthorizedException(
+          'Access token không hợp lệ hoặc phiên đăng nhập đã hết hạn (401 Unauthorized).',
+        );
+      }
+      return null;
     }
 
-    const userId = String(payload.sub || payload.id || payload.userId || headerUserId || '');
+    const userId = String(payload.sub || payload.id || '');
     if (!userId) {
-      throw new UnauthorizedException('Token không chứa định danh người dùng hợp lệ (401 Unauthorized).');
+      if (requireStrictAuth) {
+        throw new UnauthorizedException('Token không chứa định danh người dùng hợp lệ (401 Unauthorized).');
+      }
+      return null;
     }
 
-    const roleFromJwt = String(payload.role || headerUserRole || 'STUDENT').toUpperCase();
+    const roleFromJwt = String(payload.role || 'USER').toUpperCase();
     return this.enrichAuthenticatedUser(userId, roleFromJwt, payload.linkedStudentIds);
   }
 
@@ -173,14 +579,7 @@ export class ExamsService {
     const dbUser = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
-        teacher_profile: true,
         student_profile: true,
-        parent_profile: {
-          include: {
-            parent_students: true,
-          },
-        },
-        school_memberships: true,
       },
     });
 
@@ -196,38 +595,17 @@ export class ExamsService {
       };
     }
 
-    const schoolRoles = (dbUser.school_memberships || []).map((m) => String(m.role));
-    const isTeacher =
-      Boolean(dbUser.teacher_profile) ||
-      schoolRoles.includes('TEACHER') ||
-      fallbackRole.toUpperCase() === 'TEACHER';
-    const isParent =
-      Boolean(dbUser.parent_profile) ||
-      schoolRoles.includes('PARENT') ||
-      fallbackRole.toUpperCase() === 'PARENT';
-    const linkedStudentIds = [
-      ...(dbUser.parent_profile?.parent_students?.map((ps) => ps.student_id) || []),
-      ...(Array.isArray(jwtLinkedStudentIds) ? jwtLinkedStudentIds : []),
-    ];
-
-    let resolvedRole = String(dbUser.role || fallbackRole).toUpperCase();
-    if (resolvedRole === 'USER' && fallbackRole && fallbackRole.toUpperCase() !== 'USER') {
-      resolvedRole = fallbackRole.toUpperCase();
-    } else if (resolvedRole === 'USER' && isTeacher) {
-      resolvedRole = 'TEACHER';
-    } else if (resolvedRole === 'USER' && isParent) {
-      resolvedRole = 'PARENT';
-    }
+    const resolvedRole = String(dbUser.role || 'USER').toUpperCase();
 
     return {
       id: dbUser.id,
       email: dbUser.email,
       fullname: dbUser.fullname,
       role: resolvedRole,
-      schoolRoles,
-      isTeacher,
-      isParent,
-      linkedStudentIds,
+      schoolRoles: [resolvedRole],
+      isTeacher: false,
+      isParent: false,
+      linkedStudentIds: Array.isArray(jwtLinkedStudentIds) ? jwtLinkedStudentIds : [],
     };
   }
 
@@ -339,161 +717,385 @@ export class ExamsService {
     } = dto;
 
     // 0. BẢO MẬT & KIỂM TRA ĐIỂM NĂNG LƯỢNG TẠI BACKEND (SERVER-SIDE POINT ENFORCEMENT)
-    // - Giáo viên (TEACHER), Quản trị viên (ADMIN / SUPER_ADMIN) hoặc cờ skipPointCheck được miễn phí kiểm tra điểm
-    // - Học sinh (STUDENT, USER) hoặc Khách (GUEST) bắt buộc phải có đủ điểm làm đề (Cơ bản: 3đ, Trung bình: 4đ, Giỏi: 9đ)
+    // Chỉ SUPER_ADMIN / ADMIN từ JWT đã xác thực mới được miễn kiểm tra điểm; không tin dto.skipPointCheck từ client.
     const normRole = String(userRole || '').trim().toUpperCase();
-    const isPrivileged =
-      normRole === 'ADMIN' ||
-      normRole === 'SUPER_ADMIN' ||
-      normRole === 'TEACHER' ||
-      dto.skipPointCheck === true;
+    const isPrivileged = normRole === 'ADMIN' || normRole === 'SUPER_ADMIN';
 
     if (!isPrivileged) {
-      const effectiveUserId = userId || dto.userId || null;
+      const effectiveUserId = userId || null;
       const profile = await this.getOrInitStudentProfile(
         effectiveUserId,
         grade ? Number(grade) : 12,
       );
       const levelInfo = this.normalizeExamLevel(level || 'BASIC');
       const currentPoints = Number(profile.exam_points ?? 0);
+      const currentDiamonds = Number(profile.points ?? 0);
 
-      if (currentPoints < levelInfo.costPoints) {
+      const canPayWithExamPoints = currentPoints >= levelInfo.costPoints && !dto.useDiamonds;
+      const canPayWithDiamonds = currentDiamonds >= levelInfo.costPoints;
+
+      if (levelInfo.costPoints > 0 && !canPayWithExamPoints && !canPayWithDiamonds) {
         throw new BadRequestException({
           success: false,
           errorCode: 'INSUFFICIENT_EXAM_POINTS',
-          message: `Không đủ điểm làm đề! Đề cấp độ ${levelInfo.label} cần ${levelInfo.costPoints} điểm, nhưng bạn hiện chỉ còn ${currentPoints} điểm. Hãy quay lại vào ngày mai để nhận điểm mới hoặc nâng cấp gói học sinh!`,
+          message: `Không đủ điểm làm đề! Đề cấp độ ${levelInfo.label} cần ${levelInfo.costPoints} Tia Sáng (⚡) hoặc ${levelInfo.costPoints} Ngọc Tri Thức (💎), nhưng bạn hiện chỉ còn ${currentPoints} ⚡ và ${currentDiamonds} 💎.`,
           data: {
             level: levelInfo.code,
             levelLabel: levelInfo.label,
             requiredPoints: levelInfo.costPoints,
             currentPoints,
-            shortfallPoints: levelInfo.costPoints - currentPoints,
-            quotaByLevel: this.computeQuotaByLevel(currentPoints),
+            currentDiamonds,
+            shortfallPoints: Math.max(0, levelInfo.costPoints - currentPoints),
+            shortfallDiamonds: Math.max(0, levelInfo.costPoints - currentDiamonds),
+            quotaByLevel: this.computeQuotaByLevel(currentPoints, currentDiamonds),
           },
         });
       }
 
-      // Nếu client yêu cầu trừ điểm luôn khi sinh đề
-      if (dto.deductPoints) {
-        const pointsAfter = currentPoints - levelInfo.costPoints;
-        await this.prisma.studentProfile.update({
-          where: { id: profile.id },
-          data: { exam_points: pointsAfter },
-        });
+      // Nếu client yêu cầu trừ điểm luôn khi sinh đề (chỉ ghi DB khi đã đăng nhập thực)
+      if (dto.deductPoints && levelInfo.costPoints > 0 && !(profile as any).isVirtual) {
+        if (canPayWithExamPoints) {
+          const pointsAfter = currentPoints - levelInfo.costPoints;
+          await this.prisma.studentProfile.update({
+            where: { id: profile.id },
+            data: { exam_points: pointsAfter },
+          });
 
-        await this.prisma.examPointLog.create({
-          data: {
-            student_id: profile.id,
-            action_type: 'START_EXAM',
-            exam_level: levelInfo.code,
-            exam_title: `Đề thi ${dto.subject || 'Toán học'} - Cấp độ ${levelInfo.label}`,
-            points_before: currentPoints,
-            points_delta: -levelInfo.costPoints,
-            points_after: pointsAfter,
-            note: `Trừ ${levelInfo.costPoints} điểm khi tạo đề thi cấp độ ${levelInfo.label}`,
-          },
-        });
-      }
-    }
+          await this.prisma.examPointLog.create({
+            data: {
+              student_id: profile.id,
+              action_type: 'START_EXAM',
+              exam_level: levelInfo.code,
+              exam_title: `Đề thi ${dto.subject || 'Toán học'} - Cấp độ ${levelInfo.label}`,
+              points_before: currentPoints,
+              points_delta: -levelInfo.costPoints,
+              points_after: pointsAfter,
+              note: `Trừ ${levelInfo.costPoints} Tia Sáng (⚡) khi tạo đề thi cấp độ ${levelInfo.label}`,
+            },
+          });
+        } else if (canPayWithDiamonds) {
+          const diamondsAfter = Math.max(0, Number((currentDiamonds - levelInfo.costPoints).toFixed(2)));
+          await this.prisma.studentProfile.update({
+            where: { id: profile.id },
+            data: { points: diamondsAfter },
+          });
 
-    const whereClause: any = {
-      subject: subject || 'toan-hoc',
-      grade: grade ? Number(grade) : 12,
-    };
-
-    if (chapterId) {
-      whereClause.chapter_id = Number(chapterId);
-    }
-
-    if (topicTag && topicTag !== 'ALL') {
-      whereClause.topic_tag = { contains: topicTag, mode: 'insensitive' };
-    }
-
-    if (targetDifficulty && targetDifficulty !== 'ALL') {
-      const diffToBloomMap: Record<string, BloomLevel> = {
-        EASY: BloomLevel.NHAN_BIET,
-        MEDIUM: BloomLevel.THONG_HIEU,
-        HARD: BloomLevel.VAN_DUNG,
-        VERY_HARD: BloomLevel.VAN_DUNG_CAO,
-      };
-      if (diffToBloomMap[targetDifficulty]) {
-        whereClause.bloom_level = diffToBloomMap[targetDifficulty];
-      }
-    }
-
-    // 1. Tìm câu hỏi từ DB theo tiêu chí lọc
-    let questions = await this.prisma.question.findMany({
-      where: whereClause,
-      include: {
-        answers: true,
-      },
-      take: Math.max(10, (totalQuestions || 10) * 3),
-    });
-
-    // Fallback: nếu bộ lọc quá hẹp dẫn đến không đủ số câu, mở rộng lấy thêm cùng môn và khối lớp
-    const targetCount = Math.max(1, Number(totalQuestions || 10));
-    if (questions.length < targetCount) {
-      const fallbackQuestions = await this.prisma.question.findMany({
-        where: {
-          subject: subject || 'toan-hoc',
-          grade: grade ? Number(grade) : 12,
-        },
-        include: {
-          answers: true,
-        },
-        take: targetCount * 2,
-      });
-      const existingIds = new Set(questions.map((q) => q.id));
-      for (const q of fallbackQuestions) {
-        if (!existingIds.has(q.id)) {
-          questions.push(q);
-          existingIds.add(q.id);
+          await this.prisma.examPointLog.create({
+            data: {
+              student_id: profile.id,
+              action_type: 'START_EXAM_DIAMONDS',
+              exam_level: levelInfo.code,
+              exam_title: `Đề thi ${dto.subject || 'Toán học'} - Cấp độ ${levelInfo.label}`,
+              points_before: Math.round(currentDiamonds),
+              points_delta: -levelInfo.costPoints,
+              points_after: Math.round(diamondsAfter),
+              note: `Trừ ${levelInfo.costPoints} Ngọc Tri Thức (💎) khi tạo đề thi cấp độ ${levelInfo.label}`,
+            },
+          });
         }
       }
     }
 
-    let selectedQuestions = questions;
-    if (questions.length > targetCount) {
-      selectedQuestions = [...questions].sort(() => 0.5 - Math.random()).slice(0, targetCount);
+    const resolvedSubject = subject || 'toan-hoc';
+    const resolvedGrade = grade ? Number(grade) : 12;
+    const targetCount = Math.max(1, Number(totalQuestions || 10));
+    const normalizedLevelCode = this.normalizeExamLevel(level || 'BASIC').code;
+    const preferredBloomSet = new Set<BloomLevel>(
+      normalizedLevelCode === 'ADVANCED'
+        ? [BloomLevel.VAN_DUNG, BloomLevel.VAN_DUNG_CAO]
+        : normalizedLevelCode === 'MEDIUM'
+          ? [BloomLevel.THONG_HIEU, BloomLevel.VAN_DUNG]
+          : [BloomLevel.NHAN_BIET, BloomLevel.THONG_HIEU],
+    );
+
+    const diffToBloomMap: Record<string, BloomLevel> = {
+      EASY: BloomLevel.NHAN_BIET,
+      MEDIUM: BloomLevel.THONG_HIEU,
+      HARD: BloomLevel.VAN_DUNG,
+      VERY_HARD: BloomLevel.VAN_DUNG_CAO,
+    };
+    const explicitBloom =
+      targetDifficulty && targetDifficulty !== 'ALL'
+        ? diffToBloomMap[targetDifficulty]
+        : undefined;
+
+    // =========================================================================
+    // PHA 1: LẤY BỂ ID CÂU HỎI TỪ COVERING INDEX + IN-MEMORY CACHE (0 TRUNCATION)
+    // =========================================================================
+    const subjectGradePool = await this.getCachedSubjectGradePoolMeta(
+      resolvedSubject,
+      resolvedGrade,
+    );
+
+    const normalizedTopicFilter =
+      topicTag && topicTag !== 'ALL' ? topicTag.trim().toLowerCase() : null;
+    const targetChapterNum = chapterId ? Number(chapterId) : null;
+
+    // Phân tầng bể câu hỏi:
+    // Tier 1: Đúng chương + đúng topicTag (nếu có) + đúng Bloom mục tiêu
+    // Tier 2: Đúng chương + đúng topicTag (nếu có) + mọi Bloom trong chương
+    // Tier 3: Đúng chương + mọi topicTag trong chương
+    // Tier 4: Cùng môn + cùng khối lớp (fallback cuối cùng nếu chương chưa đủ câu)
+    const tier1Pool: typeof subjectGradePool = [];
+    const tier2Pool: typeof subjectGradePool = [];
+    const tier3Pool: typeof subjectGradePool = [];
+    const tier4Pool: typeof subjectGradePool = [];
+
+    for (const item of subjectGradePool) {
+      const matchChapter =
+        targetChapterNum === null || Number(item.chapter_id) === targetChapterNum;
+      const matchTopic =
+        !normalizedTopicFilter ||
+        Boolean(item.topic_tag && item.topic_tag.toLowerCase().includes(normalizedTopicFilter));
+      const matchBloom = explicitBloom
+        ? item.bloom_level === explicitBloom
+        : Boolean(item.bloom_level && preferredBloomSet.has(item.bloom_level));
+
+      if (matchChapter && matchTopic && matchBloom) {
+        tier1Pool.push(item);
+      } else if (matchChapter && matchTopic) {
+        tier2Pool.push(item);
+      } else if (matchChapter) {
+        tier3Pool.push(item);
+      } else {
+        tier4Pool.push(item);
+      }
     }
 
+    // Định danh học sinh hoặc khách để neo Cursor & Seed đồng dư
+    const effectiveUid = userId || dto.userId || null;
+    let studentProfileId: string | null = null;
+    const wrongQuestionIdSet = new Set<string>();
+    const weakTopicSet = new Set<string>();
+
+    if (effectiveUid) {
+      try {
+        const stProfile = await this.prisma.studentProfile.findUnique({
+          where: { user_id: effectiveUid },
+          select: { id: true },
+        });
+        if (stProfile) {
+          studentProfileId = stProfile.id;
+          const [weakMasteries, recentSubmissions] = await Promise.all([
+            this.prisma.studentTopicMastery.findMany({
+              where: {
+                student_id: stProfile.id,
+                subject: resolvedSubject,
+                mastery_status: { in: ['WEAK', 'REVIEW'] },
+              },
+              select: { topic_tag: true },
+            }),
+            this.prisma.examSubmission.findMany({
+              where: { student_id: stProfile.id },
+              orderBy: { submitted_at: 'desc' },
+              take: 8,
+              select: { snapshot_data: true },
+            }),
+          ]);
+          for (const wm of weakMasteries) {
+            if (wm.topic_tag) weakTopicSet.add(wm.topic_tag.toLowerCase());
+          }
+          for (const sub of recentSubmissions) {
+            const snap: any = sub.snapshot_data;
+            const wrongIds: unknown =
+              snap?.originalExam?.wrongQuestionIds || snap?.wrongQuestionIds;
+            if (Array.isArray(wrongIds)) {
+              for (const wid of wrongIds) {
+                if (typeof wid === 'string' && wid) wrongQuestionIdSet.add(wid);
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
+    const poolKey = [
+      resolvedSubject,
+      `g${resolvedGrade}`,
+      `ch${targetChapterNum ?? 'all'}`,
+      normalizedLevelCode,
+      explicitBloom || 'ALL',
+      normalizedTopicFilter || 'ALL',
+    ]
+      .join(':')
+      .slice(0, 180);
+
+    const identitySeed = studentProfileId || effectiveUid || dto.clientSeed || 'guest-default';
+    const isAssessmentMode =
+      normalizedLevelCode === 'ASSESSMENT' ||
+      String(dto.practiceMode || '').toUpperCase() === 'ASSESSMENT';
+
+    // =========================================================================
+    // PHA 2: BỐC MẪU ĐA CHU KỲ (MULTI-EPOCH COPRIME LCG STRIDE + BOUNDARY COOLDOWN)
+    // =========================================================================
+    let primaryCandidatePool: typeof subjectGradePool;
+    let sampledMeta: Array<{ id: string; servedEpoch: number }>;
+
+    if (isAssessmentMode) {
+      const diagSample = await this.sampleDiagnosticAssessmentPool({
+        subjectGradePool,
+        resolvedSubject,
+        resolvedGrade,
+        studentProfileId,
+        identitySeed,
+        wrongQuestionIdSet,
+        weakTopicSet,
+      });
+      primaryCandidatePool = diagSample.eligiblePool;
+      sampledMeta = diagSample.sampledMeta;
+    } else {
+      primaryCandidatePool =
+        tier1Pool.length >= targetCount
+          ? tier1Pool
+          : [...tier1Pool, ...tier2Pool].length >= targetCount
+            ? [...tier1Pool, ...tier2Pool]
+            : [...tier1Pool, ...tier2Pool, ...tier3Pool].length >= targetCount
+              ? [...tier1Pool, ...tier2Pool, ...tier3Pool]
+              : [...tier1Pool, ...tier2Pool, ...tier3Pool, ...tier4Pool];
+
+      sampledMeta = await this.sampleAdaptivePoolWithCursor({
+        pool: primaryCandidatePool,
+        targetCount,
+        studentProfileId,
+        identitySeed,
+        poolKey,
+        wrongQuestionIdSet,
+        weakTopicSet,
+      });
+    }
+
+    const selectedIds = sampledMeta.map((m) => m.id);
+    const epochByQuestionId = new Map<string, number>(
+      sampledMeta.map((m) => [m.id, m.servedEpoch]),
+    );
+
+    // =========================================================================
+    // PHA 3: HYDRATE ĐÚNG K CÂU HỎI ĐÃ CHỌN QUA PRIMARY KEY INDEX (< 1ms)
+    // =========================================================================
+    const hydratedRows =
+      selectedIds.length > 0
+        ? await this.prisma.question.findMany({
+            where: { id: { in: selectedIds } },
+            include: { answers: true },
+          })
+        : [];
+
+    const rowMap = new Map(hydratedRows.map((r) => [r.id, r]));
+    const selectedQuestions = selectedIds
+      .map((id) => rowMap.get(id))
+      .filter((r): r is NonNullable<typeof r> => Boolean(r));
+
+    const allSubjectChapters = getCurriculumChapters(resolvedSubject, resolvedGrade);
+    const chapterMetaById = new Map(allSubjectChapters.map((c) => [c.id, c]));
+    const chapterDef = chapterId
+      ? chapterMetaById.get(Number(chapterId))
+      : undefined;
+
+    const semesterInfo = getCurrentRealTimeSemester();
+    const subjectLabelMap: Record<string, string> = {
+      'toan-hoc': 'Toán Học',
+      'tin-hoc': 'Tin Học',
+      'vat-ly': 'Vật Lý',
+      'hoa-hoc': 'Hóa Học',
+    };
+    const subjectTitle = subjectLabelMap[resolvedSubject] || resolvedSubject.toUpperCase();
+
     const sessionId = `SES-${Date.now()}`;
-    const examTitle = `Đề Luyện Thi Ma Trận ${(subject || 'TOÁN').toUpperCase()} - Khối ${grade || 12}`;
+    const examTitle = isAssessmentMode
+      ? `Đánh giá năng lực ${subjectTitle} Lớp ${resolvedGrade} (${semesterInfo.shortLabel})`
+      : chapterDef
+        ? `Luyện Chuyên Đề: ${chapterDef.name} (Lớp ${resolvedGrade})`
+        : topicTag && topicTag !== 'ALL'
+          ? `Đề Luyện Chuyên Đề: ${topicTag} - Khối ${resolvedGrade}`
+          : `Đề Luyện Thi Ma Trận ${resolvedSubject.toUpperCase()} - Khối ${resolvedGrade}`;
 
     return {
       sessionId,
       examTitle,
       subjectSlug: subject,
       grade: grade ? Number(grade) : 12,
-      durationMinutes: durationMinutes || 45,
+      durationMinutes: isAssessmentMode ? 15 : durationMinutes || 45,
       totalQuestions: selectedQuestions.length,
+      poolStats: {
+        poolKey: isAssessmentMode ? `${resolvedSubject}:g${resolvedGrade}:DIAGNOSTIC` : poolKey,
+        poolSize: primaryCandidatePool.length,
+        servedEpochs: sampledMeta.map((m) => m.servedEpoch),
+      },
       questions: selectedQuestions.map((q, idx) => {
         const cognitiveTag = q.cognitive_tag || this.mapBloomToCognitive(q.bloom_level);
         const topic = q.topic_tag || this.mapChapterToTopic(q.chapter_id, q.subject);
         const trapTag = q.trap_tag || this.getTrapTagByContext(q.bloom_level, q.subject);
+        const qFormat = q.question_format || QuestionFormat.SINGLE_CHOICE;
+        const servedEpoch = epochByQuestionId.get(q.id) ?? 0;
 
-        const correctAns = q.answers.find((a) => a.is_answer);
-        const correctChoice = correctAns
-          ? (correctAns.sub_label || String.fromCharCode(65 + q.answers.indexOf(correctAns)))
-          : 'A';
+        // =====================================================================
+        // PHA 4: TỰ ĐỘNG ĐẢO VỊ TRÍ ĐÁP ÁN A/B/C/D KHI SANG VÒNG LẶP MỚI (EPOCH >= 1)
+        // HOẶC KHI HỌC SINH BẤM "LÀM LẠI ĐỀ" (isRetake / shuffleAnswers)
+        // =====================================================================
+        const shouldPermuteChoices =
+          qFormat === QuestionFormat.SINGLE_CHOICE &&
+          q.answers.length >= 2 &&
+          (servedEpoch >= 1 || Boolean(dto.isRetake) || Boolean(dto.shuffleAnswers)) &&
+          !this.hasPositionDependentAnswerText(q.answers.map((a) => a.content));
+
+        const orderedAnswers = shouldPermuteChoices
+          ? this.permuteAnswerChoicesGuaranteedShift(
+              q.answers,
+              `${identitySeed}:${q.id}:ep:${Math.max(1, servedEpoch)}:${dto.clientSeed || ''}`,
+            )
+          : q.answers;
+
+        const correctAns = orderedAnswers.find((a) => a.is_answer);
+        const correctChoice = shouldPermuteChoices
+          ? correctAns
+            ? String.fromCharCode(65 + orderedAnswers.indexOf(correctAns))
+            : q.answer || 'A'
+          : correctAns
+            ? correctAns.sub_label || String.fromCharCode(65 + orderedAnswers.indexOf(correctAns))
+            : q.answer || 'A';
+
+        const statements =
+          qFormat === QuestionFormat.TRUE_FALSE
+            ? q.answers.map((a, aIdx) => ({
+                subId: ((a.sub_label || ['a', 'b', 'c', 'd'][aIdx] || 'a').toLowerCase() as
+                  | 'a'
+                  | 'b'
+                  | 'c'
+                  | 'd'),
+                statement: a.content,
+                isCorrect: Boolean(a.is_answer),
+              }))
+            : undefined;
+
+        const shortAnswerCorrect =
+          qFormat === QuestionFormat.SHORT_ANSWER
+            ? q.answer || correctAns?.content || ''
+            : undefined;
 
         return {
           id: q.id,
           orderIndex: idx + 1,
-          questionFormat: q.question_format || QuestionFormat.SINGLE_CHOICE,
+          questionFormat: qFormat,
           bloomLevel: q.bloom_level || BloomLevel.THONG_HIEU,
           topicTag: topic,
           cognitiveTag,
           trapTag,
           chapterId: q.chapter_id || 1,
+          track: chapterMetaById.get(Number(q.chapter_id || 1))?.track || 'DEFAULT',
+          servedEpoch,
+          choicesShuffled: shouldPermuteChoices,
           title: q.title || `Câu ${idx + 1} (${cognitiveTag}): ${topic}`,
           content: q.question,
           explanation: q.explanation || '',
           points: Number(q.default_points || 0.25),
           correctChoice,
-          answers: q.answers.map((a, aIdx) => ({
+          shortAnswerCorrect,
+          statements,
+          answers: orderedAnswers.map((a, aIdx) => ({
             id: a.id,
-            label: a.sub_label || String.fromCharCode(65 + aIdx), // A, B, C, D
+            label: shouldPermuteChoices
+              ? String.fromCharCode(65 + aIdx)
+              : a.sub_label || String.fromCharCode(65 + aIdx),
             content: a.content,
             isAnswer: a.is_answer,
           })),
@@ -502,12 +1104,398 @@ export class ExamsService {
     };
   }
 
+  private normalizeMatrixSubjectSlug(raw?: string): string {
+    const s = String(raw || 'toan-hoc')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/gi, 'd')
+      .toLowerCase()
+      .trim();
+    if (s.includes('toan')) return 'toan-hoc';
+    if (s.includes('tin')) return 'tin-hoc';
+    if (s.includes('vat') || s.includes('ly')) return 'vat-ly';
+    if (s.includes('hoa')) return 'hoa-hoc';
+    if (s.includes('sinh')) return 'sinh-hoc';
+    if (s.includes('anh')) return 'tieng-anh';
+    if (s.includes('van')) return 'ngu-van';
+    if (s.includes('su')) return 'lich-su';
+    if (s.includes('dia')) return 'dia-ly';
+    if (s.includes('gdcd') || s.includes('kinh te') || s.includes('phap luat')) return 'gdcd';
+    return s.replace(/\s+/g, '-');
+  }
+
+  private extractChapterNumber(raw?: string): number | null {
+    if (!raw) return null;
+    const m = String(raw).match(/(?:chương|chuong|ch\.?)\s*(\d+)/i);
+    if (m) return Number(m[1]);
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  private pickByBloomRatio<T extends { bloom_level: BloomLevel | null }>(
+    pool: T[],
+    targetCount: number,
+    bloomRatio: {
+      recognition_percentage?: number;
+      understanding_percentage?: number;
+      application_percentage?: number;
+      advanced_application_percentage?: number;
+    },
+  ): T[] {
+    if (pool.length === 0 || targetCount <= 0) return [];
+    const rec = Number(bloomRatio?.recognition_percentage ?? 40);
+    const und = Number(bloomRatio?.understanding_percentage ?? 30);
+    const app = Number(bloomRatio?.application_percentage ?? 20);
+    const adv = Number(bloomRatio?.advanced_application_percentage ?? 10);
+
+    const targets: Record<BloomLevel, number> = {
+      [BloomLevel.NHAN_BIET]: Math.round((targetCount * rec) / 100),
+      [BloomLevel.THONG_HIEU]: Math.round((targetCount * und) / 100),
+      [BloomLevel.VAN_DUNG]: Math.round((targetCount * app) / 100),
+      [BloomLevel.VAN_DUNG_CAO]: Math.round((targetCount * adv) / 100),
+    };
+    const sum = Object.values(targets).reduce((a, b) => a + b, 0);
+    targets[BloomLevel.THONG_HIEU] = Math.max(0, targets[BloomLevel.THONG_HIEU] + (targetCount - sum));
+
+    const shuffle = <X>(arr: X[]): X[] => {
+      const copy = [...arr];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    };
+
+    const selected: T[] = [];
+    const pickedIds = new Set<string>();
+    for (const lvl of [
+      BloomLevel.NHAN_BIET,
+      BloomLevel.THONG_HIEU,
+      BloomLevel.VAN_DUNG,
+      BloomLevel.VAN_DUNG_CAO,
+    ]) {
+      const needed = Math.max(0, targets[lvl]);
+      const bucket = shuffle(pool.filter((q) => (q.bloom_level || BloomLevel.THONG_HIEU) === lvl));
+      for (const item of bucket.slice(0, needed)) {
+        selected.push(item);
+        pickedIds.add((item as any).id);
+      }
+    }
+
+    if (selected.length < targetCount) {
+      const remaining = shuffle(pool.filter((q) => !pickedIds.has((q as any).id)));
+      selected.push(...remaining.slice(0, targetCount - selected.length));
+    }
+
+    return selected.slice(0, targetCount);
+  }
+
+  /**
+   * Sinh N mã đề hoàn chỉnh từ PostgreSQL cho Admin ExamMatrixBuilder (Blueprint 3 phần GDPT 2018)
+   */
+  async generateAdminMatrixBlueprint(payload: any) {
+    const examInfo = payload?.exam_info || {};
+    const scopeConfig = payload?.scope_config || {};
+    const blueprint = payload?.matrix_blueprint || {};
+    const variantsCfg = payload?.variants_config || {};
+
+    const subjectSlug = this.normalizeMatrixSubjectSlug(examInfo.subject);
+    const gradeNum = Number(examInfo.grade_level) || undefined;
+    const totalQuestions = Math.max(1, Number(blueprint.total_questions || 20));
+    const variantCount = Math.min(8, Math.max(1, Number(variantsCfg.variant_count || 4)));
+    const variantPrefix = String(variantsCfg.variant_prefix || '10');
+    const shouldShuffleQuestions = variantsCfg.shuffle_questions !== false;
+    const shouldShuffleChoices = variantsCfg.shuffle_choices !== false;
+
+    let dbRows = await this.prisma.question.findMany({
+      where: {
+        subject: subjectSlug,
+        ...(gradeNum ? { grade: gradeNum } : {}),
+        question_format: { not: QuestionFormat.ESSAY },
+      },
+      include: { answers: true },
+      orderBy: { id: 'asc' },
+    });
+
+    if (dbRows.length < totalQuestions && gradeNum) {
+      dbRows = await this.prisma.question.findMany({
+        where: {
+          subject: subjectSlug,
+          question_format: { not: QuestionFormat.ESSAY },
+        },
+        include: { answers: true },
+        orderBy: { id: 'asc' },
+      });
+    }
+
+    if (dbRows.length === 0) {
+      throw new BadRequestException(
+        `Ngân hàng câu hỏi PostgreSQL hiện chưa có câu hỏi nào cho môn "${examInfo.subject || subjectSlug}". Vui lòng import hoặc thêm câu hỏi trước khi sinh đề.`,
+      );
+    }
+
+    const catDist = blueprint.category_distribution || {};
+    const mcqTarget = Number(catDist.multiple_choice ?? Math.round(totalQuestions * 0.6));
+    const tfTarget = Number(catDist.true_false ?? Math.round(totalQuestions * 0.2));
+    const saTarget = Number(catDist.short_answer ?? Math.max(0, totalQuestions - mcqTarget - tfTarget));
+    const bloomRatio = blueprint.bloom_ratio || {};
+
+    const scopeMode = String(scopeConfig.scope_mode || 'CHAPTER_FOCUSED');
+    const currentChNum = this.extractChapterNumber(scopeConfig.current_chapter);
+    const prevChNums = new Set<number>(
+      (Array.isArray(scopeConfig.previous_chapters) ? scopeConfig.previous_chapters : [])
+        .map((c: string) => this.extractChapterNumber(c))
+        .filter((x: number | null): x is number => x !== null),
+    );
+    const semChNums = new Set<number>(
+      (Array.isArray(scopeConfig.selected_chapters) ? scopeConfig.selected_chapters : [])
+        .map((c: string) => this.extractChapterNumber(c))
+        .filter((x: number | null): x is number => x !== null),
+    );
+
+    const pickForCategory = (catPool: typeof dbRows, count: number) => {
+      if (count <= 0) return [];
+      const effectivePool = catPool.length > 0 ? catPool : dbRows;
+
+      if (scopeMode === 'CHAPTER_FOCUSED' && currentChNum !== null) {
+        const curRatio = Number(scopeConfig.scope_ratio?.current_chapter_percentage ?? 70);
+        const needCur = Math.round((count * curRatio) / 100);
+        const needPrev = count - needCur;
+        const curPool = effectivePool.filter((q) => Number(q.chapter_id) === currentChNum);
+        const prevPool = effectivePool.filter((q) => prevChNums.has(Number(q.chapter_id)));
+
+        const pickedCur = this.pickByBloomRatio(curPool.length > 0 ? curPool : effectivePool, needCur, bloomRatio);
+        const usedIds = new Set(pickedCur.map((x) => x.id));
+        const remPrev = (prevPool.length > 0 ? prevPool : effectivePool).filter((x) => !usedIds.has(x.id));
+        const pickedPrev = this.pickByBloomRatio(remPrev.length > 0 ? remPrev : effectivePool, needPrev, bloomRatio);
+        const combined = [...pickedCur, ...pickedPrev];
+        if (combined.length < count) {
+          const allUsed = new Set(combined.map((x) => x.id));
+          combined.push(
+            ...this.pickByBloomRatio(effectivePool.filter((x) => !allUsed.has(x.id)), count - combined.length, bloomRatio),
+          );
+        }
+        return combined.slice(0, count);
+      }
+
+      if (scopeMode === 'SEMESTER' && semChNums.size > 0) {
+        const semPool = effectivePool.filter((q) => semChNums.has(Number(q.chapter_id)));
+        return this.pickByBloomRatio(semPool.length > 0 ? semPool : effectivePool, count, bloomRatio);
+      }
+
+      return this.pickByBloomRatio(effectivePool, count, bloomRatio);
+    };
+
+    const mcqPool = dbRows.filter(
+      (q) => !q.question_format || q.question_format === QuestionFormat.SINGLE_CHOICE || q.question_format === QuestionFormat.MULTI_CHOICE,
+    );
+    const tfPool = dbRows.filter((q) => q.question_format === QuestionFormat.TRUE_FALSE);
+    const saPool = dbRows.filter((q) => q.question_format === QuestionFormat.SHORT_ANSWER);
+
+    const baseMcq = pickForCategory(mcqPool, mcqTarget);
+    const baseTf = pickForCategory(tfPool, tfTarget);
+    const baseSa = pickForCategory(saPool, saTarget);
+
+    const bloomMap: Record<BloomLevel, string> = {
+      [BloomLevel.NHAN_BIET]: 'RECOGNITION',
+      [BloomLevel.THONG_HIEU]: 'UNDERSTANDING',
+      [BloomLevel.VAN_DUNG]: 'APPLICATION',
+      [BloomLevel.VAN_DUNG_CAO]: 'ADVANCED_APPLICATION',
+    };
+
+    const shuffleArr = <X>(arr: X[]): X[] => {
+      if (!shouldShuffleQuestions) return [...arr];
+      const copy = [...arr];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    };
+
+    const toClientQuestion = (
+      q: (typeof dbRows)[number],
+      orderNum: number,
+      sectionTitle: string,
+      variantCode: string,
+    ) => {
+      const qFormat = q.question_format || QuestionFormat.SINGLE_CHOICE;
+      const isMcq = qFormat === QuestionFormat.SINGLE_CHOICE || qFormat === QuestionFormat.MULTI_CHOICE;
+      const canShuffle =
+        shouldShuffleChoices &&
+        isMcq &&
+        q.answers.length >= 2 &&
+        !this.hasPositionDependentAnswerText(q.answers.map((a) => a.content));
+
+      const orderedAnswers = canShuffle
+        ? this.permuteAnswerChoicesGuaranteedShift(q.answers, `${variantCode}:${q.id}:${Date.now()}`)
+        : q.answers;
+
+      const mappedAnswers = orderedAnswers.map((a, aIdx) => ({
+        id: a.id,
+        question_id: q.id,
+        content: a.content,
+        is_answer: Boolean(a.is_answer),
+        label:
+          qFormat === QuestionFormat.TRUE_FALSE
+            ? String(a.sub_label || ['a', 'b', 'c', 'd'][aIdx] || 'a').toLowerCase()
+            : canShuffle
+              ? String.fromCharCode(65 + aIdx)
+              : String(a.sub_label || String.fromCharCode(65 + aIdx)).toUpperCase(),
+        explain: a.explain || undefined,
+      }));
+
+      const statements =
+        qFormat === QuestionFormat.TRUE_FALSE
+          ? mappedAnswers.map((a, aIdx) => ({
+              subId: (a.label || ['a', 'b', 'c', 'd'][aIdx] || 'a') as 'a' | 'b' | 'c' | 'd',
+              statement: a.content,
+              isCorrect: a.is_answer,
+            }))
+          : undefined;
+
+      const shortAnswerCorrect =
+        qFormat === QuestionFormat.SHORT_ANSWER
+          ? q.answer || mappedAnswers.find((a) => a.is_answer)?.content || ''
+          : undefined;
+
+      const correctLabels = mappedAnswers.filter((a) => a.is_answer).map((a) => a.label);
+
+      const feType =
+        qFormat === QuestionFormat.TRUE_FALSE
+          ? 'TRUE_FALSE'
+          : qFormat === QuestionFormat.SHORT_ANSWER
+            ? 'FILL_BLANK'
+            : qFormat === QuestionFormat.MULTI_CHOICE
+              ? 'MULTIPLE_CHOICE'
+              : 'SINGLE_CHOICE';
+
+      return {
+        id: q.id,
+        type: feType,
+        title: `Câu ${orderNum}`,
+        content: q.question,
+        difficulty: bloomMap[q.bloom_level || BloomLevel.THONG_HIEU] || 'UNDERSTANDING',
+        subject: examInfo.subject || subjectSlug,
+        grade_level: String(q.grade || gradeNum || 12),
+        chapter: `Chương ${q.chapter_id || 1}`,
+        points:
+          Number(q.default_points) ||
+          (qFormat === QuestionFormat.TRUE_FALSE ? 1.0 : qFormat === QuestionFormat.SHORT_ANSWER ? 0.5 : 0.25),
+        explain: q.explanation || undefined,
+        answers: mappedAnswers,
+        statements,
+        shortAnswerCorrect,
+        correctChoice: correctLabels[0] || 'A',
+        section_title: sectionTitle,
+      };
+    };
+
+    const variants: any[] = [];
+    for (let v = 0; v < variantCount; v++) {
+      const code = `${variantPrefix}${v + 1}`;
+      const sec1 = 'PHẦN I. CÂU HỎI TRẮC NGHIỆM NHIỀU PHƯƠNG ÁN LỰA CHỌN';
+      const sec2 = 'PHẦN II. CÂU HỎI TRẮC NGHIỆM ĐÚNG / SAI';
+      const sec3 = 'PHẦN III. CÂU HỎI TRẮC NGHIỆM TRẢ LỜI NGẮN';
+
+      const shuffledMcq = shuffleArr(baseMcq);
+      const shuffledTf = shuffleArr(baseTf);
+      const shuffledSa = shuffleArr(baseSa);
+
+      let cursor = 1;
+      const varMcq = shuffledMcq.map((q) => toClientQuestion(q, cursor++, sec1, code));
+      const varTf = shuffledTf.map((q) => toClientQuestion(q, cursor++, sec2, code));
+      const varSa = shuffledSa.map((q) => toClientQuestion(q, cursor++, sec3, code));
+      const allQuestions = [...varMcq, ...varTf, ...varSa];
+
+      const parts: any[] = [];
+      if (varMcq.length > 0) {
+        parts.push({
+          part_number: 1,
+          title: sec1,
+          description: 'Thí sinh chọn phương án đúng (A, B, C hoặc D).',
+          question_type: 'MULTIPLE_CHOICE',
+          questions: varMcq,
+          points_per_question: 0.25,
+          total_points: Number((varMcq.length * 0.25).toFixed(2)),
+        });
+      }
+      if (varTf.length > 0) {
+        parts.push({
+          part_number: 2,
+          title: sec2,
+          description: 'Thí sinh trả lời Đúng/Sai cho từng ý a, b, c, d.',
+          question_type: 'TRUE_FALSE',
+          questions: varTf,
+          points_per_question: 1.0,
+          total_points: Number((varTf.length * 1.0).toFixed(2)),
+        });
+      }
+      if (varSa.length > 0) {
+        parts.push({
+          part_number: 3,
+          title: sec3,
+          description: 'Thí sinh điền đáp số trực tiếp vào ô kết quả.',
+          question_type: 'FILL_BLANK',
+          questions: varSa,
+          points_per_question: 0.5,
+          total_points: Number((varSa.length * 0.5).toFixed(2)),
+        });
+      }
+
+      const answerKey: Record<string, string | string[]> = {};
+      allQuestions.forEach((q, idx) => {
+        const keyName = `Câu ${idx + 1}`;
+        if (q.type === 'TRUE_FALSE') {
+          answerKey[keyName] = (q.statements || [])
+            .map((st: any) => `${st.subId}-${st.isCorrect ? 'Đ' : 'S'}`)
+            .join('; ');
+        } else if (q.type === 'FILL_BLANK') {
+          answerKey[keyName] = q.shortAnswerCorrect || 'Đáp số';
+        } else {
+          const corrects = (q.answers || []).filter((a: any) => a.is_answer).map((a: any) => a.label);
+          answerKey[keyName] = corrects.length > 0 ? corrects.join(', ') : q.correctChoice || 'A';
+        }
+      });
+
+      const totalScore = parts.reduce((acc, p) => acc + p.total_points, 0);
+      variants.push({
+        variant_code: code,
+        title: `${examInfo.title || 'Đề Ma Trận'} - Mã đề ${code}`,
+        total_questions: allQuestions.length,
+        duration_minutes: Number(examInfo.duration_minutes || 45),
+        questions: allQuestions,
+        answer_key: answerKey,
+        parts,
+        total_score: totalScore > 0 ? Number(totalScore.toFixed(2)) : 10.0,
+      });
+    }
+
+    return {
+      success: true,
+      source: 'POSTGRESQL',
+      message: `PostgreSQL đã sinh thành công ${variants.length} mã đề từ ${dbRows.length} câu hỏi thực tế!`,
+      server_timestamp: new Date().toISOString(),
+      standards: 'GDPT 2018 - MOET 2025',
+      variants,
+      summary: {
+        total_variants: variants.length,
+        total_questions: variants[0]?.total_questions || 0,
+        pool_size: dbRows.length,
+        subject_slug: subjectSlug,
+        category_distribution: catDist,
+        bloom_ratio: bloomRatio,
+        scope_mode: scopeMode,
+      },
+    };
+  }
+
   /**
    * Nộp bài thi, chấm điểm, sinh mã bảo mật attemptToken (CSPRNG att_[a-f0-9]{32}),
    * lưu ExamSubmission và tự động cộng/trừ điểm làm đề
    * (< 5đ: -1đ | 5 - 8.5đ: 0đ | 8.5 - 9.9đ: +1đ | 10đ: +2đ)
    */
-  async submitExam(userId: string | null, dto: SubmitExamDto) {
+  async submitExam(userId: string | null, dto: SubmitExamDto, callerRole?: string) {
     const {
       sessionId,
       attemptToken: clientAttemptToken,
@@ -525,7 +1513,7 @@ export class ExamsService {
 
     const resolvedSessionId = sessionId || `SES-${Date.now()}`;
     const safeTimeSpent = Math.max(0, Number(timeSpentSeconds ?? 0));
-    const effectiveUserId = userId || dto.userId || snapshotData?.userId || null;
+    const effectiveUserId = userId || null;
     const studentProfile = await this.getOrInitStudentProfile(effectiveUserId, grade);
     const studentProfileId = studentProfile.id;
     const ownerUserId = studentProfile.user_id;
@@ -535,17 +1523,15 @@ export class ExamsService {
       clientAttemptToken || snapshotData?.attemptToken,
     );
 
-    // Chuẩn hóa cấu trúc answers (hỗ trợ cả Object { multipleChoices, trueFalseAnswers, shortAnswers, essayAnswers } và Array)
+    // Chuẩn hóa cấu trúc answers (hỗ trợ cả Object { multipleChoices, trueFalseAnswers, shortAnswers } và Array)
     const normalizedAnswers: {
       multipleChoices: Record<string, string>;
       trueFalseAnswers: Record<string, Record<string, boolean>>;
       shortAnswers: Record<string, string>;
-      essayAnswers: Record<string, string>;
     } = {
       multipleChoices: {},
       trueFalseAnswers: {},
       shortAnswers: {},
-      essayAnswers: {},
     };
 
     if (Array.isArray(answers)) {
@@ -565,7 +1551,6 @@ export class ExamsService {
       normalizedAnswers.multipleChoices = { ...(answers.multipleChoices || {}) };
       normalizedAnswers.trueFalseAnswers = { ...(answers.trueFalseAnswers || {}) };
       normalizedAnswers.shortAnswers = { ...(answers.shortAnswers || {}) };
-      normalizedAnswers.essayAnswers = { ...(answers.essayAnswers || {}) };
     }
 
     // Chấm điểm chi tiết
@@ -573,7 +1558,7 @@ export class ExamsService {
     let wrongCount = 0;
     const details: any[] = [];
 
-    // 1. Chấm trắc nghiệm Multiple Choice (4 chọn 1)
+    // 1. Chấm trắc nghiệm 1 đáp án (SINGLE_CHOICE) & Nhiều đáp án (MULTIPLE_CHOICE)
     for (const [qId, ansId] of Object.entries(normalizedAnswers.multipleChoices)) {
       const question = await this.prisma.question.findUnique({
         where: { id: qId },
@@ -581,20 +1566,45 @@ export class ExamsService {
       });
 
       if (question) {
-        const correctAns = question.answers.find((a) => a.is_answer);
-        const isCorrect = Boolean(
-          correctAns && (correctAns.id === ansId || correctAns.sub_label === ansId),
-        );
+        const correctChoices = question.answers.filter((a) => a.is_answer);
+        let isCorrect = false;
+        if (question.question_format === QuestionFormat.MULTI_CHOICE && correctChoices.length > 1) {
+          const selectedTokens = String(ansId || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          const expectedIds = new Set(correctChoices.map((a) => a.id));
+          const expectedLabels = new Set(correctChoices.map((a) => a.sub_label).filter(Boolean));
+          isCorrect =
+            selectedTokens.length === correctChoices.length &&
+            (selectedTokens.every((t) => expectedIds.has(t)) ||
+              selectedTokens.every((t) => expectedLabels.has(t)));
+        } else {
+          const correctAns = correctChoices[0];
+          isCorrect = Boolean(
+            correctAns && (correctAns.id === ansId || correctAns.sub_label === ansId),
+          );
+        }
         if (isCorrect) correctCount++;
         else wrongCount++;
 
+        const maxWeight = Number(question.default_points || 0.25);
         details.push({
           questionId: qId,
           questionFormat: question.question_format || 'SINGLE_CHOICE',
+          bloomLevel: question.bloom_level || 'THONG_HIEU',
+          chapterId: question.chapter_id || 1,
+          topicTag:
+            question.topic_tag ||
+            this.mapChapterToTopic(question.chapter_id, question.subject),
+          trapTag:
+            question.trap_tag ||
+            this.getTrapTagByContext(question.bloom_level, question.subject),
           isCorrect,
-          pointsEarned: isCorrect ? Number(question.default_points || 0.25) : 0,
+          pointsEarned: isCorrect ? maxWeight : 0,
+          maxPoints: maxWeight,
           selectedAnswerId: ansId,
-          correctAnswerId: correctAns?.id || null,
+          correctAnswerId: correctChoices.map((a) => a.id).join(',') || null,
           explanation: question.explanation,
         });
       }
@@ -620,23 +1630,30 @@ export class ExamsService {
         else wrongCount++;
 
         const tfPointsMap: Record<number, number> = { 0: 0, 1: 0.1, 2: 0.25, 3: 0.5, 4: 1.0 };
+        const earned = tfPointsMap[matchedSubCount] ?? 0;
         details.push({
           questionId: qId,
           questionFormat: 'TRUE_FALSE',
+          bloomLevel: question.bloom_level || 'THONG_HIEU',
+          chapterId: question.chapter_id || 1,
+          topicTag:
+            question.topic_tag ||
+            this.mapChapterToTopic(question.chapter_id, question.subject),
+          trapTag:
+            question.trap_tag ||
+            this.getTrapTagByContext(question.bloom_level, question.subject),
           isCorrect: isAllCorrect,
           matchedSubCount,
-          pointsEarned: tfPointsMap[matchedSubCount] ?? 0,
+          pointsEarned: earned,
+          maxPoints: 1.0,
           subAnswers: subMap,
           explanation: question.explanation,
         });
       }
     }
 
-    // 3. Chấm câu hỏi Trả lời ngắn / Tự luận (SHORT_ANSWER & ESSAY)
-    const textEntries = [
-      ...Object.entries(normalizedAnswers.shortAnswers),
-      ...Object.entries(normalizedAnswers.essayAnswers),
-    ];
+    // 3. Chấm câu hỏi Trả lời ngắn / Điền số (SHORT_ANSWER)
+    const textEntries = Object.entries(normalizedAnswers.shortAnswers);
     for (const [qId, studentText] of textEntries) {
       const question = await this.prisma.question.findUnique({
         where: { id: qId },
@@ -658,11 +1675,21 @@ export class ExamsService {
         if (isCorrect) correctCount++;
         else wrongCount++;
 
+        const maxWeight = Number(question.default_points || 0.5);
         details.push({
           questionId: qId,
           questionFormat: question.question_format || 'SHORT_ANSWER',
+          bloomLevel: question.bloom_level || 'THONG_HIEU',
+          chapterId: question.chapter_id || 1,
+          topicTag:
+            question.topic_tag ||
+            this.mapChapterToTopic(question.chapter_id, question.subject),
+          trapTag:
+            question.trap_tag ||
+            this.getTrapTagByContext(question.bloom_level, question.subject),
           isCorrect,
-          pointsEarned: isCorrect ? Number(question.default_points || 0.5) : 0,
+          pointsEarned: isCorrect ? maxWeight : 0,
+          maxPoints: maxWeight,
           studentTextAnswer: studentText,
           expectedAnswer: question.answer || null,
           explanation: question.explanation,
@@ -670,25 +1697,20 @@ export class ExamsService {
       }
     }
 
-    // Nếu câu hỏi đến từ đề trên Frontend (chưa lưu từng questionId trong bảng questions),
-    // vẫn tính số câu đúng/sai từ snapshotData hoặc số câu trả lời gửi lên
+    // Nếu câu hỏi đến từ đề cục bộ chưa đồng bộ vào bảng questions, KHÔNG tự gán đúng 100% đáp án
     if (correctCount === 0 && wrongCount === 0) {
       const snapOrig = snapshotData?.originalExam || snapshotData;
       if (snapOrig && typeof snapOrig.correctCount === 'number') {
-        correctCount = Number(snapOrig.correctCount);
-        wrongCount = Number(
-          snapOrig.wrongCount ?? Math.max(0, Number(snapOrig.totalQuestions || 0) - correctCount),
-        );
+        const declaredTotal = Math.max(1, Number(snapOrig.totalQuestions || 1));
+        correctCount = Math.max(0, Math.min(declaredTotal, Number(snapOrig.correctCount)));
+        wrongCount = Math.max(0, declaredTotal - correctCount);
       } else {
         const totalSubmittedCount =
           Object.keys(normalizedAnswers.multipleChoices).length +
           Object.keys(normalizedAnswers.trueFalseAnswers).length +
-          Object.keys(normalizedAnswers.shortAnswers).length +
-          Object.keys(normalizedAnswers.essayAnswers).length;
-        if (totalSubmittedCount > 0) {
-          correctCount = totalSubmittedCount;
-          wrongCount = 0;
-        }
+          Object.keys(normalizedAnswers.shortAnswers).length;
+        correctCount = 0;
+        wrongCount = totalSubmittedCount;
       }
     }
 
@@ -698,21 +1720,31 @@ export class ExamsService {
         correctCount + wrongCount,
     );
 
-    const userRole = (studentProfile as any)?.role || '';
-    const isTeacherOrAdmin = userRole === 'TEACHER' || userRole === 'SUPER_ADMIN';
+    const normalizedCallerRole = String(callerRole || (studentProfile as any)?.role || '').toUpperCase();
+    const isAdminCaller = normalizedCallerRole === 'SUPER_ADMIN' || normalizedCallerRole === 'ADMIN';
 
-    // Anti-Cheat: Chấm điểm thực tế từ cơ sở dữ liệu nếu có câu hỏi được tìm thấy
+    // Anti-Cheat: Chấm điểm thực tế từ cơ sở dữ liệu (hỗ trợ cộng điểm thành phần câu Đúng/Sai GDPT 2018)
     const gradedFromDb = details.length > 0;
-    let score = Number(((correctCount / totalQuestions) * 10).toFixed(2));
+    let score = 0;
 
     if (gradedFromDb) {
-      // Khi đã chấm được trực tiếp từ DB: chỉ cho phép giáo viên/admin can thiệp điểm số thủ công
-      if (isTeacherOrAdmin && scoreOverride !== undefined && scoreOverride !== null && !Number.isNaN(Number(scoreOverride))) {
+      const hasTrueFalse = details.some((d) => d.questionFormat === 'TRUE_FALSE');
+      if (hasTrueFalse) {
+        const totalEarned = details.reduce((s, d) => s + Number(d.pointsEarned || 0), 0);
+        const avgMax =
+          details.reduce((s, d) => s + Number(d.maxPoints || 1), 0) / Math.max(1, details.length);
+        const totalMax = details.reduce((s, d) => s + Number(d.maxPoints || 1), 0) +
+          Math.max(0, totalQuestions - details.length) * avgMax;
+        score = totalMax > 0 ? Number(Math.min(10, (totalEarned / totalMax) * 10).toFixed(2)) : 0;
+      } else {
+        score = Number(((correctCount / totalQuestions) * 10).toFixed(2));
+      }
+      if (isAdminCaller && scoreOverride !== undefined && scoreOverride !== null && !Number.isNaN(Number(scoreOverride))) {
         score = Math.max(0, Math.min(10, Number(Number(scoreOverride).toFixed(2))));
       }
     } else {
-      // Nếu là đề local/offline chưa đồng bộ câu hỏi vào DB
-      if (scoreOverride !== undefined && scoreOverride !== null && !Number.isNaN(Number(scoreOverride))) {
+      // Đề cục bộ chưa có câu hỏi trong DB: chỉ Admin mới được override; student dùng điểm snapshot hợp lệ nhưng KHÔNG thưởng Ngọc
+      if (isAdminCaller && scoreOverride !== undefined && scoreOverride !== null && !Number.isNaN(Number(scoreOverride))) {
         score = Math.max(0, Math.min(10, Number(Number(scoreOverride).toFixed(2))));
       } else if (
         snapshotData?.originalExam &&
@@ -724,11 +1756,96 @@ export class ExamsService {
       }
     }
 
+    const resolvedSubjectSlug = (
+      subjectSlug ||
+      snapshotData?.subjectSlug ||
+      snapshotData?.originalExam?.subjectSlug ||
+      'toan-hoc'
+    )
+      .trim()
+      .toLowerCase();
+    const resolvedGradeNum = Number(
+      grade || snapshotData?.grade || snapshotData?.originalExam?.grade || 12,
+    );
+    const resolvedChapterIdNum = Number(
+      dto.chapterId ??
+        snapshotData?.chapterId ??
+        snapshotData?.originalExam?.chapterId ??
+        0,
+    );
+    const resolvedPracticeMode = String(
+      dto.practiceMode ||
+        snapshotData?.practiceMode ||
+        snapshotData?.originalExam?.practiceMode ||
+        (resolvedChapterIdNum > 0 ? 'TOPIC' : 'MOCK_EXAM'),
+    )
+      .trim()
+      .toUpperCase();
+    const resolvedLevelCode = this.normalizeExamLevel(
+      level || snapshotData?.level || snapshotData?.originalExam?.level || 'BASIC',
+    ).code;
+
     const resolvedTitle =
       examTitle ||
       snapshotData?.examTitle ||
-      `Bài thi ${subjectSlug || 'Toán'} Lớp ${grade || 12}`;
+      `Bài thi ${resolvedSubjectSlug} Lớp ${resolvedGradeNum}`;
     const resolvedExamId = examId || snapshotData?.examId || 'exam-practice';
+    const isVirtualGuest = Boolean((studentProfile as any)?.isVirtual);
+
+    // Thu thập kết quả từng câu hỏi để cập nhật Hồ sơ Kiến thức & Lộ trình Cá nhân hóa trong PostgreSQL (chỉ khi đã đăng nhập thực)
+    let knowledgeUpdate: { topicDeltas: any[]; nextRecommendedStep: any | null } = {
+      topicDeltas: [],
+      nextRecommendedStep: null,
+    };
+    if (!isVirtualGuest) {
+      try {
+        const outcomes = this.knowledgeRoadmapService.extractOutcomesFromSubmission({
+          subjectSlug: resolvedSubjectSlug,
+          grade: resolvedGradeNum,
+          chapterId: resolvedChapterIdNum || 1,
+          timeSpentSeconds: safeTimeSpent,
+          details,
+          snapshotData,
+        });
+        if (outcomes.length > 0) {
+          knowledgeUpdate = await this.knowledgeRoadmapService.recordQuestionOutcomes(
+            studentProfileId,
+            outcomes,
+            true,
+          );
+        }
+      } catch (err) {
+        console.error('[ExamsService.submitExam] Knowledge profiling error:', err);
+      }
+    }
+
+    // Cập nhật tiến độ Lộ trình Chương kiểu Duolingo (StudentChapterProgress)
+    let chapterProgressUpdate: any = null;
+    if (resolvedPracticeMode === 'TOPIC' && resolvedChapterIdNum > 0) {
+      chapterProgressUpdate = await this.upsertChapterProgressAfterExam({
+        studentProfileId: isVirtualGuest ? null : studentProfileId,
+        subjectSlug: resolvedSubjectSlug,
+        grade: resolvedGradeNum,
+        chapterId: resolvedChapterIdNum,
+        levelCode: resolvedLevelCode,
+        score,
+      });
+    }
+
+    // Chẩn đoán năng lực đầu vào (ASSESSMENT): lưu bảng StudentSubjectDiagnostic & tự động mở khóa cấp độ phù hợp
+    const isDiagnosticExam =
+      resolvedLevelCode === 'ASSESSMENT' || resolvedPracticeMode === 'ASSESSMENT';
+    let diagnosticUpdate: any = null;
+    if (isDiagnosticExam) {
+      diagnosticUpdate = await this.applyDiagnosticResult({
+        studentProfileId: isVirtualGuest ? null : studentProfileId,
+        subjectSlug: resolvedSubjectSlug,
+        grade: resolvedGradeNum,
+        overallScore: score,
+        details,
+        snapshotData,
+      });
+    }
 
     const enrichedSnapshotData = {
       ...(snapshotData || {}),
@@ -737,8 +1854,11 @@ export class ExamsService {
       sessionId: resolvedSessionId,
       examId: resolvedExamId,
       examTitle: resolvedTitle,
-      subjectSlug: subjectSlug || snapshotData?.subjectSlug || 'toan-hoc',
-      grade: grade || snapshotData?.grade || 12,
+      subjectSlug: resolvedSubjectSlug,
+      grade: resolvedGradeNum,
+      chapterId: resolvedChapterIdNum || undefined,
+      practiceMode: resolvedPracticeMode,
+      level: resolvedLevelCode,
       answers: normalizedAnswers,
       score,
       maxScore: 10.0,
@@ -747,7 +1867,34 @@ export class ExamsService {
       totalQuestions,
       timeSpentSeconds: safeTimeSpent,
       details,
+      knowledgeUpdate,
+      chapterProgressUpdate,
+      diagnosticUpdate,
     };
+
+    // Khách chưa đăng nhập (Guest Trial): Trả kết quả chấm điểm từ PostgreSQL mà TUYỆT ĐỐI KHÔNG tạo user/submission rác trong DB
+    if (isVirtualGuest) {
+      return {
+        attemptToken,
+        submissionId: `guest-trial-${Date.now()}`,
+        isGuestTrial: true,
+        examId: resolvedExamId,
+        examTitle: resolvedTitle,
+        userId: null,
+        score,
+        maxScore: 10.0,
+        correctCount,
+        wrongCount,
+        totalQuestions,
+        timeSpentSeconds: safeTimeSpent,
+        submittedAt: new Date(),
+        details,
+        pointSettlement: null,
+        knowledgeUpdate,
+        chapterProgressUpdate,
+        diagnosticUpdate,
+      };
+    }
 
     // Lưu vào bảng exam_submissions kèm attempt_token UNIQUE
     const submission = await this.prisma.examSubmission.create({
@@ -764,19 +1911,31 @@ export class ExamsService {
       },
     });
 
-    // Tự động tính toán thưởng/phạt điểm làm đề sau khi nộp bài
-    const pointSettlement = await this.settleExamSubmissionPoints(ownerUserId, {
-      score,
-      level: level || snapshotData?.level || 'BASIC',
-      examTitle: resolvedTitle,
-      submissionId: submission.id,
-      sessionId: resolvedSessionId,
-      deductEntryCost: Boolean(deductEntryCost),
-    });
+    if (diagnosticUpdate?.diagnosticId) {
+      try {
+        await this.prisma.studentSubjectDiagnostic.update({
+          where: { id: diagnosticUpdate.diagnosticId },
+          data: { submission_id: submission.id },
+        });
+      } catch {}
+    }
+
+    // Tự động tính toán thưởng/phạt điểm làm đề sau khi nộp bài (chỉ tính thưởng Ngọc khi chấm xác thực từ DB)
+    const pointSettlement = gradedFromDb
+      ? await this.settleExamSubmissionPoints(ownerUserId, {
+          score,
+          level: resolvedLevelCode,
+          examTitle: resolvedTitle,
+          submissionId: submission.id,
+          sessionId: resolvedSessionId,
+          deductEntryCost: Boolean(deductEntryCost),
+        })
+      : null;
 
     return {
       attemptToken,
       submissionId: submission.id,
+      isGuestTrial: false,
       examId: resolvedExamId,
       examTitle: resolvedTitle,
       userId: ownerUserId,
@@ -789,6 +1948,9 @@ export class ExamsService {
       submittedAt: submission.submitted_at,
       details,
       pointSettlement,
+      knowledgeUpdate,
+      chapterProgressUpdate,
+      diagnosticUpdate,
     };
   }
 
@@ -817,19 +1979,8 @@ export class ExamsService {
         student: {
           include: {
             user: true,
-            parent_students: {
-              include: {
-                parent: true,
-              },
-            },
-            enrollments: {
-              include: {
-                class: true,
-              },
-            },
           },
         },
-        class: true,
         answers: {
           include: {
             question: {
@@ -849,19 +2000,8 @@ export class ExamsService {
           student: {
             include: {
               user: true,
-              parent_students: {
-                include: {
-                  parent: true,
-                },
-              },
-              enrollments: {
-                include: {
-                  class: true,
-                },
-              },
             },
           },
-          class: true,
           answers: {
             include: {
               question: {
@@ -903,11 +2043,8 @@ export class ExamsService {
       currentUser.schoolRoles.includes('TEACHER');
 
     const isLinkedParent =
-      (submission.student?.parent_students || []).some(
-        (ps) => ps.parent?.user_id === currentUser.id,
-      ) ||
       currentUser.linkedStudentIds.includes(submission.student_id) ||
-      ( submissionOwnerUserId
+      (submissionOwnerUserId
         ? currentUser.linkedStudentIds.includes(submissionOwnerUserId)
         : false);
 
@@ -961,9 +2098,9 @@ export class ExamsService {
   }
 
   /**
-   * Lấy chi tiết bài thi đã làm (Snapshot theo ID hoặc attemptToken)
+   * Lấy chi tiết bài thi đã làm (Snapshot theo ID hoặc attemptToken) kèm bảo vệ chống IDOR
    */
-  async getSnapshotById(idOrToken: string) {
+  async getSnapshotById(idOrToken: string, currentUser?: AuthenticatedExamUser) {
     const submission = await this.prisma.examSubmission.findFirst({
       where: {
         OR: [{ attempt_token: idOrToken }, { id: idOrToken }],
@@ -979,10 +2116,25 @@ export class ExamsService {
       throw new NotFoundException(`Không tìm thấy bài thi với mã: ${idOrToken}`);
     }
 
+    const snap = (submission.snapshot_data || {}) as Record<string, any>;
+    const submissionOwnerUserId = submission.student?.user_id || snap.userId || null;
+    const isAdmin =
+      currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN';
+    const isOwner =
+      Boolean(currentUser?.id) &&
+      Boolean(submissionOwnerUserId) &&
+      currentUser!.id === submissionOwnerUserId;
+
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException(
+        'Truy cập bị từ chối (403 Forbidden): Bạn không phải chủ sở hữu bài thi này.',
+      );
+    }
+
     return {
       id: submission.id,
       attemptToken: submission.attempt_token,
-      userId: submission.student?.user_id,
+      userId: submissionOwnerUserId,
       examTitle: submission.exam_title,
       score: Number(submission.score),
       totalPoints: Number(submission.total_points),
@@ -999,15 +2151,34 @@ export class ExamsService {
   async getPracticeHistory(userId: string | null, page = 1, limit = 10) {
     const skip = (page - 1) * limit;
 
-    let studentProfileId: string | undefined;
-    if (userId) {
-      const student = await this.prisma.studentProfile.findUnique({
-        where: { user_id: userId },
-      });
-      studentProfileId = student?.id;
+    if (!userId) {
+      return {
+        items: [],
+        pagination: {
+          totalItems: 0,
+          page,
+          limit,
+          totalPages: 0,
+        },
+      };
     }
 
-    const where = studentProfileId ? { student_id: studentProfileId } : {};
+    const student = await this.prisma.studentProfile.findUnique({
+      where: { user_id: userId },
+    });
+    if (!student?.id) {
+      return {
+        items: [],
+        pagination: {
+          totalItems: 0,
+          page,
+          limit,
+          totalPages: 0,
+        },
+      };
+    }
+
+    const where = { student_id: student.id };
 
     const [total, submissions] = await Promise.all([
       this.prisma.examSubmission.count({ where }),
@@ -1041,14 +2212,14 @@ export class ExamsService {
   }
 
   /**
-   * Đồng bộ bài thi offline lên server
+   * Đồng bộ bài thi offline lên server (gắn chặt userId đã xác thực)
    */
-  async syncOfflineSubmissions(dto: SyncOfflineSubmissionsDto) {
+  async syncOfflineSubmissions(userId: string, dto: SyncOfflineSubmissionsDto) {
     const syncedIds: string[] = [];
 
     for (const item of dto.submissions) {
       try {
-        await this.submitExam(null, {
+        await this.submitExam(userId, {
           sessionId: item.sessionId || `SES-OFFLINE-${Date.now()}`,
           examId: item.examId,
           examTitle: item.examTitle,
@@ -1184,34 +2355,223 @@ export class ExamsService {
       include: { answers: true, bank: true },
     });
 
+    this.invalidateQuestionPoolCache();
     return created;
   }
 
   /**
-   * Cập nhật câu hỏi trong Ngân hàng đề
+   * Lấy danh sách câu hỏi đã được chỉnh sửa/lưu trong PostgreSQL theo mảng ID
+   */
+  async getQuestionsByIds(ids: string[]) {
+    const cleanIds = Array.from(
+      new Set((ids || []).map((x) => String(x || '').trim()).filter(Boolean)),
+    );
+    if (cleanIds.length === 0) return [];
+
+    const rows = await this.prisma.question.findMany({
+      where: { id: { in: cleanIds } },
+      include: { answers: true },
+    });
+
+    return rows.map((q) => {
+      const qFormat = q.question_format || QuestionFormat.SINGLE_CHOICE;
+      const correctAns = q.answers.find((a) => a.is_answer);
+      const correctChoice = correctAns
+        ? (correctAns.sub_label || String.fromCharCode(65 + q.answers.indexOf(correctAns)))
+        : q.answer || 'A';
+
+      const choices =
+        qFormat === QuestionFormat.SINGLE_CHOICE || qFormat === QuestionFormat.MULTI_CHOICE
+          ? q.answers.map((a, idx) => ({
+              key: ((a.sub_label || String.fromCharCode(65 + idx)).toUpperCase() as
+                | 'A'
+                | 'B'
+                | 'C'
+                | 'D'),
+              content: a.content,
+            }))
+          : undefined;
+
+      const statements =
+        qFormat === QuestionFormat.TRUE_FALSE
+          ? q.answers.map((a, idx) => ({
+              subId: ((a.sub_label || ['a', 'b', 'c', 'd'][idx] || 'a').toLowerCase() as
+                | 'a'
+                | 'b'
+                | 'c'
+                | 'd'),
+              statement: a.content,
+              isCorrect: Boolean(a.is_answer),
+            }))
+          : undefined;
+
+      const shortAnswerCorrect =
+        qFormat === QuestionFormat.SHORT_ANSWER
+          ? q.answer || correctAns?.content || ''
+          : undefined;
+
+      return {
+        id: q.id,
+        title: q.title,
+        content: q.question,
+        explanation: q.explanation,
+        topicTag: q.topic_tag,
+        trapTag: q.trap_tag,
+        questionFormat: qFormat,
+        correctChoice,
+        choices,
+        statements,
+        shortAnswerCorrect,
+      };
+    });
+  }
+
+  /**
+   * Cập nhật hoặc Upsert câu hỏi & phương án trả lời trực tiếp vào PostgreSQL
+   * (Hỗ trợ cả trang Admin Ngân hàng đề lẫn chỉnh sửa trực tiếp ngay trong Phòng thi cho Admin)
    */
   async updateQuestion(
     id: string,
     payload: {
+      title?: string;
       content?: string;
       question?: string;
       explanation?: string;
+      topicTag?: string;
+      trapTag?: string;
+      subject?: string;
+      grade?: number;
+      chapterId?: number;
       bloomLevel?: string;
       questionFormat?: string;
+      type?: string;
+      correctChoice?: string;
+      choices?: Array<{ key: string; content: string }>;
+      statements?: Array<{ subId: string; statement: string; isCorrect: boolean }>;
+      shortAnswerCorrect?: string;
+      answers?: Array<{
+        content: string;
+        is_correct?: boolean;
+        is_answer?: boolean;
+        sub_label?: string;
+        label?: string;
+        explanation?: string;
+        explain?: string;
+      }>;
     },
   ) {
     const existing = await this.prisma.question.findUnique({ where: { id } });
-    if (!existing) {
-      throw new NotFoundException(`Không tìm thấy câu hỏi ID=${id}`);
+    const qText = payload.question ?? payload.content ?? existing?.question ?? '';
+
+    let resolvedFormat: QuestionFormat = existing?.question_format || QuestionFormat.SINGLE_CHOICE;
+    if (payload.questionFormat) {
+      resolvedFormat = this.normalizeQuestionFormat(payload.questionFormat);
+    } else if (payload.type === 'TRUE_FALSE' || Array.isArray(payload.statements)) {
+      resolvedFormat = QuestionFormat.TRUE_FALSE;
+    } else if (payload.type === 'SHORT_ANSWER' || payload.shortAnswerCorrect !== undefined) {
+      resolvedFormat = QuestionFormat.SHORT_ANSWER;
     }
 
-    const qText = payload.question ?? payload.content;
-    const anyPayload = payload as any;
-    if (Array.isArray(anyPayload.answers) && anyPayload.answers.length > 0) {
+    let resolvedAnswerField = existing?.answer || null;
+    if (payload.correctChoice !== undefined) {
+      resolvedAnswerField = String(payload.correctChoice).toUpperCase();
+    } else if (payload.shortAnswerCorrect !== undefined) {
+      resolvedAnswerField = String(payload.shortAnswerCorrect);
+    }
+
+    const subjectSlug = payload.subject || existing?.subject || 'toan-hoc';
+    const gradeNum = Number(payload.grade || existing?.grade || 12);
+
+    let bankId = existing?.bank_id || null;
+    if (!bankId) {
+      let bank = await this.prisma.questionBank.findFirst({
+        where: { title: { contains: subjectSlug, mode: 'insensitive' } },
+      });
+      if (!bank) {
+        bank = await this.prisma.questionBank.create({
+          data: {
+            title: `Ngân hàng đề ${subjectSlug} - Khối ${gradeNum}`,
+            is_premium: false,
+          },
+        });
+      }
+      bankId = bank.id;
+    }
+
+    await this.prisma.question.upsert({
+      where: { id },
+      create: {
+        id,
+        bank_id: bankId,
+        subject: subjectSlug,
+        grade: gradeNum,
+        chapter_id: Number(payload.chapterId || 1),
+        title: payload.title || `Câu hỏi ${subjectSlug} Khối ${gradeNum}`,
+        question: qText,
+        answer: resolvedAnswerField,
+        explanation: payload.explanation || '',
+        topic_tag: payload.topicTag || null,
+        trap_tag: payload.trapTag || null,
+        bloom_level: ((payload.bloomLevel as any) || 'THONG_HIEU') as BloomLevel,
+        question_format: resolvedFormat,
+        type:
+          resolvedFormat === QuestionFormat.TRUE_FALSE
+            ? 'TRUE_FALSE'
+            : 'MULTIPLE_CHOICE',
+      },
+      update: {
+        ...(qText ? { question: qText } : {}),
+        ...(payload.title !== undefined ? { title: payload.title } : {}),
+        ...(payload.explanation !== undefined ? { explanation: payload.explanation } : {}),
+        ...(payload.topicTag !== undefined ? { topic_tag: payload.topicTag } : {}),
+        ...(payload.trapTag !== undefined ? { trap_tag: payload.trapTag } : {}),
+        ...(resolvedAnswerField !== null ? { answer: resolvedAnswerField } : {}),
+        ...(payload.bloomLevel !== undefined ? { bloom_level: payload.bloomLevel as any } : {}),
+        question_format: resolvedFormat,
+      },
+    });
+
+    // Cập nhật bảng answers trong PostgreSQL
+    if (Array.isArray(payload.choices) && payload.choices.length > 0) {
+      const targetRight = String(payload.correctChoice || resolvedAnswerField || 'A').toUpperCase();
       await this.prisma.answer.deleteMany({ where: { question_id: id } });
       await this.prisma.answer.createMany({
-        data: anyPayload.answers.map((a: any) => ({
+        data: payload.choices.map((c, idx) => {
+          const key = String(c.key || String.fromCharCode(65 + idx)).toUpperCase();
+          return {
+            question_id: id,
+            sub_label: key,
+            content: String(c.content || ''),
+            is_answer: key === targetRight,
+          };
+        }),
+      });
+    } else if (Array.isArray(payload.statements) && payload.statements.length > 0) {
+      await this.prisma.answer.deleteMany({ where: { question_id: id } });
+      await this.prisma.answer.createMany({
+        data: payload.statements.map((st, idx) => ({
           question_id: id,
+          sub_label: String(st.subId || ['a', 'b', 'c', 'd'][idx] || 'a').toLowerCase(),
+          content: String(st.statement || ''),
+          is_answer: Boolean(st.isCorrect),
+        })),
+      });
+    } else if (payload.shortAnswerCorrect !== undefined) {
+      await this.prisma.answer.deleteMany({ where: { question_id: id } });
+      await this.prisma.answer.create({
+        data: {
+          question_id: id,
+          sub_label: 'SHORT',
+          content: String(payload.shortAnswerCorrect),
+          is_answer: true,
+        },
+      });
+    } else if (Array.isArray(payload.answers) && payload.answers.length > 0) {
+      await this.prisma.answer.deleteMany({ where: { question_id: id } });
+      await this.prisma.answer.createMany({
+        data: payload.answers.map((a, idx) => ({
+          question_id: id,
+          sub_label: a.sub_label || a.label || String.fromCharCode(65 + idx),
           content: String(a.content || ''),
           is_answer: Boolean(a.is_answer ?? a.is_correct),
           explain: a.explanation || a.explain || null,
@@ -1219,35 +2579,11 @@ export class ExamsService {
       });
     }
 
-    return this.prisma.question.update({
+    this.invalidateQuestionPoolCache();
+    return this.prisma.question.findUnique({
       where: { id },
-      data: {
-        ...(qText !== undefined ? { question: qText } : {}),
-        ...(payload.explanation !== undefined ? { explanation: payload.explanation } : {}),
-        ...(payload.bloomLevel !== undefined ? { bloom_level: payload.bloomLevel as any } : {}),
-        ...(payload.questionFormat !== undefined
-          ? { question_format: this.normalizeQuestionFormat(payload.questionFormat) }
-          : {}),
-      },
       include: { answers: true },
     });
-  }
-
-  private normalizeQuestionFormat(rawFormat?: string): QuestionFormat {
-    const normalized = String(rawFormat || 'SINGLE_CHOICE').toUpperCase();
-    if (normalized === 'TRUE_FALSE_GROUP' || normalized === 'TRUE_FALSE') {
-      return QuestionFormat.TRUE_FALSE;
-    }
-    if (normalized === 'MULTIPLE_CHOICE' || normalized === 'MULTI_CHOICE') {
-      return QuestionFormat.MULTI_CHOICE;
-    }
-    if (normalized === 'SHORT_ANSWER') {
-      return QuestionFormat.SHORT_ANSWER;
-    }
-    if (normalized === 'ESSAY') {
-      return QuestionFormat.ESSAY;
-    }
-    return QuestionFormat.SINGLE_CHOICE;
   }
 
   /**
@@ -1263,6 +2599,7 @@ export class ExamsService {
     await this.prisma.submissionAnswer.deleteMany({ where: { question_id: id } });
     await this.prisma.question.delete({ where: { id } });
 
+    this.invalidateQuestionPoolCache();
     return { deletedId: id };
   }
 
@@ -1321,7 +2658,7 @@ export class ExamsService {
   }
 
   normalizeExamLevel(rawLevel?: string): {
-    code: 'BASIC' | 'MEDIUM' | 'ADVANCED' | 'PROVINCIAL' | 'NATIONAL';
+    code: 'ASSESSMENT' | 'BASIC' | 'MEDIUM' | 'ADVANCED' | 'PROVINCIAL' | 'NATIONAL';
     label: string;
     costPoints: number;
     rewardPoints: number;
@@ -1330,6 +2667,21 @@ export class ExamsService {
     const norm = String(rawLevel || 'BASIC')
       .trim()
       .toUpperCase();
+
+    if (
+      norm.includes('ASSESSMENT') ||
+      norm.includes('DIAGNOSTIC') ||
+      norm.includes('DANH_GIA') ||
+      norm.includes('ĐÁNH GIÁ')
+    ) {
+      return {
+        code: 'ASSESSMENT',
+        label: 'Đánh giá năng lực',
+        costPoints: 0,
+        rewardPoints: 1,
+        maxDailyExams: 99,
+      };
+    }
 
     if (
       norm.includes('NATIONAL') ||
@@ -1410,10 +2762,16 @@ export class ExamsService {
     };
   }
 
-  private computeQuotaByLevel(currentPoints: number) {
-    const basicMax = Math.floor(currentPoints / EXAM_LEVEL_COSTS.BASIC);
-    const mediumMax = Math.floor(currentPoints / EXAM_LEVEL_COSTS.MEDIUM);
-    const advancedMax = Math.floor(currentPoints / EXAM_LEVEL_COSTS.ADVANCED);
+  private computeQuotaByLevel(currentPoints: number, currentDiamonds = 0) {
+    const basicMax =
+      Math.floor(currentPoints / EXAM_LEVEL_COSTS.BASIC) +
+      Math.floor(currentDiamonds / EXAM_LEVEL_COSTS.BASIC);
+    const mediumMax =
+      Math.floor(currentPoints / EXAM_LEVEL_COSTS.MEDIUM) +
+      Math.floor(currentDiamonds / EXAM_LEVEL_COSTS.MEDIUM);
+    const advancedMax =
+      Math.floor(currentPoints / EXAM_LEVEL_COSTS.ADVANCED) +
+      Math.floor(currentDiamonds / EXAM_LEVEL_COSTS.ADVANCED);
     return {
       BASIC: {
         code: 'BASIC',
@@ -1422,7 +2780,11 @@ export class ExamsService {
         dailyBaseAllowanceExams: 3,
         remainingExamsPossible: basicMax,
         maxExamsAvailable: basicMax,
-        canStart: currentPoints >= EXAM_LEVEL_COSTS.BASIC,
+        canStart:
+          currentPoints >= EXAM_LEVEL_COSTS.BASIC ||
+          currentDiamonds >= EXAM_LEVEL_COSTS.BASIC,
+        canStartWithPoints: currentPoints >= EXAM_LEVEL_COSTS.BASIC,
+        canStartWithDiamonds: currentDiamonds >= EXAM_LEVEL_COSTS.BASIC,
       },
       MEDIUM: {
         code: 'MEDIUM',
@@ -1431,7 +2793,11 @@ export class ExamsService {
         dailyBaseAllowanceExams: 2,
         remainingExamsPossible: mediumMax,
         maxExamsAvailable: mediumMax,
-        canStart: currentPoints >= EXAM_LEVEL_COSTS.MEDIUM,
+        canStart:
+          currentPoints >= EXAM_LEVEL_COSTS.MEDIUM ||
+          currentDiamonds >= EXAM_LEVEL_COSTS.MEDIUM,
+        canStartWithPoints: currentPoints >= EXAM_LEVEL_COSTS.MEDIUM,
+        canStartWithDiamonds: currentDiamonds >= EXAM_LEVEL_COSTS.MEDIUM,
       },
       ADVANCED: {
         code: 'ADVANCED',
@@ -1440,7 +2806,11 @@ export class ExamsService {
         dailyBaseAllowanceExams: 1,
         remainingExamsPossible: advancedMax,
         maxExamsAvailable: advancedMax,
-        canStart: currentPoints >= EXAM_LEVEL_COSTS.ADVANCED,
+        canStart:
+          currentPoints >= EXAM_LEVEL_COSTS.ADVANCED ||
+          currentDiamonds >= EXAM_LEVEL_COSTS.ADVANCED,
+        canStartWithPoints: currentPoints >= EXAM_LEVEL_COSTS.ADVANCED,
+        canStartWithDiamonds: currentDiamonds >= EXAM_LEVEL_COSTS.ADVANCED,
       },
     };
   }
@@ -1538,7 +2908,7 @@ export class ExamsService {
   }
 
   /**
-   * Lấy hoặc khởi tạo StudentProfile, đồng thời tự động kiểm tra & phát điểm đầu ngày mới theo gói
+   * Lấy hoặc khởi tạo StudentProfile cho user thực tế (không tạo user ảo / guest vào DB)
    */
   async getOrInitStudentProfile(userId: string | null, grade?: number) {
     const today = this.getTodayDateStringVN();
@@ -1550,26 +2920,16 @@ export class ExamsService {
       });
 
       if (!profile) {
-        let userExists = await this.prisma.user.findUnique({
+        const userExists = await this.prisma.user.findUnique({
           where: { id: userId },
         });
-        if (!userExists) {
-          const safeEmailSlug = userId.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
-          userExists = await this.prisma.user.create({
-            data: {
-              id: userId,
-              email: `${safeEmailSlug}_${Date.now()}@student.schoolify.local`,
-              fullname: userId === 'usr-student-01' ? 'Nguyễn Hoàng Minh' : `Học sinh (${userId})`,
-              password_hash: 'auto_provisioned_student',
-            },
-          });
-        }
-        if (userExists) {
+        // Chỉ tạo student_profile cho tài khoản học sinh thực tế (không tạo cho SUPER_ADMIN hoặc ID ảo)
+        if (userExists && userExists.role !== 'SUPER_ADMIN') {
           const pkgInfo = this.getPackageQuota(null);
           profile = await this.prisma.studentProfile.create({
             data: {
               user_id: userId,
-              grade_level: grade ? `Lớp ${grade}` : 'Lớp 12',
+              grade_level: grade ? `Lớp ${grade}` : null,
               points: 10,
               exam_points: pkgInfo.dailyFreeAllowance,
               active_package: 'FREE',
@@ -1592,50 +2952,21 @@ export class ExamsService {
     }
 
     if (!profile) {
-      const guestEmail = 'guest_student@schoolify.local';
-      let guestUser = await this.prisma.user.findUnique({
-        where: { email: guestEmail },
-        include: { student_profile: true },
-      });
-
-      if (!guestUser) {
-        const pkgInfo = this.getPackageQuota(null);
-        guestUser = await this.prisma.user.create({
-          data: {
-            email: guestEmail,
-            fullname: 'Học Sinh Khách (Guest)',
-            password_hash: 'guest_no_login',
-            student_profile: {
-              create: {
-                grade_level: grade ? `Lớp ${grade}` : 'Lớp 12',
-                points: 10,
-                exam_points: pkgInfo.dailyFreeAllowance,
-                active_package: 'FREE',
-                last_daily_grant_date: today,
-              },
-            },
-          },
-          include: { student_profile: true },
-        });
-        if (guestUser.student_profile) {
-          await this.prisma.examPointLog.create({
-            data: {
-              student_id: guestUser.student_profile.id,
-              action_type: 'DAILY_GRANT_FREE',
-              points_before: 0,
-              points_delta: pkgInfo.dailyFreeAllowance,
-              points_after: pkgInfo.dailyFreeAllowance,
-              note: `Khởi tạo & phát ${pkgInfo.dailyFreeAllowance} điểm làm đề Free hàng ngày (${today})`,
-            },
-          });
-        }
-      }
-
-      profile = guestUser.student_profile;
+      const pkgInfo = this.getPackageQuota(null);
+      return {
+        id: 'virtual-guest',
+        user_id: userId || 'guest',
+        grade_level: null,
+        points: 0,
+        exam_points: pkgInfo.dailyFreeAllowance,
+        active_package: 'FREE',
+        last_daily_grant_date: today,
+        isVirtual: true,
+      };
     }
 
     // Kiểm tra nếu sang ngày mới -> Reset điểm Free theo gói và cấp Điểm Xịn nếu có gói
-    if (profile && profile.last_daily_grant_date !== today) {
+    if (profile && !profile.isVirtual && profile.last_daily_grant_date !== today) {
       const pkgInfo = this.getPackageQuota(profile);
       const freeBefore = Number(profile.exam_points ?? 0);
       const xinBefore = Number(profile.points ?? 0);
@@ -1679,25 +3010,93 @@ export class ExamsService {
   }
 
   /**
-   * API 1: Lấy số dư điểm làm đề hiện tại + Hạn mức bài thi theo từng cấp độ + Thống kê hôm nay
+   * API 1: Lấy số dư điểm làm đề hiện tại + Hạn mức bài thi theo từng cấp độ + Thống kê hôm nay + Trạng thái gợi ý bài test năng lực (lần đầu / >= 30 ngày không luyện)
    */
   async getExamPointBalance(userId: string | null) {
     const today = this.getTodayDateStringVN();
     const profile = await this.getOrInitStudentProfile(userId);
     const pkgInfo = this.getPackageQuota(profile);
     const currentPoints = Number(profile.exam_points ?? pkgInfo.dailyFreeAllowance);
+    const currentDiamonds = Number(profile.points ?? 0);
 
     const startOfToday = new Date(`${today}T00:00:00+07:00`);
-    const todayLogs = await this.prisma.examPointLog.findMany({
-      where: {
-        student_id: profile.id,
-        created_at: { gte: startOfToday },
-      },
-      orderBy: { created_at: 'desc' },
-      take: 20,
-    });
+    const todayLogs = profile.isVirtual
+      ? []
+      : await this.prisma.examPointLog.findMany({
+          where: {
+            student_id: profile.id,
+            created_at: { gte: startOfToday },
+          },
+          orderBy: { created_at: 'desc' },
+          take: 20,
+        });
 
-    const examsStartedToday = todayLogs.filter((l) => l.action_type === 'START_EXAM').length;
+    // Kiểm tra lịch sử làm bài thật trong PostgreSQL để gợi ý bài test đánh giá năng lực (lần đầu hoặc >= 30 ngày không luyện)
+    const INACTIVITY_THRESHOLD_DAYS = 30;
+    let totalSubmissionsCount = 0;
+    let lastSubmittedAt: Date | null = null;
+    let daysSinceLastPractice: number | null = null;
+    let diagnosticPrompt: {
+      shouldPrompt: boolean;
+      reason: 'FIRST_TIME' | 'INACTIVE_30_DAYS' | null;
+      daysSinceLastPractice: number | null;
+      thresholdDays: number;
+    } = {
+      shouldPrompt: true,
+      reason: 'FIRST_TIME',
+      daysSinceLastPractice: null,
+      thresholdDays: INACTIVITY_THRESHOLD_DAYS,
+    };
+
+    if (!profile.isVirtual) {
+      const [subCount, latestSub] = await Promise.all([
+        this.prisma.examSubmission.count({
+          where: { student_id: profile.id },
+        }),
+        this.prisma.examSubmission.findFirst({
+          where: { student_id: profile.id },
+          orderBy: { submitted_at: 'desc' },
+          select: { id: true, submitted_at: true },
+        }),
+      ]);
+
+      totalSubmissionsCount = subCount;
+      lastSubmittedAt = latestSub?.submitted_at || null;
+      if (lastSubmittedAt) {
+        const diffMs = Math.max(0, Date.now() - new Date(lastSubmittedAt).getTime());
+        daysSinceLastPractice = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      }
+
+      if (totalSubmissionsCount === 0) {
+        diagnosticPrompt = {
+          shouldPrompt: true,
+          reason: 'FIRST_TIME',
+          daysSinceLastPractice: null,
+          thresholdDays: INACTIVITY_THRESHOLD_DAYS,
+        };
+      } else if (
+        daysSinceLastPractice !== null &&
+        daysSinceLastPractice >= INACTIVITY_THRESHOLD_DAYS
+      ) {
+        diagnosticPrompt = {
+          shouldPrompt: true,
+          reason: 'INACTIVE_30_DAYS',
+          daysSinceLastPractice,
+          thresholdDays: INACTIVITY_THRESHOLD_DAYS,
+        };
+      } else {
+        diagnosticPrompt = {
+          shouldPrompt: false,
+          reason: null,
+          daysSinceLastPractice,
+          thresholdDays: INACTIVITY_THRESHOLD_DAYS,
+        };
+      }
+    }
+
+    const examsStartedToday = todayLogs.filter(
+      (l) => l.action_type === 'START_EXAM' || l.action_type === 'START_EXAM_DIAMONDS',
+    ).length;
     const pointsSpentToday = todayLogs
       .filter((l) => l.action_type === 'START_EXAM')
       .reduce((sum, l) => sum + Math.abs(l.points_delta), 0);
@@ -1713,14 +3112,18 @@ export class ExamsService {
     return {
       studentProfileId: profile.id,
       currentPoints,
-      diamonds: Number(profile.points ?? 0),
+      diamonds: currentDiamonds,
       activePackage: pkgInfo.activePackage,
       dailyAllowance: pkgInfo.dailyFreeAllowance,
       dailyXinAllowance: pkgInfo.dailyXinPoints,
       hasAi50PercentDiscount: pkgInfo.hasAi50PercentDiscount,
       lastDailyGrantDate: profile.last_daily_grant_date || today,
       alreadyClaimedToday,
-      quotaByLevel: this.computeQuotaByLevel(currentPoints),
+      totalSubmissionsCount,
+      lastSubmittedAt,
+      daysSinceLastPractice,
+      diagnosticPrompt,
+      quotaByLevel: this.computeQuotaByLevel(currentPoints, currentDiamonds),
       todaySummary: {
         date: today,
         examsStartedToday,
@@ -1771,7 +3174,7 @@ export class ExamsService {
         previousPoints: before,
         currentPoints: before,
         diamonds: Number(profile.points ?? 0),
-        quotaByLevel: this.computeQuotaByLevel(before),
+        quotaByLevel: this.computeQuotaByLevel(before, Number(profile.points ?? 0)),
         message: `Hôm nay (${today}) bạn đã điểm danh rồi nhé! Mỗi ngày chỉ được điểm danh 1 lần, vui lòng quay lại vào ngày mai nhé.`,
       };
     }
@@ -1804,66 +3207,142 @@ export class ExamsService {
       previousPoints: before,
       currentPoints: updated.exam_points,
       diamonds: Number(updated.points ?? 0),
-      quotaByLevel: this.computeQuotaByLevel(updated.exam_points),
+      quotaByLevel: this.computeQuotaByLevel(updated.exam_points, Number(updated.points ?? 0)),
       message: `Điểm danh thành công ngày ${today}! Bạn đã nhận +1 Kim Cương (💎) hôm nay.`,
     };
   }
 
   /**
-   * API 3: Kiểm tra & Trừ điểm khi bắt đầu vào làm đề thi
-   * - Cơ bản (BASIC): -3đ (9đ làm được 3 bài)
-   * - Trung bình (MEDIUM): -4đ (9đ làm được 2 bài)
-   * - Giỏi (ADVANCED): -9đ (9đ làm được 1 bài)
+   * API 3: Kiểm tra & Trừ điểm khi bắt đầu vào làm đề thi (Hỗ trợ cả Tia Sáng ⚡ và Ngọc Tri Thức 💎 tỷ lệ 1:1)
+   * - Đánh giá năng lực (ASSESSMENT): 0đ (Miễn phí)
+   * - Cơ bản (BASIC): -3 ⚡ hoặc -3 💎
+   * - Trung bình (MEDIUM): -4 ⚡ hoặc -4 💎
+   * - Giỏi (ADVANCED): -9 ⚡ hoặc -9 💎
    */
   async startExamWithPoints(userId: string | null, dto: StartExamWithPointsDto) {
     const effectiveUserId = userId || dto.userId || null;
     const profile = await this.getOrInitStudentProfile(effectiveUserId, dto.grade);
     const levelInfo = this.normalizeExamLevel(dto.level);
     const currentPoints = Number(profile.exam_points ?? 0);
+    const currentDiamonds = Number(profile.points ?? 0);
 
-    if (currentPoints < levelInfo.costPoints) {
+    const canPayWithExamPoints = currentPoints >= levelInfo.costPoints && !dto.useDiamonds;
+    const canPayWithDiamonds = currentDiamonds >= levelInfo.costPoints;
+
+    if (levelInfo.costPoints > 0 && !canPayWithExamPoints && !canPayWithDiamonds) {
       throw new BadRequestException({
         success: false,
         errorCode: 'INSUFFICIENT_EXAM_POINTS',
-        message: `Không đủ điểm làm đề! Đề cấp độ ${levelInfo.label} cần ${levelInfo.costPoints} điểm, nhưng bạn hiện chỉ còn ${currentPoints} điểm. Hãy quay lại vào ngày mai để nhận điểm mới hoặc nâng cấp gói học sinh!`,
+        message: `Không đủ điểm làm đề! Đề cấp độ ${levelInfo.label} cần ${levelInfo.costPoints} Tia Sáng (⚡) hoặc ${levelInfo.costPoints} Ngọc Tri Thức (💎), nhưng bạn hiện chỉ còn ${currentPoints} ⚡ và ${currentDiamonds} 💎.`,
         data: {
           level: levelInfo.code,
           levelLabel: levelInfo.label,
           requiredPoints: levelInfo.costPoints,
           currentPoints,
-          shortfallPoints: levelInfo.costPoints - currentPoints,
-          quotaByLevel: this.computeQuotaByLevel(currentPoints),
+          currentDiamonds,
+          shortfallPoints: Math.max(0, levelInfo.costPoints - currentPoints),
+          shortfallDiamonds: Math.max(0, levelInfo.costPoints - currentDiamonds),
+          quotaByLevel: this.computeQuotaByLevel(currentPoints, currentDiamonds),
         },
       });
     }
-
-    const pointsAfter = currentPoints - levelInfo.costPoints;
-    const updatedProfile = await this.prisma.studentProfile.update({
-      where: { id: profile.id },
-      data: {
-        exam_points: pointsAfter,
-      },
-    });
 
     const resolvedTitle =
       dto.examTitle ||
       `Đề thi ${dto.subjectSlug || 'Toán học'} - Cấp độ ${levelInfo.label}`;
 
+    if ((profile as any).isVirtual || levelInfo.costPoints === 0) {
+      return {
+        allowed: true,
+        isGuestTrial: Boolean((profile as any).isVirtual),
+        paidWithDiamonds: false,
+        sessionId: `SES-${Date.now()}`,
+        logId: null,
+        examLevel: levelInfo.code,
+        examLevelLabel: levelInfo.label,
+        examTitle: resolvedTitle,
+        costDeducted: 0,
+        pointsBefore: currentPoints,
+        currentPoints,
+        diamondsBefore: currentDiamonds,
+        diamonds: currentDiamonds,
+        quotaByLevel: this.computeQuotaByLevel(currentPoints, currentDiamonds),
+        message:
+          levelInfo.costPoints === 0
+            ? `Bắt đầu bài ${levelInfo.label} miễn phí.`
+            : `Bắt đầu bài làm thử miễn phí cấp độ ${levelInfo.label}.`,
+      };
+    }
+
+    // Trường hợp 1: Trừ Tia Sáng (⚡)
+    if (canPayWithExamPoints) {
+      const pointsAfter = currentPoints - levelInfo.costPoints;
+      const updatedProfile = await this.prisma.studentProfile.update({
+        where: { id: profile.id },
+        data: {
+          exam_points: pointsAfter,
+        },
+      });
+
+      const log = await this.prisma.examPointLog.create({
+        data: {
+          student_id: profile.id,
+          action_type: 'START_EXAM',
+          exam_level: levelInfo.code,
+          exam_title: resolvedTitle,
+          points_before: currentPoints,
+          points_delta: -levelInfo.costPoints,
+          points_after: pointsAfter,
+          note: `Trừ ${levelInfo.costPoints} Tia Sáng (⚡) khi bắt đầu làm đề cấp độ ${levelInfo.label} ("${resolvedTitle}")`,
+        },
+      });
+
+      return {
+        allowed: true,
+        paidWithDiamonds: false,
+        sessionId: `SES-${Date.now()}`,
+        logId: log.id,
+        examLevel: levelInfo.code,
+        examLevelLabel: levelInfo.label,
+        examTitle: resolvedTitle,
+        costDeducted: levelInfo.costPoints,
+        pointsBefore: currentPoints,
+        currentPoints: updatedProfile.exam_points,
+        diamondsBefore: currentDiamonds,
+        diamonds: Number(updatedProfile.points ?? currentDiamonds),
+        quotaByLevel: this.computeQuotaByLevel(
+          updatedProfile.exam_points,
+          Number(updatedProfile.points ?? currentDiamonds),
+        ),
+        message: `Đã trừ ${levelInfo.costPoints} Tia Sáng (⚡) để mở đề cấp độ ${levelInfo.label}. Số dư còn lại: ${updatedProfile.exam_points} ⚡.`,
+      };
+    }
+
+    // Trường hợp 2: Trừ Ngọc Tri Thức (💎) tỷ lệ 1:1
+    const diamondsAfter = Math.max(0, Number((currentDiamonds - levelInfo.costPoints).toFixed(2)));
+    const updatedProfile = await this.prisma.studentProfile.update({
+      where: { id: profile.id },
+      data: {
+        points: diamondsAfter,
+      },
+    });
+
     const log = await this.prisma.examPointLog.create({
       data: {
         student_id: profile.id,
-        action_type: 'START_EXAM',
+        action_type: 'START_EXAM_DIAMONDS',
         exam_level: levelInfo.code,
         exam_title: resolvedTitle,
-        points_before: currentPoints,
+        points_before: Math.round(currentDiamonds),
         points_delta: -levelInfo.costPoints,
-        points_after: pointsAfter,
-        note: `Trừ ${levelInfo.costPoints} điểm khi bắt đầu làm đề cấp độ ${levelInfo.label} ("${resolvedTitle}")`,
+        points_after: Math.round(diamondsAfter),
+        note: `Trừ ${levelInfo.costPoints} Ngọc Tri Thức (💎) khi bắt đầu làm đề cấp độ ${levelInfo.label} ("${resolvedTitle}")`,
       },
     });
 
     return {
       allowed: true,
+      paidWithDiamonds: true,
       sessionId: `SES-${Date.now()}`,
       logId: log.id,
       examLevel: levelInfo.code,
@@ -1872,8 +3351,13 @@ export class ExamsService {
       costDeducted: levelInfo.costPoints,
       pointsBefore: currentPoints,
       currentPoints: updatedProfile.exam_points,
-      quotaByLevel: this.computeQuotaByLevel(updatedProfile.exam_points),
-      message: `Đã trừ ${levelInfo.costPoints} điểm để mở đề cấp độ ${levelInfo.label}. Số điểm còn lại: ${updatedProfile.exam_points} điểm.`,
+      diamondsBefore: currentDiamonds,
+      diamonds: Number(updatedProfile.points ?? diamondsAfter),
+      quotaByLevel: this.computeQuotaByLevel(
+        updatedProfile.exam_points,
+        Number(updatedProfile.points ?? diamondsAfter),
+      ),
+      message: `Đã dùng ${levelInfo.costPoints} Ngọc Tri Thức (💎) để mở đề cấp độ ${levelInfo.label}. Số Ngọc còn lại: ${updatedProfile.points} 💎.`,
     };
   }
 
@@ -1894,28 +3378,70 @@ export class ExamsService {
     const score = Number(rawScore.toFixed(2));
     const levelInfo = this.normalizeExamLevel(dto.level);
 
+    if ((profile as any).isVirtual) {
+      return {
+        logId: null,
+        submissionId: dto.submissionId || null,
+        isGuestTrial: true,
+        examLevel: levelInfo.code,
+        examLevelLabel: levelInfo.label,
+        score,
+        tierCode: 'GUEST_TRIAL',
+        tierLabel: 'Bài làm thử miễn phí',
+        pointsBefore: 9,
+        entryCostDeducted: 0,
+        scorePointDelta: 0,
+        rewardXinPoints: score >= 8.5 ? levelInfo.rewardPoints : 0,
+        netPointDelta: 0,
+        currentPoints: 9,
+        diamonds: 0,
+        currentXinPoints: 0,
+        quotaByLevel: this.computeQuotaByLevel(9, 0),
+        message: 'Hoàn thành bài làm thử! Đăng nhập để lưu kết quả và nhận thưởng Điểm Xịn.',
+      };
+    }
+
     let workingFreePoints = Number(profile.exam_points ?? 0);
+    let workingDiamonds = Number(profile.points ?? 0);
     const initialFreePoints = workingFreePoints;
     let entryCostDeducted = 0;
 
     // Nếu client yêu cầu trừ cả phí mở đề trong cùng lúc nộp bài
-    if (dto.deductEntryCost) {
+    if (dto.deductEntryCost && levelInfo.costPoints > 0) {
       entryCostDeducted = levelInfo.costPoints;
-      const afterEntry = Math.max(0, workingFreePoints - entryCostDeducted);
-      await this.prisma.examPointLog.create({
-        data: {
-          student_id: profile.id,
-          action_type: 'START_EXAM',
-          exam_level: levelInfo.code,
-          exam_title: dto.examTitle || `Đề thi cấp độ ${levelInfo.label}`,
-          submission_id: dto.submissionId || null,
-          points_before: workingFreePoints,
-          points_delta: -(workingFreePoints - afterEntry),
-          points_after: afterEntry,
-          note: `Trừ ${entryCostDeducted} điểm phí làm đề cấp độ ${levelInfo.label}`,
-        },
-      });
-      workingFreePoints = afterEntry;
+      if (workingFreePoints >= entryCostDeducted) {
+        const afterEntry = Math.max(0, workingFreePoints - entryCostDeducted);
+        await this.prisma.examPointLog.create({
+          data: {
+            student_id: profile.id,
+            action_type: 'START_EXAM',
+            exam_level: levelInfo.code,
+            exam_title: dto.examTitle || `Đề thi cấp độ ${levelInfo.label}`,
+            submission_id: dto.submissionId || null,
+            points_before: workingFreePoints,
+            points_delta: -(workingFreePoints - afterEntry),
+            points_after: afterEntry,
+            note: `Trừ ${entryCostDeducted} Tia Sáng (⚡) phí làm đề cấp độ ${levelInfo.label}`,
+          },
+        });
+        workingFreePoints = afterEntry;
+      } else if (workingDiamonds >= entryCostDeducted) {
+        const afterDiamonds = Math.max(0, Number((workingDiamonds - entryCostDeducted).toFixed(2)));
+        await this.prisma.examPointLog.create({
+          data: {
+            student_id: profile.id,
+            action_type: 'START_EXAM_DIAMONDS',
+            exam_level: levelInfo.code,
+            exam_title: dto.examTitle || `Đề thi cấp độ ${levelInfo.label}`,
+            submission_id: dto.submissionId || null,
+            points_before: Math.round(workingDiamonds),
+            points_delta: -entryCostDeducted,
+            points_after: Math.round(afterDiamonds),
+            note: `Trừ ${entryCostDeducted} Ngọc Tri Thức (💎) phí làm đề cấp độ ${levelInfo.label}`,
+          },
+        });
+        workingDiamonds = afterDiamonds;
+      }
     }
 
     // Nếu điểm >= 8.5 -> Thưởng Điểm Xịn (💎) tích lũy vĩnh viễn theo chuẩn 5 cấp độ!
@@ -1941,7 +3467,7 @@ export class ExamsService {
     }
 
     const finalFreePoints = Math.max(0, workingFreePoints + scoreFreeDelta);
-    const xinBefore = Number(profile.points ?? 0);
+    const xinBefore = workingDiamonds;
     const finalXinPoints = Number((xinBefore + rewardXinPoints).toFixed(2));
 
     const updatedProfile = await this.prisma.studentProfile.update({
@@ -2126,8 +3652,1280 @@ export class ExamsService {
     };
   }
 
+  /**
+   * Lấy Hồ sơ Kiến thức & Bản đồ Lỗ hổng của học sinh từ PostgreSQL
+   */
+  async getKnowledgeProfile(
+    userId: string | null,
+    subjectSlug?: string,
+    grade?: number,
+  ) {
+    const profile = await this.getOrInitStudentProfile(userId, grade);
+    return this.knowledgeRoadmapService.getKnowledgeProfile({
+      studentProfileId: profile.id,
+      userId: profile.user_id,
+      subjectSlug: subjectSlug || 'toan-hoc',
+      grade: grade || 12,
+    });
+  }
+
+  /**
+   * Lấy Lộ trình Học tập Cá nhân hóa 3 Chặng của học sinh từ PostgreSQL
+   */
+  async getPersonalizedRoadmap(
+    userId: string | null,
+    subjectSlug?: string,
+    grade?: number,
+  ) {
+    const profile = await this.getOrInitStudentProfile(userId, grade);
+    return this.knowledgeRoadmapService.getPersonalizedRoadmap({
+      studentProfileId: profile.id,
+      userId: profile.user_id,
+      subjectSlug: subjectSlug || 'toan-hoc',
+      grade: grade || 12,
+    });
+  }
+
+  /**
+   * Lưu kết quả bài Luyện bù (Remediation) lên PostgreSQL và cập nhật điểm thành thạo + lộ trình
+   */
+  async submitRemediationResult(
+    userId: string | null,
+    dto: SubmitRemediationDto,
+  ) {
+    const effectiveUserId = userId || dto.userId || null;
+    const profile = await this.getOrInitStudentProfile(effectiveUserId, dto.grade);
+    return this.knowledgeRoadmapService.submitRemediationResult(
+      profile.id,
+      profile.user_id,
+      dto,
+    );
+  }
+
+  /**
+   * Lưu Lịch sử Hành vi khi học sinh Luyện lại nhanh 3 câu cùng dạng (Không tính điểm học vụ)
+   * vào bảng PostgreSQL `student_behavior_histories` và tái thiết kế lộ trình cá nhân hóa
+   */
+  async recordQuickDrillBehavior(
+    userId: string | null,
+    dto: RecordQuickDrillBehaviorDto,
+  ) {
+    const effectiveUserId = userId || dto.userId || null;
+    const profile = await this.getOrInitStudentProfile(effectiveUserId, dto.grade);
+    return this.knowledgeRoadmapService.recordQuickDrillBehavior(
+      profile.id,
+      profile.user_id,
+      dto,
+    );
+  }
+
+  /**
+   * Lấy danh sách Lịch sử Hành vi từ bảng PostgreSQL `student_behavior_histories`
+   */
+  async getBehaviorHistory(
+    userId: string | null,
+    subjectSlug?: string,
+    grade?: number,
+    limit?: number,
+  ) {
+    const profile = await this.getOrInitStudentProfile(userId, undefined);
+    return this.knowledgeRoadmapService.getBehaviorHistory({
+      studentProfileId: profile.id,
+      subjectSlug,
+      grade,
+      limit,
+    });
+  }
+
+  // ==========================================================================
+  // HỆ THỐNG LỘ TRÌNH CHƯƠNG KIỂU DUOLINGO (3 VƯƠNG MIỆN ⭐ & TÁCH TOÁN SỐ / HÌNH)
+  // ==========================================================================
+
+  /**
+   * Cập nhật tiến độ hoàn thành cấp độ chương (BASIC / MEDIUM / ADVANCED) sau khi nộp bài.
+   * Ngưỡng qua màn chuẩn Duolingo Schoolify: đạt từ 5.0 / 10 điểm trở lên.
+   */
+  async upsertChapterProgressAfterExam(params: {
+    studentProfileId: string | null;
+    subjectSlug: string;
+    grade: number;
+    chapterId: number;
+    levelCode: string;
+    score: number;
+  }) {
+    const {
+      studentProfileId,
+      subjectSlug,
+      grade,
+      chapterId,
+      levelCode: rawLevelCode,
+      score,
+    } = params;
+
+    const levelCode: 'BASIC' | 'MEDIUM' | 'ADVANCED' =
+      rawLevelCode === 'MEDIUM'
+        ? 'MEDIUM'
+        : rawLevelCode === 'ADVANCED' ||
+            rawLevelCode === 'PROVINCIAL' ||
+            rawLevelCode === 'NATIONAL'
+          ? 'ADVANCED'
+          : 'BASIC';
+
+    const normalizedSubject = (subjectSlug || 'toan-hoc').trim().toLowerCase();
+    const safeGrade = grade === 10 || grade === 11 || grade === 12 ? grade : 12;
+    const passed = Number(score) >= 5.0;
+
+    const chapters = getCurriculumChapters(normalizedSubject, safeGrade);
+    const chapterDef = chapters.find((c) => c.id === Number(chapterId));
+    const nextChapterInTrack = getNextCurriculumChapterInTrack(
+      normalizedSubject,
+      safeGrade,
+      Number(chapterId),
+    );
+
+    const isEntryChapter = (chapterDef?.trackOrder ?? 1) === 1;
+
+    // Chế độ khách dùng thử (Guest Trial): tính toán trên RAM, không ghi DB giả
+    if (!studentProfileId) {
+      const basicCompleted = passed && levelCode === 'BASIC';
+      const mediumCompleted = passed && levelCode === 'MEDIUM';
+      const advancedCompleted = passed && levelCode === 'ADVANCED';
+      const crownsEarned =
+        (basicCompleted ? 1 : 0) +
+        (mediumCompleted ? 1 : 0) +
+        (advancedCompleted ? 1 : 0);
+
+      return {
+        isGuestTrial: true,
+        subject: normalizedSubject,
+        grade: safeGrade,
+        chapterId: Number(chapterId),
+        chapterName: chapterDef?.name || `Chương ${chapterId}`,
+        shortName: chapterDef?.shortName || `Chương ${chapterId}`,
+        track: chapterDef?.track || 'DEFAULT',
+        trackLabel: chapterDef?.trackLabel || '',
+        levelCompleted: levelCode,
+        score: Number(score),
+        passed,
+        crownsEarned,
+        basicCompleted,
+        mediumCompleted,
+        advancedCompleted,
+        unlockedNextLevel:
+          passed && isEntryChapter
+            ? levelCode === 'BASIC'
+              ? 'MEDIUM'
+              : levelCode === 'MEDIUM'
+                ? 'ADVANCED'
+                : null
+            : null,
+        nextChapterInTrack: nextChapterInTrack
+          ? {
+              id: nextChapterInTrack.id,
+              name: nextChapterInTrack.name,
+              shortName: nextChapterInTrack.shortName,
+              track: nextChapterInTrack.track,
+              trackLabel: nextChapterInTrack.trackLabel,
+              semester: nextChapterInTrack.semester,
+            }
+          : null,
+      };
+    }
+
+    const existing = await this.prisma.studentChapterProgress.findUnique({
+      where: {
+        student_id_subject_grade_chapter_id: {
+          student_id: studentProfileId,
+          subject: normalizedSubject,
+          grade: safeGrade,
+          chapter_id: Number(chapterId),
+        },
+      },
+    });
+
+    const trackChaptersInOrder = chapters
+      .filter((c) => c.track === (chapterDef?.track || 'DEFAULT'))
+      .sort((a, b) => a.trackOrder - b.trackOrder);
+    const currentIdxInTrack = trackChaptersInOrder.findIndex(
+      (c) => c.id === Number(chapterId),
+    );
+    const prevTrackChapter =
+      currentIdxInTrack > 0 ? trackChaptersInOrder[currentIdxInTrack - 1] : null;
+    const prevTrackRow = prevTrackChapter
+      ? await this.prisma.studentChapterProgress.findUnique({
+          where: {
+            student_id_subject_grade_chapter_id: {
+              student_id: studentProfileId,
+              subject: normalizedSubject,
+              grade: safeGrade,
+              chapter_id: prevTrackChapter.id,
+            },
+          },
+        })
+      : null;
+
+    const nextBasicCompleted =
+      Boolean(existing?.basic_completed) || (passed && levelCode === 'BASIC');
+    const nextMediumCompleted =
+      Boolean(existing?.medium_completed) || (passed && levelCode === 'MEDIUM');
+    const nextAdvancedCompleted =
+      Boolean(existing?.advanced_completed) || (passed && levelCode === 'ADVANCED');
+
+    const nextBestBasic =
+      levelCode === 'BASIC'
+        ? Math.max(Number(existing?.basic_best_score ?? 0), Number(score))
+        : Number(existing?.basic_best_score ?? 0);
+    const nextBestMedium =
+      levelCode === 'MEDIUM'
+        ? Math.max(Number(existing?.medium_best_score ?? 0), Number(score))
+        : Number(existing?.medium_best_score ?? 0);
+    const nextBestAdvanced =
+      levelCode === 'ADVANCED'
+        ? Math.max(Number(existing?.advanced_best_score ?? 0), Number(score))
+        : Number(existing?.advanced_best_score ?? 0);
+
+    const crownsEarned =
+      (nextBasicCompleted ? 1 : 0) +
+      (nextMediumCompleted ? 1 : 0) +
+      (nextAdvancedCompleted ? 1 : 0);
+
+    const updated = await this.prisma.studentChapterProgress.upsert({
+      where: {
+        student_id_subject_grade_chapter_id: {
+          student_id: studentProfileId,
+          subject: normalizedSubject,
+          grade: safeGrade,
+          chapter_id: Number(chapterId),
+        },
+      },
+      create: {
+        student_id: studentProfileId,
+        subject: normalizedSubject,
+        grade: safeGrade,
+        chapter_id: Number(chapterId),
+        track: chapterDef?.track || 'DEFAULT',
+        basic_completed: nextBasicCompleted,
+        medium_completed: nextMediumCompleted,
+        advanced_completed: nextAdvancedCompleted,
+        basic_best_score: nextBestBasic,
+        medium_best_score: nextBestMedium,
+        advanced_best_score: nextBestAdvanced,
+        crowns_earned: crownsEarned,
+        attempts_count: 1,
+        last_practiced_at: new Date(),
+      },
+      update: {
+        track: chapterDef?.track || existing?.track || 'DEFAULT',
+        basic_completed: nextBasicCompleted,
+        medium_completed: nextMediumCompleted,
+        advanced_completed: nextAdvancedCompleted,
+        basic_best_score: nextBestBasic,
+        medium_best_score: nextBestMedium,
+        advanced_best_score: nextBestAdvanced,
+        crowns_earned: crownsEarned,
+        attempts_count: Number(existing?.attempts_count ?? 0) + 1,
+        last_practiced_at: new Date(),
+      },
+    });
+
+    const canUnlockMediumHere =
+      !nextMediumCompleted &&
+      ((isEntryChapter && nextBasicCompleted) ||
+        (!isEntryChapter && Boolean(prevTrackRow?.medium_completed)));
+    const canUnlockAdvancedHere =
+      !nextAdvancedCompleted &&
+      ((isEntryChapter && nextMediumCompleted) ||
+        (!isEntryChapter && Boolean(prevTrackRow?.advanced_completed)));
+
+    return {
+      isGuestTrial: false,
+      subject: normalizedSubject,
+      grade: safeGrade,
+      chapterId: Number(chapterId),
+      chapterName: chapterDef?.name || `Chương ${chapterId}`,
+      shortName: chapterDef?.shortName || `Chương ${chapterId}`,
+      track: chapterDef?.track || 'DEFAULT',
+      trackLabel: chapterDef?.trackLabel || '',
+      levelCompleted: levelCode,
+      score: Number(score),
+      passed,
+      crownsEarned: updated.crowns_earned,
+      basicCompleted: updated.basic_completed,
+      mediumCompleted: updated.medium_completed,
+      advancedCompleted: updated.advanced_completed,
+      unlockedNextLevel:
+        levelCode === 'BASIC' && canUnlockMediumHere
+          ? 'MEDIUM'
+          : levelCode === 'MEDIUM' && canUnlockAdvancedHere
+            ? 'ADVANCED'
+            : null,
+      nextChapterInTrack: nextChapterInTrack
+        ? {
+            id: nextChapterInTrack.id,
+            name: nextChapterInTrack.name,
+            shortName: nextChapterInTrack.shortName,
+            track: nextChapterInTrack.track,
+            trackLabel: nextChapterInTrack.trackLabel,
+            semester: nextChapterInTrack.semester,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * Lấy bản đồ Lộ trình Chương kiểu Duolingo theo Môn & Lớp:
+   * - Mỗi mức độ (BASIC / MEDIUM / ADVANCED) có tiến trình mở khóa chương độc lập:
+   *   + Cơ bản: Chương 1 mở sẵn, qua Chương k Cơ bản -> mở Chương k+1 Cơ bản.
+   *   + Trung bình: Cổng xuất phát (Chương 1) mở khi qua Chương 1 Cơ bản; sau đó qua Chương k Trung bình -> mở Chương k+1 Trung bình độc lập.
+   *   + Nâng cao: Cổng xuất phát (Chương 1) mở khi qua Chương 1 Trung bình; sau đó qua Chương k Nâng cao -> mở Chương k+1 Nâng cao độc lập.
+   */
+  async getChapterRoadmap(
+    userId: string | null,
+    subjectSlug?: string,
+    gradeQuery?: number,
+  ) {
+    const normalizedSubject = (subjectSlug || 'toan-hoc').trim().toLowerCase();
+    const semesterInfo = getCurrentRealTimeSemester();
+
+    let savedStudentGrade: 10 | 11 | 12 | null = null;
+    let needsGradeOnboarding = false;
+    let studentProfileId: string | null = null;
+
+    if (userId && userId !== 'guest') {
+      const userRecord = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { student_profile: true },
+      });
+      if (userRecord) {
+        savedStudentGrade = parseStudentGradeNumber(
+          userRecord.student_profile?.grade_level,
+        );
+        if (userRecord.role !== 'SUPER_ADMIN') {
+          const profile =
+            userRecord.student_profile ||
+            (await this.getOrInitStudentProfile(userId, undefined));
+          if (profile && !(profile as any).isVirtual) {
+            studentProfileId = profile.id;
+          }
+          needsGradeOnboarding = savedStudentGrade === null;
+        }
+      }
+    }
+
+    const requestedGrade = parseStudentGradeNumber(gradeQuery);
+    const effectiveGrade: 10 | 11 | 12 = requestedGrade || savedStudentGrade || 12;
+    const allChapters = getCurriculumChapters(normalizedSubject, effectiveGrade);
+
+    // Đồng bộ bổ sung từ lịch sử bài nộp cũ nếu học sinh từng làm bài trước khi có bảng StudentChapterProgress
+    if (studentProfileId) {
+      const existingProgressRows = await this.prisma.studentChapterProgress.findMany({
+        where: {
+          student_id: studentProfileId,
+          subject: normalizedSubject,
+          grade: effectiveGrade,
+        },
+      });
+
+      if (existingProgressRows.length === 0) {
+        const pastSubmissions = await this.prisma.examSubmission.findMany({
+          where: { student_id: studentProfileId },
+          orderBy: { submitted_at: 'asc' },
+          take: 80,
+        });
+        for (const sub of pastSubmissions) {
+          const snap: any = sub.snapshot_data || {};
+          const snapSubject = String(
+            snap.subjectSlug || snap.originalExam?.subjectSlug || '',
+          )
+            .trim()
+            .toLowerCase();
+          const snapGrade = Number(snap.grade || snap.originalExam?.grade || 12);
+          const snapChapterId = Number(
+            snap.chapterId || snap.originalExam?.chapterId || 0,
+          );
+          const snapMode = String(
+            snap.practiceMode || snap.originalExam?.practiceMode || 'TOPIC',
+          ).toUpperCase();
+          if (
+            snapSubject === normalizedSubject &&
+            snapGrade === effectiveGrade &&
+            snapChapterId > 0 &&
+            snapMode !== 'MOCK_EXAM'
+          ) {
+            const snapLevel = this.normalizeExamLevel(
+              snap.level || snap.originalExam?.level || 'BASIC',
+            ).code;
+            await this.upsertChapterProgressAfterExam({
+              studentProfileId,
+              subjectSlug: normalizedSubject,
+              grade: effectiveGrade,
+              chapterId: snapChapterId,
+              levelCode: snapLevel,
+              score: Number(sub.score ?? 0),
+            });
+          }
+        }
+      }
+    }
+
+    const progressRows = studentProfileId
+      ? await this.prisma.studentChapterProgress.findMany({
+          where: {
+            student_id: studentProfileId,
+            subject: normalizedSubject,
+            grade: effectiveGrade,
+          },
+        })
+      : [];
+
+    const progressMap = new Map<number, (typeof progressRows)[number]>();
+    for (const row of progressRows) {
+      progressMap.set(row.chapter_id, row);
+    }
+
+    const trackCodes: CurriculumTrackCode[] =
+      normalizedSubject === 'toan-hoc' ? ['TOAN_SO', 'TOAN_HINH'] : ['DEFAULT'];
+
+    const tracks = trackCodes.map((trackCode) => {
+      const trackChapters = allChapters
+        .filter((c) => c.track === trackCode)
+        .sort((a, b) => a.trackOrder - b.trackOrder);
+
+      const firstChapter = trackChapters[0];
+      const firstRow = firstChapter ? progressMap.get(firstChapter.id) : null;
+      const firstHk2Chapter = trackChapters.find((c) => c.semester === 2);
+      const firstHk2Row = firstHk2Chapter
+        ? progressMap.get(firstHk2Chapter.id)
+        : null;
+
+      const enrichedNodes = trackChapters.map((chapter, idx) => {
+        const row = progressMap.get(chapter.id);
+        const prevChapter = idx > 0 ? trackChapters[idx - 1] : null;
+        const prevRow = prevChapter ? progressMap.get(prevChapter.id) : null;
+
+        const basicCompleted = Boolean(row?.basic_completed);
+        const mediumCompleted = Boolean(row?.medium_completed);
+        const advancedCompleted = Boolean(row?.advanced_completed);
+
+        const basicManual = Boolean(
+          row?.basic_unlocked_manually || row?.unlocked_manually,
+        );
+        const mediumManual = Boolean(row?.medium_unlocked_manually);
+        const advancedManual = Boolean(row?.advanced_unlocked_manually);
+
+        const isFirstInTrack = idx === 0;
+        const isCurrentSemesterEntry =
+          semesterInfo.semester === 2 && firstHk2Chapter?.id === chapter.id;
+
+        // 1. Lộ trình Cơ bản (BASIC): Chương 1 mở sẵn, sau đó đi tiếp theo chuỗi Cơ bản
+        const basicUnlocked =
+          isFirstInTrack ||
+          isCurrentSemesterEntry ||
+          basicManual ||
+          basicCompleted ||
+          Boolean(prevRow?.basic_completed);
+
+        // 2. Lộ trình Trung bình (MEDIUM): Chương 1 cần qua Chương 1 Cơ bản, sau đó đi tiếp độc lập theo chuỗi Trung bình
+        const mediumUnlocked =
+          mediumManual ||
+          mediumCompleted ||
+          (isFirstInTrack && Boolean(firstRow?.basic_completed)) ||
+          (isCurrentSemesterEntry && Boolean(firstHk2Row?.basic_completed)) ||
+          (idx > 0 && Boolean(prevRow?.medium_completed));
+
+        // 3. Lộ trình Nâng cao (ADVANCED): Chương 1 cần qua Chương 1 Trung bình, sau đó đi tiếp độc lập theo chuỗi Nâng cao
+        const advancedUnlocked =
+          advancedManual ||
+          advancedCompleted ||
+          (isFirstInTrack && Boolean(firstRow?.medium_completed)) ||
+          (isCurrentSemesterEntry && Boolean(firstHk2Row?.medium_completed)) ||
+          (idx > 0 && Boolean(prevRow?.advanced_completed));
+
+        const crownsEarned =
+          (basicCompleted ? 1 : 0) +
+          (mediumCompleted ? 1 : 0) +
+          (advancedCompleted ? 1 : 0);
+
+        return {
+          ...chapter,
+          isUnlocked: basicUnlocked,
+          unlockedManually: basicManual,
+          isCurrentSemester: chapter.semester === semesterInfo.semester,
+          crownsEarned,
+          maxCrowns: 3,
+          attemptsCount: Number(row?.attempts_count ?? 0),
+          lastPracticedAt: row?.last_practiced_at ?? null,
+          levels: {
+            BASIC: {
+              unlocked: basicUnlocked,
+              unlockedManually: basicManual,
+              completed: basicCompleted,
+              bestScore: row && row.basic_best_score > 0 ? row.basic_best_score : null,
+              costPoints: EXAM_LEVEL_COSTS.BASIC,
+            },
+            MEDIUM: {
+              unlocked: mediumUnlocked,
+              unlockedManually: mediumManual,
+              completed: mediumCompleted,
+              bestScore: row && row.medium_best_score > 0 ? row.medium_best_score : null,
+              costPoints: EXAM_LEVEL_COSTS.MEDIUM,
+            },
+            ADVANCED: {
+              unlocked: advancedUnlocked,
+              unlockedManually: advancedManual,
+              completed: advancedCompleted,
+              bestScore:
+                row && row.advanced_best_score > 0 ? row.advanced_best_score : null,
+              costPoints: EXAM_LEVEL_COSTS.ADVANCED,
+            },
+          },
+        };
+      });
+
+      const resolveLevelFrontierId = (
+        lvl: 'BASIC' | 'MEDIUM' | 'ADVANCED',
+      ): number | null => {
+        const inCurrentSem = enrichedNodes.find(
+          (n) =>
+            n.levels[lvl].unlocked &&
+            n.isCurrentSemester &&
+            !n.levels[lvl].completed,
+        );
+        const anyUnlockedIncomplete = enrichedNodes.find(
+          (n) => n.levels[lvl].unlocked && !n.levels[lvl].completed,
+        );
+        const lastUnlocked = [...enrichedNodes]
+          .reverse()
+          .find((n) => n.levels[lvl].unlocked);
+        return (
+          inCurrentSem?.id ||
+          anyUnlockedIncomplete?.id ||
+          lastUnlocked?.id ||
+          enrichedNodes[0]?.id ||
+          null
+        );
+      };
+
+      const frontierByLevel = {
+        BASIC: resolveLevelFrontierId('BASIC'),
+        MEDIUM: resolveLevelFrontierId('MEDIUM'),
+        ADVANCED: resolveLevelFrontierId('ADVANCED'),
+      };
+
+      const frontierId = frontierByLevel.BASIC;
+
+      const nodesWithFrontier = enrichedNodes.map((n) => ({
+        ...n,
+        isFrontier: n.id === frontierId,
+      }));
+
+      const totalCrowns = nodesWithFrontier.reduce(
+        (acc, n) => acc + n.crownsEarned,
+        0,
+      );
+      const maxCrowns = nodesWithFrontier.length * 3;
+      const completedBasicCount = nodesWithFrontier.filter(
+        (n) => n.levels.BASIC.completed,
+      ).length;
+      const completedMediumCount = nodesWithFrontier.filter(
+        (n) => n.levels.MEDIUM.completed,
+      ).length;
+      const completedAdvancedCount = nodesWithFrontier.filter(
+        (n) => n.levels.ADVANCED.completed,
+      ).length;
+
+      return {
+        trackCode,
+        trackTitle:
+          trackCode === 'TOAN_SO'
+            ? 'Toán Số (Đại số – Giải tích & Xác suất)'
+            : trackCode === 'TOAN_HINH'
+              ? 'Toán Hình (Hình học & Tọa độ)'
+              : `Lộ trình Tin học Lớp ${effectiveGrade}`,
+        shortTitle:
+          trackCode === 'TOAN_SO'
+            ? 'Toán Số'
+            : trackCode === 'TOAN_HINH'
+              ? 'Toán Hình'
+              : 'Tin học',
+        frontierChapterId: frontierId,
+        frontierByLevel,
+        totalChapters: nodesWithFrontier.length,
+        completedBasicCount,
+        completedMediumCount,
+        completedAdvancedCount,
+        totalCrowns,
+        maxCrowns,
+        chapters: nodesWithFrontier,
+      };
+    });
+
+    const totalCrownsAll = tracks.reduce((acc, t) => acc + t.totalCrowns, 0);
+    const maxCrownsAll = tracks.reduce((acc, t) => acc + t.maxCrowns, 0);
+    const diagnosticStatus = await this.getDiagnosticStatus(
+      userId,
+      normalizedSubject,
+      effectiveGrade,
+    );
+
+    return {
+      subject: normalizedSubject,
+      hasDualMathTracks: normalizedSubject === 'toan-hoc',
+      grade: effectiveGrade,
+      savedStudentGrade,
+      needsGradeOnboarding,
+      isAuthenticated: Boolean(studentProfileId),
+      diagnosticStatus,
+      semesterInfo,
+      summary: {
+        totalCrowns: totalCrownsAll,
+        maxCrowns: maxCrownsAll,
+        totalChapters: allChapters.length,
+      },
+      tracks,
+    };
+  }
+
+  /**
+   * Mở khóa nhảy cóc tới một chương học sinh đang học thực tế trên lớp ("Nhảy tới chương này") theo đúng mức độ đang xem
+   */
+  async unlockChapterJump(userId: string, dto: UnlockChapterJumpDto) {
+    const profile = await this.getOrInitStudentProfile(userId, dto.grade);
+    if ((profile as any).isVirtual) {
+      throw new UnauthorizedException('Vui lòng đăng nhập để lưu mở khóa chương.');
+    }
+
+    const normalizedSubject = (dto.subject || 'toan-hoc').trim().toLowerCase();
+    const safeGrade =
+      dto.grade === 10 || dto.grade === 11 || dto.grade === 12 ? dto.grade : 12;
+    const targetLevel = this.normalizeExamLevel(dto.level || 'BASIC').code;
+    const chapterDef = getCurriculumChapters(normalizedSubject, safeGrade).find(
+      (c) => c.id === Number(dto.chapterId),
+    );
+
+    const levelManualPatch =
+      targetLevel === 'ADVANCED'
+        ? { advanced_unlocked_manually: true }
+        : targetLevel === 'MEDIUM'
+          ? { medium_unlocked_manually: true }
+          : { unlocked_manually: true, basic_unlocked_manually: true };
+
+    const record = await this.prisma.studentChapterProgress.upsert({
+      where: {
+        student_id_subject_grade_chapter_id: {
+          student_id: profile.id,
+          subject: normalizedSubject,
+          grade: safeGrade,
+          chapter_id: Number(dto.chapterId),
+        },
+      },
+      create: {
+        student_id: profile.id,
+        subject: normalizedSubject,
+        grade: safeGrade,
+        chapter_id: Number(dto.chapterId),
+        track: chapterDef?.track || 'DEFAULT',
+        ...levelManualPatch,
+      },
+      update: {
+        ...levelManualPatch,
+      },
+    });
+
+    return {
+      unlocked: true,
+      subject: normalizedSubject,
+      grade: safeGrade,
+      level: targetLevel,
+      chapterId: record.chapter_id,
+      chapterName: chapterDef?.name || `Chương ${dto.chapterId}`,
+    };
+  }
+
+  /**
+   * Đồng bộ dữ liệu Khách dùng thử (Tên, Khối lớp, Chương vừa hoàn thành & Bài thi thử)
+   * thẳng vào tài khoản PostgreSQL ngay khi học sinh vừa đăng nhập / đăng ký thành công!
+   */
+  async syncGuestOnboarding(userId: string, dto: SyncGuestOnboardingDto) {
+    const userRecord = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { student_profile: true },
+    });
+
+    if (!userRecord) {
+      throw new NotFoundException('Không tìm thấy tài khoản người dùng.');
+    }
+
+    const safeGrade =
+      dto.grade === 10 || dto.grade === 11 || dto.grade === 12 ? dto.grade : 12;
+    const gradeLabel = `Lớp ${safeGrade}`;
+
+    // Nếu user chưa có tên hiển thị rõ ràng và có nhập tên lúc làm thử -> cập nhật fullname
+    const cleanGuestName = String(dto.fullname || '').trim();
+    if (
+      cleanGuestName.length >= 2 &&
+      (!userRecord.fullname ||
+        userRecord.fullname.trim().length < 2 ||
+        userRecord.fullname === userRecord.email?.split('@')[0])
+    ) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { fullname: cleanGuestName },
+      });
+    }
+
+    // Đảm bảo có student_profile và cập nhật grade_level nếu chưa có
+    const profile = await this.getOrInitStudentProfile(userId, safeGrade);
+    if (!(profile as any).isVirtual) {
+      const currentParsedGrade = parseStudentGradeNumber(profile.grade_level);
+      if (!currentParsedGrade) {
+        await this.prisma.studentProfile.update({
+          where: { id: profile.id },
+          data: { grade_level: gradeLabel },
+        });
+      }
+
+      // Đồng bộ danh sách chương đã hoàn thành lúc dùng thử
+      if (Array.isArray(dto.completedChapters) && dto.completedChapters.length > 0) {
+        for (const item of dto.completedChapters) {
+          const lvl = this.normalizeExamLevel(item.level || 'BASIC').code;
+          await this.upsertChapterProgressAfterExam({
+            studentProfileId: profile.id,
+            subjectSlug: item.subject || 'toan-hoc',
+            grade: Number(item.grade || safeGrade),
+            chapterId: Number(item.chapterId || 1),
+            levelCode: lvl,
+            score: Number(item.score ?? 0),
+          });
+        }
+      }
+
+      // Đồng bộ kết quả bài test đánh giá năng lực của Khách vào StudentSubjectDiagnostic & mở khóa cấp độ
+      if (Array.isArray(dto.completedDiagnostics) && dto.completedDiagnostics.length > 0) {
+        for (const diag of dto.completedDiagnostics) {
+          const normSubj = (diag.subject || 'toan-hoc').trim().toLowerCase();
+          const diagGrade =
+            Number(diag.grade) === 10 || Number(diag.grade) === 11 || Number(diag.grade) === 12
+              ? Number(diag.grade)
+              : safeGrade;
+          const assignedLevel = String(diag.assignedLevel || 'BASIC').toUpperCase();
+          const overallScore = Number(diag.overallScore ?? 0);
+          const trackScores =
+            diag.trackScores && typeof diag.trackScores === 'object'
+              ? diag.trackScores
+              : { DEFAULT: overallScore };
+
+          await this.prisma.studentSubjectDiagnostic.upsert({
+            where: {
+              student_id_subject_grade: {
+                student_id: profile.id,
+                subject: normSubj,
+                grade: diagGrade,
+              },
+            },
+            create: {
+              student_id: profile.id,
+              subject: normSubj,
+              grade: diagGrade,
+              assigned_level: assignedLevel,
+              overall_score: overallScore,
+              track_scores: trackScores,
+              bloom_breakdown: diag.bloomBreakdown || {},
+              completed_at: diag.completedAt ? new Date(diag.completedAt) : new Date(),
+            },
+            update: {
+              assigned_level: assignedLevel,
+              overall_score: overallScore,
+              track_scores: trackScores,
+              bloom_breakdown: diag.bloomBreakdown || {},
+              completed_at: diag.completedAt ? new Date(diag.completedAt) : new Date(),
+            },
+          });
+
+          await this.unlockChaptersFromTrackLevels(
+            profile.id,
+            normSubj,
+            diagGrade,
+            trackScores,
+          );
+        }
+      }
+
+      // Nếu có bài thi thử chi tiết chờ đồng bộ -> lưu vào exam_submissions mà không trừ điểm mở đề
+      if (dto.pendingTrialSubmission && typeof dto.pendingTrialSubmission === 'object') {
+        try {
+          await this.submitExam(userId, {
+            ...dto.pendingTrialSubmission,
+            deductEntryCost: false,
+          });
+        } catch (err) {
+          console.error('[ExamsService.syncGuestOnboarding] Pending trial sync error:', err);
+        }
+      }
+    }
+
+    const updatedUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { student_profile: true },
+    });
+
+    return {
+      synced: true,
+      grade: safeGrade,
+      gradeLabel: updatedUser?.student_profile?.grade_level || gradeLabel,
+      fullname: updatedUser?.fullname || cleanGuestName,
+    };
+  }
+
+  /**
+   * Kiểm tra học sinh đã làm bài test Đánh giá năng lực cho (subject, grade) chưa.
+   * Admin / Giáo viên được miễn ép buộc mặc định.
+   */
+  async getDiagnosticStatus(
+    userId: string | null,
+    subjectSlug?: string,
+    grade?: number,
+    userRole?: string,
+  ) {
+    const normalizedSubject = (subjectSlug || 'toan-hoc').trim().toLowerCase();
+    const safeGrade =
+      Number(grade) === 10 || Number(grade) === 11 || Number(grade) === 12
+        ? Number(grade)
+        : 12;
+
+    const normRole = String(userRole || '').trim().toUpperCase();
+    let isPrivileged =
+      normRole === 'ADMIN' || normRole === 'SUPER_ADMIN' || normRole === 'TEACHER';
+
+    let studentProfileId: string | null = null;
+    if (userId) {
+      const userRec = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          role: true,
+          student_profile: { select: { id: true, grade_level: true } },
+        },
+      });
+      if (userRec) {
+        const dbRole = String(userRec.role || '').toUpperCase();
+        if (dbRole === 'ADMIN' || dbRole === 'SUPER_ADMIN' || dbRole === 'TEACHER') {
+          isPrivileged = true;
+        }
+        studentProfileId = userRec.student_profile?.id || null;
+      }
+    }
+
+    if (isPrivileged) {
+      return {
+        subject: normalizedSubject,
+        grade: safeGrade,
+        isAuthenticated: Boolean(userId),
+        isPrivileged: true,
+        diagnosticCompleted: false,
+        diagnosticRequired: false,
+        diagnosticResult: null,
+      };
+    }
+
+    if (!studentProfileId) {
+      return {
+        subject: normalizedSubject,
+        grade: safeGrade,
+        isAuthenticated: false,
+        isPrivileged: false,
+        diagnosticCompleted: false,
+        diagnosticRequired: true,
+        diagnosticResult: null,
+      };
+    }
+
+    const record = await this.prisma.studentSubjectDiagnostic.findUnique({
+      where: {
+        student_id_subject_grade: {
+          student_id: studentProfileId,
+          subject: normalizedSubject,
+          grade: safeGrade,
+        },
+      },
+    });
+
+    if (!record) {
+      return {
+        subject: normalizedSubject,
+        grade: safeGrade,
+        isAuthenticated: true,
+        isPrivileged: false,
+        diagnosticCompleted: false,
+        diagnosticRequired: true,
+        diagnosticResult: null,
+      };
+    }
+
+    return {
+      subject: normalizedSubject,
+      grade: safeGrade,
+      isAuthenticated: true,
+      isPrivileged: false,
+      diagnosticCompleted: true,
+      diagnosticRequired: false,
+      diagnosticResult: {
+        assignedLevel: record.assigned_level,
+        overallScore: record.overall_score,
+        trackScores: record.track_scores,
+        bloomBreakdown: record.bloom_breakdown,
+        completedAt: record.completed_at,
+      },
+    };
+  }
+
+  /**
+   * Bốc ma trận chuẩn 12 câu Đánh giá năng lực theo Học kỳ thực tế & Mạch kiến thức:
+   * - HK1 (hoặc Ôn hè HK1): chỉ lấy chương thuộc Học kỳ 1
+   * - HK2: bao phủ cả Học kỳ 1 & Học kỳ 2
+   * - Toán học: 6 câu Toán Số + 6 câu Toán Hình (mỗi nhánh 2 Nhận biết + 2 Thông hiểu + 2 Vận dụng)
+   * - Tin học / môn đơn nhánh: 4 Nhận biết + 4 Thông hiểu + 4 Vận dụng
+   */
+  private async sampleDiagnosticAssessmentPool(params: {
+    subjectGradePool: Array<{
+      id: string;
+      chapter_id: number | null;
+      bloom_level: BloomLevel | null;
+      topic_tag: string | null;
+    }>;
+    resolvedSubject: string;
+    resolvedGrade: number;
+    studentProfileId: string | null;
+    identitySeed: string;
+    wrongQuestionIdSet: Set<string>;
+    weakTopicSet: Set<string>;
+  }): Promise<{
+    eligiblePool: Array<{
+      id: string;
+      chapter_id: number | null;
+      bloom_level: BloomLevel | null;
+      topic_tag: string | null;
+    }>;
+    sampledMeta: Array<{ id: string; servedEpoch: number }>;
+  }> {
+    const {
+      subjectGradePool,
+      resolvedSubject,
+      resolvedGrade,
+      studentProfileId,
+      identitySeed,
+      wrongQuestionIdSet,
+      weakTopicSet,
+    } = params;
+
+    const semesterInfo = getCurrentRealTimeSemester();
+    const allChapters = getCurriculumChapters(resolvedSubject, resolvedGrade);
+    const chapterById = new Map(allChapters.map((c) => [c.id, c]));
+
+    const eligibleChapters =
+      semesterInfo.semester === 1
+        ? allChapters.filter((c) => c.semester === 1)
+        : allChapters;
+    const effectiveChapters =
+      eligibleChapters.length > 0 ? eligibleChapters : allChapters;
+    const eligibleChapterIds = new Set(effectiveChapters.map((c) => c.id));
+
+    const eligiblePool = subjectGradePool.filter(
+      (q) => q.chapter_id !== null && eligibleChapterIds.has(Number(q.chapter_id)),
+    );
+    const fallbackPool = eligiblePool.length > 0 ? eligiblePool : subjectGradePool;
+
+    const buckets: Array<{
+      track: CurriculumTrackCode;
+      bloom: BloomLevel;
+      count: number;
+    }> =
+      resolvedSubject === 'toan-hoc'
+        ? [
+            { track: 'TOAN_SO', bloom: BloomLevel.NHAN_BIET, count: 2 },
+            { track: 'TOAN_SO', bloom: BloomLevel.THONG_HIEU, count: 2 },
+            { track: 'TOAN_SO', bloom: BloomLevel.VAN_DUNG, count: 2 },
+            { track: 'TOAN_HINH', bloom: BloomLevel.NHAN_BIET, count: 2 },
+            { track: 'TOAN_HINH', bloom: BloomLevel.THONG_HIEU, count: 2 },
+            { track: 'TOAN_HINH', bloom: BloomLevel.VAN_DUNG, count: 2 },
+          ]
+        : [
+            { track: 'DEFAULT', bloom: BloomLevel.NHAN_BIET, count: 4 },
+            { track: 'DEFAULT', bloom: BloomLevel.THONG_HIEU, count: 4 },
+            { track: 'DEFAULT', bloom: BloomLevel.VAN_DUNG, count: 4 },
+          ];
+
+    const pickedIdSet = new Set<string>();
+    const sampledMeta: Array<{ id: string; servedEpoch: number }> = [];
+
+    for (const bucket of buckets) {
+      const matchTrack = (chId: number | null) => {
+        if (bucket.track === 'DEFAULT') return true;
+        const ch = chId !== null ? chapterById.get(Number(chId)) : undefined;
+        return ch?.track === bucket.track;
+      };
+
+      const tierExact = fallbackPool.filter(
+        (q) =>
+          !pickedIdSet.has(q.id) &&
+          matchTrack(q.chapter_id) &&
+          q.bloom_level === bucket.bloom,
+      );
+      const tierTrackAllChapters = subjectGradePool.filter(
+        (q) =>
+          !pickedIdSet.has(q.id) &&
+          matchTrack(q.chapter_id) &&
+          q.bloom_level === bucket.bloom,
+      );
+      const tierTrackAnyBloom = fallbackPool.filter(
+        (q) => !pickedIdSet.has(q.id) && matchTrack(q.chapter_id),
+      );
+      const tierRemaining = subjectGradePool.filter((q) => !pickedIdSet.has(q.id));
+
+      const bucketPool =
+        tierExact.length >= bucket.count
+          ? tierExact
+          : tierTrackAllChapters.length >= bucket.count
+            ? tierTrackAllChapters
+            : tierTrackAnyBloom.length >= bucket.count
+              ? tierTrackAnyBloom
+              : [...tierExact, ...tierTrackAnyBloom, ...tierRemaining];
+
+      const dedupedPool = Array.from(
+        new Map(bucketPool.map((item) => [item.id, item])).values(),
+      );
+
+      const sampled = await this.sampleAdaptivePoolWithCursor({
+        pool: dedupedPool,
+        targetCount: bucket.count,
+        studentProfileId,
+        identitySeed,
+        poolKey: `${resolvedSubject}:g${resolvedGrade}:DIAG:${bucket.track}:${bucket.bloom}`,
+        wrongQuestionIdSet,
+        weakTopicSet,
+      });
+
+      for (const item of sampled) {
+        if (!pickedIdSet.has(item.id)) {
+          pickedIdSet.add(item.id);
+          sampledMeta.push(item);
+        }
+      }
+    }
+
+    return {
+      eligiblePool: fallbackPool,
+      sampledMeta,
+    };
+  }
+
+  /**
+   * Chấm tách nhánh + Bloom cho bài thi Chẩn đoán năng lực (ASSESSMENT),
+   * lưu vào `StudentSubjectDiagnostic` và tự động mở khóa cấp độ phù hợp trong `StudentChapterProgress`.
+   */
+  private async applyDiagnosticResult(params: {
+    studentProfileId: string | null;
+    subjectSlug: string;
+    grade: number;
+    overallScore: number;
+    details: any[];
+    snapshotData: any;
+  }) {
+    const { studentProfileId, subjectSlug, grade, overallScore, details, snapshotData } = params;
+    const normalizedSubject = (subjectSlug || 'toan-hoc').trim().toLowerCase();
+    const safeGrade = grade === 10 || grade === 11 || grade === 12 ? grade : 12;
+
+    const chapters = getCurriculumChapters(normalizedSubject, safeGrade);
+    const chapterById = new Map(chapters.map((c) => [c.id, c]));
+
+    const detailByQid = new Map<string, any>();
+    for (const d of details || []) {
+      if (d?.questionId) detailByQid.set(String(d.questionId), d);
+    }
+
+    const origQuestions: any[] = Array.isArray(snapshotData?.originalExam?.questions)
+      ? snapshotData.originalExam.questions
+      : Array.isArray(snapshotData?.questions)
+        ? snapshotData.questions
+        : [];
+
+    const trackStats: Record<string, { correct: number; total: number }> =
+      normalizedSubject === 'toan-hoc'
+        ? { TOAN_SO: { correct: 0, total: 0 }, TOAN_HINH: { correct: 0, total: 0 } }
+        : { DEFAULT: { correct: 0, total: 0 } };
+
+    const bloomStats: Record<string, { correct: number; total: number }> = {
+      NHAN_BIET: { correct: 0, total: 0 },
+      THONG_HIEU: { correct: 0, total: 0 },
+      VAN_DUNG: { correct: 0, total: 0 },
+    };
+
+    const sourceList = origQuestions.length > 0 ? origQuestions : details || [];
+    for (const q of sourceList) {
+      const qId = String(q?.id || q?.questionId || '');
+      const chId = Number(q?.chapterId || q?.chapter_id || 1);
+      const matchedDetail = qId ? detailByQid.get(qId) : undefined;
+      const isCorrect =
+        matchedDetail !== undefined ? Boolean(matchedDetail.isCorrect) : Boolean(q?.isCorrect);
+
+      const resolvedTrack: string =
+        q?.track ||
+        chapterById.get(chId)?.track ||
+        (normalizedSubject === 'toan-hoc' ? 'TOAN_SO' : 'DEFAULT');
+      if (!trackStats[resolvedTrack]) {
+        trackStats[resolvedTrack] = { correct: 0, total: 0 };
+      }
+      trackStats[resolvedTrack].total += 1;
+      if (isCorrect) trackStats[resolvedTrack].correct += 1;
+
+      const rawBloom = String(
+        q?.bloomLevel ||
+          matchedDetail?.bloomLevel ||
+          (q?.difficulty === 'EASY'
+            ? 'NHAN_BIET'
+            : q?.difficulty === 'HARD' || q?.difficulty === 'VERY_HARD'
+              ? 'VAN_DUNG'
+              : 'THONG_HIEU'),
+      ).toUpperCase();
+      const bloomKey =
+        rawBloom === 'NHAN_BIET' || rawBloom === 'THONG_HIEU' ? rawBloom : 'VAN_DUNG';
+      bloomStats[bloomKey].total += 1;
+      if (isCorrect) bloomStats[bloomKey].correct += 1;
+    }
+
+    const trackScores: Record<string, number> = {};
+    for (const [trackKey, stat] of Object.entries(trackStats)) {
+      trackScores[trackKey] =
+        stat.total > 0
+          ? Number(((stat.correct / stat.total) * 10).toFixed(2))
+          : overallScore;
+    }
+
+    const assignedLevel: 'BASIC' | 'MEDIUM' | 'ADVANCED' =
+      overallScore >= 8.0 ? 'ADVANCED' : overallScore >= 5.0 ? 'MEDIUM' : 'BASIC';
+
+    let diagnosticId: string | null = null;
+    if (studentProfileId) {
+      const saved = await this.prisma.studentSubjectDiagnostic.upsert({
+        where: {
+          student_id_subject_grade: {
+            student_id: studentProfileId,
+            subject: normalizedSubject,
+            grade: safeGrade,
+          },
+        },
+        create: {
+          student_id: studentProfileId,
+          subject: normalizedSubject,
+          grade: safeGrade,
+          assigned_level: assignedLevel,
+          overall_score: overallScore,
+          track_scores: trackScores,
+          bloom_breakdown: bloomStats,
+          completed_at: new Date(),
+        },
+        update: {
+          assigned_level: assignedLevel,
+          overall_score: overallScore,
+          track_scores: trackScores,
+          bloom_breakdown: bloomStats,
+          completed_at: new Date(),
+        },
+      });
+      diagnosticId = saved.id;
+
+      await this.unlockChaptersFromTrackLevels(
+        studentProfileId,
+        normalizedSubject,
+        safeGrade,
+        trackScores,
+      );
+    }
+
+    return {
+      diagnosticId,
+      subject: normalizedSubject,
+      grade: safeGrade,
+      assignedLevel,
+      overallScore,
+      trackScores,
+      bloomBreakdown: bloomStats,
+      completedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Tự động mở khóa cấp độ Trung bình / Nâng cao trên các chương thuộc Học kỳ hiện tại dựa vào điểm từng nhánh
+   */
+  private async unlockChaptersFromTrackLevels(
+    studentProfileId: string,
+    normalizedSubject: string,
+    safeGrade: number,
+    trackScores: Record<string, number>,
+  ) {
+    const semesterInfo = getCurrentRealTimeSemester();
+    const chapters = getCurriculumChapters(normalizedSubject, safeGrade);
+
+    for (const ch of chapters) {
+      const branchScore =
+        Number(
+          trackScores[ch.track] ??
+            trackScores.DEFAULT ??
+            Object.values(trackScores)[0] ??
+            0,
+        ) || 0;
+
+      const unlockMedium = branchScore >= 5.0;
+      const unlockAdvanced = branchScore >= 8.0;
+      if (!unlockMedium && !unlockAdvanced) continue;
+
+      // Chỉ mở khóa sẵn cho các chương từ Học kỳ hiện tại trở về trước (hoặc chương đầu mỗi nhánh)
+      const inCurrentWindow =
+        semesterInfo.semester === 2 || ch.semester === 1 || ch.trackOrder === 1;
+      if (!inCurrentWindow) continue;
+
+      await this.prisma.studentChapterProgress.upsert({
+        where: {
+          student_id_subject_grade_chapter_id: {
+            student_id: studentProfileId,
+            subject: normalizedSubject,
+            grade: safeGrade,
+            chapter_id: ch.id,
+          },
+        },
+        create: {
+          student_id: studentProfileId,
+          subject: normalizedSubject,
+          grade: safeGrade,
+          chapter_id: ch.id,
+          track: ch.track,
+          basic_unlocked_manually: ch.trackOrder === 1,
+          medium_unlocked_manually: unlockMedium,
+          advanced_unlocked_manually: unlockAdvanced,
+        },
+        update: {
+          ...(unlockMedium ? { medium_unlocked_manually: true } : {}),
+          ...(unlockAdvanced ? { advanced_unlocked_manually: true } : {}),
+        },
+      });
+    }
+  }
+
+  private normalizeQuestionFormat(rawFormat?: string): QuestionFormat {
+    const normalized = String(rawFormat || 'SINGLE_CHOICE').toUpperCase();
+    if (normalized === 'TRUE_FALSE_GROUP' || normalized === 'TRUE_FALSE') {
+      return QuestionFormat.TRUE_FALSE;
+    }
+    if (normalized === 'MULTIPLE_CHOICE' || normalized === 'MULTI_CHOICE') {
+      return QuestionFormat.MULTI_CHOICE;
+    }
+    if (normalized === 'SHORT_ANSWER' || normalized === 'FILL_BLANK') {
+      return QuestionFormat.SHORT_ANSWER;
+    }
+    return QuestionFormat.SINGLE_CHOICE;
+  }
+
   // ============================================================================
-  // QUESTION BUG REPORTS (Báo cáo sai sót câu hỏi từ phòng thi)
+  // QUESTION BUG REPORTS (Báo cáo sai sót câu hỏi từ phòng thi - PostgreSQL)
   // ============================================================================
 
   private readonly issueTypeLabelMap: Record<QuestionIssueType, string> = {
@@ -2163,7 +4961,11 @@ export class ExamsService {
   }
 
   private assertCanModerateBugReports(authUser: AuthenticatedExamUser | null) {
-    if (!authUser) return;
+    if (!authUser) {
+      throw new UnauthorizedException(
+        'Vui lòng đăng nhập với quyền Quản trị viên hoặc Giáo viên để duyệt / xóa báo cáo.',
+      );
+    }
     const allowedRoles = [
       'SUPER_ADMIN',
       'ADMIN',
@@ -2332,5 +5134,3 @@ export class ExamsService {
     return { id, deleted: true };
   }
 }
-
-

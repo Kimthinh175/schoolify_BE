@@ -36,13 +36,13 @@ export class RegisterDto {
   phone?: string;
 
   @ApiPropertyOptional({
-    description: 'Loại tài khoản muốn tạo profile mặc định',
-    enum: ['TEACHER', 'STUDENT', 'PARENT'],
-    example: 'TEACHER',
+    description: 'Loại tài khoản mặc định (Người luyện thi)',
+    enum: ['STUDENT'],
+    example: 'STUDENT',
   })
   @IsOptional()
-  @IsIn(['TEACHER', 'STUDENT', 'PARENT'], {
-    message: 'Profile type phải là TEACHER, STUDENT hoặc PARENT',
+  @IsIn(['STUDENT'], {
+    message: 'Profile type phải là STUDENT',
   })
-  profile_type?: 'TEACHER' | 'STUDENT' | 'PARENT';
+  profile_type?: 'STUDENT';
 }

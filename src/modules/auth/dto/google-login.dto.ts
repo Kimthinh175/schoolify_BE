@@ -50,13 +50,13 @@ export class GoogleLoginDto {
   avatarUrl?: string;
 
   @ApiPropertyOptional({
-    description: 'Vai trò đăng nhập (STUDENT, TEACHER, PARENT)',
+    description: 'Vai trò đăng nhập (STUDENT)',
     example: 'STUDENT',
     default: 'STUDENT',
   })
   @IsOptional()
   @IsString()
-  profile_type?: 'STUDENT' | 'TEACHER' | 'PARENT';
+  profile_type?: 'STUDENT';
 }
 
 export class SendOtpDto {

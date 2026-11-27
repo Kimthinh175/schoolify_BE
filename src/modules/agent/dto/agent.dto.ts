@@ -89,6 +89,12 @@ export class AgentChatDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Ngữ cảnh câu hỏi cụ thể khi bấm hỏi Gia sư AI',
+  })
+  @IsOptional()
+  questionContext?: Record<string, any>;
 }
 
 export class DocxScanGenerateDto {
@@ -182,6 +188,26 @@ export class SaveGeneratedQuestionsDto {
   @Type(() => Number)
   @IsNumber()
   grade?: number;
+
+  @ApiPropertyOptional({
+    description: 'Chiến lược xử lý trùng lặp mặc định (SKIP_EXACT | OVERWRITE_CONFLICT | ALLOW_ALL)',
+    default: 'SKIP_EXACT',
+  })
+  @IsOptional()
+  @IsString()
+  duplicateStrategy?: 'SKIP_EXACT' | 'OVERWRITE_CONFLICT' | 'ALLOW_ALL';
+
+  @ApiPropertyOptional({
+    description: 'Hướng xử lý từng câu theo ID tạm của client',
+  })
+  @IsOptional()
+  resolutions?: Record<
+    string,
+    {
+      action: 'SKIP' | 'OVERWRITE' | 'KEEP_BOTH';
+      existingQuestionId?: string;
+    }
+  >;
 }
 
 export class AgentChatResponseDataDto {

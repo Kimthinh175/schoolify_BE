@@ -10,6 +10,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,16 +19,24 @@ import {
   ApiQuery,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { SystemRole } from '@prisma/client';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { ExamsService } from './exams.service';
 import {
   AdminAdjustPointsDto,
   CreateQuestionBugReportDto,
   DailyClaimPointsDto,
   GenerateMatrixExamDto,
+  RecordQuickDrillBehaviorDto,
   SettleExamPointsDto,
   StartExamWithPointsDto,
   SubmitExamDto,
+  SubmitRemediationDto,
+  SyncGuestOnboardingDto,
   SyncOfflineSubmissionsDto,
+  UnlockChapterJumpDto,
   UpdateQuestionBugReportStatusDto,
 } from './dto/exam.dto';
 
@@ -48,23 +57,26 @@ export class ExamsController {
   })
   async generateMatrixExam(@Req() req: any, @Body() dto: GenerateMatrixExamDto) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId =
-      authUser?.id ||
-      req.user?.id ||
-      dto.userId ||
-      (req?.headers?.['x-user-id'] as string) ||
-      null;
-    const userRole =
-      authUser?.role ||
-      req.user?.role ||
-      (req?.headers?.['x-user-role'] as string) ||
-      undefined;
+    const userId = authUser?.id || null;
+    const userRole = authUser?.role;
     const data = await this.examsService.generateMatrixExam(userId, dto, userRole);
     return {
       success: true,
       message: 'Sinh đề thi ma trận thành công',
       data,
     };
+  }
+
+  @Post('admin-matrix-generate')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Admin sinh N mã đề từ Ngân hàng câu hỏi PostgreSQL theo ma trận Blueprint GDPT 2018',
+  })
+  async generateAdminMatrixBlueprint(@Body() body: any) {
+    return this.examsService.generateAdminMatrixBlueprint(body);
   }
 
   /**
@@ -83,7 +95,7 @@ export class ExamsController {
   @ApiResponse({ status: 401, description: 'Chưa đăng nhập hoặc token hết hạn' })
   async createExamSubmission(@Req() req: any, @Body() dto: SubmitExamDto) {
     const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
-    const data = await this.examsService.submitExam(currentUser!.id, dto);
+    const data = await this.examsService.submitExam(currentUser!.id, dto, currentUser!.role);
     return {
       success: true,
       message: 'Nộp bài thi và chấm điểm thành công',
@@ -94,6 +106,9 @@ export class ExamsController {
       correctCount: data.correctCount,
       wrongCount: data.wrongCount,
       totalQuestions: data.totalQuestions,
+      knowledgeUpdate: data.knowledgeUpdate,
+      chapterProgressUpdate: data.chapterProgressUpdate,
+      diagnosticUpdate: data.diagnosticUpdate,
       data,
     };
   }
@@ -149,12 +164,12 @@ export class ExamsController {
 
   @Post('submit')
   @HttpCode(HttpStatus.CREATED)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Nộp bài thi, chấm điểm, lưu kết quả và tự động tính thưởng/phạt điểm làm đề' })
   @ApiResponse({ status: 201, description: 'Chấm điểm và nộp bài thành công' })
   async submitExam(@Req() req: any, @Body() dto: SubmitExamDto) {
-    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || dto.userId || null;
-    const data = await this.examsService.submitExam(userId, dto);
+    const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.submitExam(currentUser!.id, dto, currentUser!.role);
     return {
       success: true,
       message: 'Nộp bài thi và chấm điểm thành công',
@@ -164,6 +179,9 @@ export class ExamsController {
       correctCount: data.correctCount,
       wrongCount: data.wrongCount,
       totalQuestions: data.totalQuestions,
+      knowledgeUpdate: data.knowledgeUpdate,
+      chapterProgressUpdate: data.chapterProgressUpdate,
+      diagnosticUpdate: data.diagnosticUpdate,
       data,
     };
   }
@@ -189,10 +207,9 @@ export class ExamsController {
   @ApiOperation({
     summary: 'Lấy số dư điểm làm đề hôm nay (tự động cấp 9 điểm nếu sang ngày mới) & số bài có thể làm theo từng cấp độ',
   })
-  @ApiQuery({ name: 'userId', required: false })
-  async getExamPointBalance(@Req() req: any, @Query('userId') queryUserId?: string) {
+  async getExamPointBalance(@Req() req: any) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || queryUserId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.getExamPointBalance(userId);
     return {
       success: true,
@@ -207,7 +224,7 @@ export class ExamsController {
   })
   async claimDailyExamPoints(@Req() req: any, @Body() dto: DailyClaimPointsDto) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || dto?.userId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.claimDailyExamPoints(userId, dto || {});
     return {
       success: true,
@@ -222,7 +239,7 @@ export class ExamsController {
   })
   async startExamWithPoints(@Req() req: any, @Body() dto: StartExamWithPointsDto) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || dto.userId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.startExamWithPoints(userId, dto);
     return {
       success: true,
@@ -237,7 +254,7 @@ export class ExamsController {
   })
   async settleExamSubmissionPoints(@Req() req: any, @Body() dto: SettleExamPointsDto) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || dto.userId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.settleExamSubmissionPoints(userId, dto);
     return {
       success: true,
@@ -248,23 +265,17 @@ export class ExamsController {
 
   @Post('points/admin-adjust')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({
     summary:
       'Dành riêng cho ADMIN: Điều chỉnh trực tiếp số điểm Tia Sáng và Ngọc Tri Thức của bản thân hoặc học sinh',
   })
   async adminAdjustPoints(@Req() req: any, @Body() dto: AdminAdjustPointsDto) {
-    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userRole =
-      authUser?.role ||
-      req.user?.role ||
-      (req?.headers?.['x-user-role'] as string) ||
-      undefined;
-    const userId =
-      authUser?.id ||
-      req.user?.id ||
-      (req?.headers?.['x-user-id'] as string) ||
-      null;
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const userRole = authUser!.role;
+    const userId = authUser!.id;
 
     const data = await this.examsService.adminAdjustPoints(userId, userRole, dto);
     return {
@@ -279,16 +290,14 @@ export class ExamsController {
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
   @ApiQuery({ name: 'actionType', required: false })
-  @ApiQuery({ name: 'userId', required: false })
   async getExamPointHistory(
     @Req() req: any,
     @Query('page') page = '1',
     @Query('limit') limit = '20',
     @Query('actionType') actionType?: string,
-    @Query('userId') queryUserId?: string,
   ) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || queryUserId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.getExamPointHistory(
       userId,
       parseInt(page, 10),
@@ -303,10 +312,14 @@ export class ExamsController {
   }
 
   @Get('snapshots/:id')
-  @ApiOperation({ summary: 'Lấy chi tiết bài thi đã làm (Snapshot) để xem lại bài' })
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy chi tiết bài thi đã làm (Snapshot) để xem lại bài (Chống IDOR)' })
   @ApiResponse({ status: 200, description: 'Chi tiết bài thi snapshot' })
-  async getSnapshotById(@Param('id') id: string) {
-    const data = await this.examsService.getSnapshotById(id);
+  @ApiResponse({ status: 401, description: 'Chưa đăng nhập' })
+  @ApiResponse({ status: 403, description: 'Không phải chủ sở hữu bài thi' })
+  async getSnapshotById(@Req() req: any, @Param('id') id: string) {
+    const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.getSnapshotById(id, currentUser!);
     return {
       success: true,
       message: 'Lấy snapshot bài thi thành công',
@@ -315,7 +328,7 @@ export class ExamsController {
   }
 
   @Get('history')
-  @ApiOperation({ summary: 'Lấy danh sách lịch sử luyện đề' })
+  @ApiOperation({ summary: 'Lấy danh sách lịch sử luyện đề của người dùng đang đăng nhập' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 10 })
   @ApiResponse({ status: 200, description: 'Danh sách bài thi đã làm' })
@@ -325,7 +338,7 @@ export class ExamsController {
     @Query('limit') limit = '10',
   ) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || req.query?.userId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.getPracticeHistory(
       userId,
       parseInt(page, 10),
@@ -338,10 +351,12 @@ export class ExamsController {
   }
 
   @Post('sync-offline')
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Đồng bộ hàng đợi các bài thi làm khi mất mạng (Offline Sync)' })
   @ApiResponse({ status: 200, description: 'Đồng bộ thành công' })
-  async syncOfflineSubmissions(@Body() dto: SyncOfflineSubmissionsDto) {
-    const data = await this.examsService.syncOfflineSubmissions(dto);
+  async syncOfflineSubmissions(@Req() req: any, @Body() dto: SyncOfflineSubmissionsDto) {
+    const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.syncOfflineSubmissions(currentUser!.id, dto);
     return {
       success: true,
       ...data,
@@ -379,6 +394,9 @@ export class ExamsController {
   }
 
   @Post('questions')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Thêm câu hỏi mới vào Ngân hàng đề' })
   async createQuestion(@Body() body: any) {
     const data = await this.examsService.createQuestion(body);
@@ -389,18 +407,52 @@ export class ExamsController {
     };
   }
 
+  @Post('questions/by-ids')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lấy danh sách câu hỏi đã chỉnh sửa theo danh sách ID từ PostgreSQL' })
+  async getQuestionsByIds(@Body() body: { ids?: string[] }) {
+    const data = await this.examsService.getQuestionsByIds(
+      Array.isArray(body?.ids) ? body.ids : [],
+    );
+    return {
+      success: true,
+      data,
+    };
+  }
+
   @Patch('questions/:id')
-  @ApiOperation({ summary: 'Cập nhật câu hỏi trong Ngân hàng đề' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cập nhật hoặc chỉnh sửa trực tiếp câu hỏi & câu trả lời trong Ngân hàng đề (PostgreSQL)' })
   async updateQuestion(@Param('id') id: string, @Body() body: any) {
     const data = await this.examsService.updateQuestion(id, body);
     return {
       success: true,
-      message: 'Cập nhật câu hỏi thành công',
+      message: 'Cập nhật câu hỏi và đáp án vào PostgreSQL thành công',
+      data,
+    };
+  }
+
+  @Post('questions/:id/direct-edit')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Chỉnh sửa trực tiếp câu hỏi / đáp án ngay trong phòng thi (dành cho Admin)' })
+  async directEditQuestion(@Param('id') id: string, @Body() body: any) {
+    const data = await this.examsService.updateQuestion(id, body);
+    return {
+      success: true,
+      message: 'Đã lưu chỉnh sửa câu hỏi & đáp án vào PostgreSQL',
       data,
     };
   }
 
   @Delete('questions/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Xóa câu hỏi khỏi Ngân hàng đề' })
   async deleteQuestion(@Param('id') id: string) {
     const data = await this.examsService.deleteQuestion(id);
@@ -421,6 +473,224 @@ export class ExamsController {
     };
   }
 
+  // ==========================================================================
+  // HỒ SƠ KIẾN THỨC & LỘ TRÌNH HỌC TẬP CÁ NHÂN HÓA (POSTGRESQL + PRISMA)
+  // ==========================================================================
+
+  @Get('knowledge-profile')
+  @ApiOperation({
+    summary:
+      'Lấy Hồ sơ Kiến thức & Bản đồ Lỗ hổng của học sinh (tự động tổng hợp từ các bài thi đã nộp trong PostgreSQL)',
+  })
+  @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
+  @ApiQuery({ name: 'grade', required: false, example: 12 })
+  async getKnowledgeProfile(
+    @Req() req: any,
+    @Query('subject') subject?: string,
+    @Query('grade') grade?: string,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
+    const data = await this.examsService.getKnowledgeProfile(
+      userId,
+      subject || 'toan-hoc',
+      grade ? parseInt(grade, 10) : 12,
+    );
+    return {
+      success: true,
+      message: 'Lấy hồ sơ kiến thức và bản đồ lỗ hổng thành công',
+      data,
+    };
+  }
+
+  @Get('personalized-roadmap')
+  @ApiOperation({
+    summary:
+      'Lấy Lộ trình Học tập Cá nhân hóa 3 Chặng của học sinh dựa trên tỉ lệ đúng/sai & cấp độ Bloom',
+  })
+  @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
+  @ApiQuery({ name: 'grade', required: false, example: 12 })
+  async getPersonalizedRoadmap(
+    @Req() req: any,
+    @Query('subject') subject?: string,
+    @Query('grade') grade?: string,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
+    const data = await this.examsService.getPersonalizedRoadmap(
+      userId,
+      subject || 'toan-hoc',
+      grade ? parseInt(grade, 10) : 12,
+    );
+    return {
+      success: true,
+      message: 'Lấy lộ trình cá nhân hóa thành công',
+      data,
+    };
+  }
+
+  @Post('remediation-submit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Nộp kết quả bài Luyện bù biến thể (Remediation), cộng điểm phục hồi năng lực và cập nhật lộ trình cá nhân hóa',
+  })
+  async submitRemediationResult(@Req() req: any, @Body() dto: SubmitRemediationDto) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
+    const data = await this.examsService.submitRemediationResult(userId, dto);
+    return {
+      success: true,
+      message: 'Đã lưu kết quả luyện bù và cập nhật hồ sơ năng lực thành công',
+      data,
+    };
+  }
+
+  @Post('quick-drill-behavior')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Lưu lịch sử hành vi khi Luyện lại nhanh 3 câu cùng dạng (Không tính điểm học vụ, gắn Tag đặc biệt đánh giá Tinh thần học tập & Trí thông minh để thiết kế lại lộ trình)',
+  })
+  async recordQuickDrillBehavior(
+    @Req() req: any,
+    @Body() dto: RecordQuickDrillBehaviorDto,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
+    const data = await this.examsService.recordQuickDrillBehavior(userId, dto);
+    return {
+      success: true,
+      message: 'Đã lưu lịch sử hành vi luyện tập và cập nhật lộ trình cá nhân hóa',
+      data,
+    };
+  }
+
+  @Get('behavior-history')
+  @ApiOperation({
+    summary:
+      'Lấy lịch sử hành vi luyện lại 3 câu cùng dạng và đánh giá Tinh thần học tập & Trí thông minh từ PostgreSQL',
+  })
+  @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
+  @ApiQuery({ name: 'grade', required: false, example: 12 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  async getBehaviorHistory(
+    @Req() req: any,
+    @Query('subject') subject?: string,
+    @Query('grade') grade?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
+    const data = await this.examsService.getBehaviorHistory(
+      userId,
+      subject,
+      grade ? parseInt(grade, 10) : undefined,
+      limit ? parseInt(limit, 10) : 20,
+    );
+    return {
+      success: true,
+      message: 'Lấy lịch sử hành vi học tập thành công',
+      data,
+    };
+  }
+
+  // ==========================================================================
+  // LỘ TRÌNH CHƯƠNG KIỂU DUOLINGO (3 VƯƠNG MIỆN ⭐ & TÁCH TOÁN SỐ / HÌNH)
+  // ==========================================================================
+
+  @Get('diagnostic-status')
+  @ApiOperation({
+    summary: 'Kiểm tra trạng thái bài Test Đánh giá năng lực bắt buộc theo (subject, grade)',
+  })
+  @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
+  @ApiQuery({ name: 'grade', required: false, example: '12' })
+  async getDiagnosticStatus(
+    @Req() req: any,
+    @Query('subject') subject?: string,
+    @Query('grade') grade?: string,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
+    const userRole = authUser?.role;
+    const parsedGrade = grade ? Number(grade) : undefined;
+    const data = await this.examsService.getDiagnosticStatus(
+      userId,
+      subject,
+      parsedGrade,
+      userRole,
+    );
+    return {
+      success: true,
+      message: 'Lấy trạng thái đánh giá năng lực thành công',
+      data,
+    };
+  }
+
+  @Get('chapter-roadmap')
+  @ApiOperation({
+    summary:
+      'Lấy bản đồ lộ trình từng chương kiểu Duolingo (Tách Toán Số & Toán Hình, Lớp 10-11-12, Học kỳ thời gian thực & 3 Vương miện)',
+  })
+  @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
+  @ApiQuery({ name: 'grade', required: false, example: 10 })
+  async getChapterRoadmap(
+    @Req() req: any,
+    @Query('subject') subject?: string,
+    @Query('grade') grade?: string,
+  ) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || req.user?.id || null;
+    const parsedGrade = grade ? parseInt(grade, 10) : undefined;
+    const data = await this.examsService.getChapterRoadmap(
+      userId,
+      subject,
+      parsedGrade,
+    );
+    return {
+      success: true,
+      message: 'Lấy lộ trình chương kiểu Duolingo thành công',
+      data,
+    };
+  }
+
+  @Post('chapter-roadmap/jump')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Mở khóa nhảy cóc tới chương học sinh đang học thực tế trên lớp',
+  })
+  async unlockChapterJump(@Req() req: any, @Body() dto: UnlockChapterJumpDto) {
+    const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.unlockChapterJump(currentUser!.id, dto);
+    return {
+      success: true,
+      message: 'Đã mở khóa chương thành công',
+      data,
+    };
+  }
+
+  @Post('sync-guest-onboarding')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Đồng bộ Tên, Lớp đang học và Chương đã làm thử của Khách sang PostgreSQL ngay sau khi đăng nhập',
+  })
+  async syncGuestOnboarding(@Req() req: any, @Body() dto: SyncGuestOnboardingDto) {
+    const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.syncGuestOnboarding(currentUser!.id, dto);
+    return {
+      success: true,
+      message: 'Đã đồng bộ thông tin lớp học và tiến độ làm thử vào tài khoản',
+      data,
+    };
+  }
+
+  // ==========================================================================
+  // BÁO CÁO SAI SÓT CÂU HỎI TỪ PHÒNG THI (QUESTION BUG REPORTS - POSTGRESQL)
+  // ==========================================================================
+
   @Post('question-reports')
   @HttpCode(HttpStatus.CREATED)
   @ApiBearerAuth()
@@ -437,8 +707,10 @@ export class ExamsController {
   }
 
   @Get('question-reports')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Danh sách báo cáo sai sót câu hỏi (lọc theo trạng thái & từ khóa)' })
+  @ApiOperation({ summary: 'Danh sách báo cáo sai sót câu hỏi (Admin)' })
   @ApiQuery({ name: 'status', required: false, enum: ['ALL', 'PENDING', 'RESOLVED'] })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'page', required: false, example: 1 })
@@ -462,15 +734,17 @@ export class ExamsController {
   }
 
   @Patch('question-reports/:id/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Admin/Giáo viên đánh dấu đã xử lý hoặc mở lại báo cáo câu hỏi' })
+  @ApiOperation({ summary: 'Admin đánh dấu đã xử lý hoặc mở lại báo cáo câu hỏi' })
   @ApiResponse({ status: 200, description: 'Cập nhật trạng thái báo cáo thành công' })
   async updateQuestionBugReportStatus(
     @Req() req: any,
     @Param('id') id: string,
     @Body() dto: UpdateQuestionBugReportStatusDto,
   ) {
-    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, true);
     const data = await this.examsService.updateQuestionBugReportStatus(id, authUser, dto);
     return {
       success: true,
@@ -483,11 +757,13 @@ export class ExamsController {
   }
 
   @Delete('question-reports/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Xóa báo cáo sai sót câu hỏi' })
   @ApiResponse({ status: 200, description: 'Xóa báo cáo thành công' })
   async deleteQuestionBugReport(@Req() req: any, @Param('id') id: string) {
-    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, true);
     const data = await this.examsService.deleteQuestionBugReport(id, authUser);
     return {
       success: true,
@@ -516,9 +792,9 @@ export class ExamPointsController {
 
   @Get('balance')
   @ApiOperation({ summary: 'Lấy số dư điểm làm đề hôm nay & hạn mức bài thi theo từng cấp độ' })
-  @ApiQuery({ name: 'userId', required: false })
-  async getBalance(@Req() req: any, @Query('userId') queryUserId?: string) {
-    const userId = req.user?.id || queryUserId || null;
+  async getBalance(@Req() req: any) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
     const data = await this.examsService.getExamPointBalance(userId);
     return {
       success: true,
@@ -530,7 +806,8 @@ export class ExamPointsController {
   @Post('daily-claim')
   @ApiOperation({ summary: 'Phát / Reset 9 điểm làm đề hàng ngày' })
   async claimDaily(@Req() req: any, @Body() dto: DailyClaimPointsDto) {
-    const userId = req.user?.id || dto?.userId || null;
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
     const data = await this.examsService.claimDailyExamPoints(userId, dto || {});
     return {
       success: true,
@@ -542,7 +819,8 @@ export class ExamPointsController {
   @Post('start-exam')
   @ApiOperation({ summary: 'Kiểm tra và trừ điểm khi bắt đầu làm đề (Cơ bản: -3đ, Trung bình: -4đ, Giỏi: -9đ)' })
   async startExam(@Req() req: any, @Body() dto: StartExamWithPointsDto) {
-    const userId = req.user?.id || dto.userId || null;
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
     const data = await this.examsService.startExamWithPoints(userId, dto);
     return {
       success: true,
@@ -554,7 +832,8 @@ export class ExamPointsController {
   @Post('settle-submission')
   @ApiOperation({ summary: 'Tính thưởng / phạt điểm sau khi hoàn thành đề (< 5đ: -1đ | 5 - 8.5đ: 0đ | 8.5 - 9.9đ: +1đ | 10đ: +2đ)' })
   async settleSubmission(@Req() req: any, @Body() dto: SettleExamPointsDto) {
-    const userId = req.user?.id || dto.userId || null;
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
     const data = await this.examsService.settleExamSubmissionPoints(userId, dto);
     return {
       success: true,
@@ -568,15 +847,14 @@ export class ExamPointsController {
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
   @ApiQuery({ name: 'actionType', required: false })
-  @ApiQuery({ name: 'userId', required: false })
   async getHistory(
     @Req() req: any,
     @Query('page') page = '1',
     @Query('limit') limit = '20',
     @Query('actionType') actionType?: string,
-    @Query('userId') queryUserId?: string,
   ) {
-    const userId = req.user?.id || queryUserId || null;
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
     const data = await this.examsService.getExamPointHistory(
       userId,
       parseInt(page, 10),

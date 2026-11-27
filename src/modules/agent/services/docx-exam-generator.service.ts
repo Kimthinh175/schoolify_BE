@@ -9,11 +9,15 @@ import {
   extractDocxWithMtefAndOmml,
   parseExamTextWithMathAndKeys,
 } from './mtef-math-decoder';
+import {
+  DuplicateResolutionInput,
+  evaluateQuestionDuplicates,
+} from './question-duplicate-guard';
 
 export interface ParsedSeedQuestion {
   title: string;
   content: string;
-  questionFormat: 'SINGLE_CHOICE' | 'MULTI_CHOICE' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'ESSAY';
+  questionFormat: 'SINGLE_CHOICE' | 'MULTI_CHOICE' | 'TRUE_FALSE' | 'SHORT_ANSWER';
   bloomLevel: 'NHAN_BIET' | 'THONG_HIEU' | 'VAN_DUNG' | 'VAN_DUNG_CAO';
   chapter?: string;
   chapterId?: number;
@@ -315,19 +319,97 @@ export class DocxExamGeneratorService {
   }
 
   /**
+   * Kiểm tra trùng lặp và xung đột đáp án trong lô câu hỏi (cả nội bộ file và với PostgreSQL)
+   */
+  async checkQuestionsDuplicates(dto: SaveGeneratedQuestionsDto) {
+    const incoming = Array.isArray(dto.questions) ? dto.questions : [];
+    const existingDbQuestions = await this.prisma.question.findMany({
+      select: {
+        id: true,
+        title: true,
+        question: true,
+        subject: true,
+        grade: true,
+        question_format: true,
+        answer: true,
+        explanation: true,
+        answers: {
+          select: {
+            sub_label: true,
+            content: true,
+            is_answer: true,
+          },
+        },
+      },
+    });
+
+    return evaluateQuestionDuplicates(incoming, existingDbQuestions);
+  }
+
+  /**
    * Lưu danh sách câu hỏi đã được AI sinh (và Admin kiểm duyệt) vào PostgreSQL
+   * Kèm cơ chế chốt chặn trùng lặp & xung đột đáp án
    */
   async saveGeneratedQuestionsToBank(dto: SaveGeneratedQuestionsDto) {
     const subjectSlug = dto.subject || 'toan-hoc';
     const grade = Number(dto.grade) || 12;
+    const strategy = dto.duplicateStrategy || 'SKIP_EXACT';
+    const resolutions = (dto.resolutions || {}) as Record<string, DuplicateResolutionInput>;
+    const questions = Array.isArray(dto.questions) ? dto.questions : [];
+
+    const dupReport = await this.checkQuestionsDuplicates({
+      questions,
+      subject: subjectSlug,
+      grade,
+    });
+
     const savedIds: string[] = [];
+    const updatedIds: string[] = [];
+    const skippedIds: string[] = [];
 
-    for (let i = 0; i < dto.questions.length; i++) {
-      const q = dto.questions[i];
-      const qId = q.id && !String(q.id).startsWith('word_q_')
-        ? String(q.id)
-        : `ai-docx-${subjectSlug}-${Date.now()}-${i + 1}`;
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      const clientId = String(q.id || `row_${i}`);
+      const checkItem = dupReport.results[i];
+      const resolution = resolutions[clientId];
 
+      let targetDbId: string | null = null;
+
+      if (resolution?.action === 'SKIP') {
+        skippedIds.push(clientId);
+        continue;
+      }
+
+      if (resolution?.action === 'OVERWRITE') {
+        targetDbId =
+          resolution.existingQuestionId ||
+          (checkItem?.existingMatch?.id ? String(checkItem.existingMatch.id) : null);
+      } else if (resolution?.action !== 'KEEP_BOTH' && strategy !== 'ALLOW_ALL') {
+        if (checkItem?.status === 'EXACT_DUPLICATE') {
+          skippedIds.push(clientId);
+          continue;
+        }
+        if (checkItem?.status === 'CONFLICT_ANSWER') {
+          if (strategy === 'OVERWRITE_CONFLICT' && checkItem.existingMatch?.id) {
+            targetDbId = String(checkItem.existingMatch.id);
+          } else {
+            skippedIds.push(clientId);
+            continue;
+          }
+        }
+      }
+
+      const isTempClientId =
+        !q.id ||
+        String(q.id).startsWith('word_q_') ||
+        String(q.id).startsWith('excel_q_') ||
+        String(q.id).startsWith('ai_q_');
+
+      const qId =
+        targetDbId ||
+        (!isTempClientId ? String(q.id) : `ai-docx-${subjectSlug}-${Date.now()}-${i + 1}`);
+
+      const isUpdateExisting = Boolean(targetDbId);
       const bloomLevel = this.mapToPrismaBloom(q.bloomLevel || q.difficulty);
       const { qFormat, qType } = this.mapToPrismaFormat(q.questionFormat || q.type);
 
@@ -340,6 +422,8 @@ export class DocxExamGeneratorService {
               isAnswer: c.key === q.correctChoice,
             }))
           : [];
+
+      const shortAnsValue = q.shortAnswer || q.shortAnswerCorrect;
 
       const createdQuestion = await this.prisma.question.upsert({
         where: { id: qId },
@@ -354,7 +438,7 @@ export class DocxExamGeneratorService {
           question: q.content || q.question || '',
           default_points: Number(q.points || q.score || 0.25),
           explanation: q.explanation || q.explain || null,
-          answer: q.shortAnswer ? String(q.shortAnswer) : null,
+          answer: shortAnsValue ? String(shortAnsValue) : null,
         },
         create: {
           id: qId,
@@ -368,7 +452,7 @@ export class DocxExamGeneratorService {
           question: q.content || q.question || '',
           default_points: Number(q.points || q.score || 0.25),
           explanation: q.explanation || q.explain || null,
-          answer: q.shortAnswer ? String(q.shortAnswer) : null,
+          answer: shortAnsValue ? String(shortAnsValue) : null,
         },
       });
 
@@ -389,14 +473,25 @@ export class DocxExamGeneratorService {
         });
       }
 
-      savedIds.push(createdQuestion.id);
+      if (isUpdateExisting) {
+        updatedIds.push(createdQuestion.id);
+      } else {
+        savedIds.push(createdQuestion.id);
+      }
     }
 
-    this.logger.log(`💾 Đã lưu ${savedIds.length} câu hỏi AI sinh từ .docx vào PostgreSQL!`);
+    this.logger.log(
+      `💾 Đã lưu mới ${savedIds.length} câu, cập nhật ghi đè ${updatedIds.length} câu, bỏ qua ${skippedIds.length} câu trùng/xung đột.`,
+    );
 
     return {
-      savedCount: savedIds.length,
+      savedCount: savedIds.length + updatedIds.length,
+      insertedCount: savedIds.length,
+      updatedCount: updatedIds.length,
+      skippedCount: skippedIds.length,
       savedIds,
+      updatedIds,
+      skippedIds,
     };
   }
 
@@ -422,12 +517,11 @@ export class DocxExamGeneratorService {
 
       const formatMap: Record<string, ParsedSeedQuestion['questionFormat']> = {
         SINGLE_CHOICE: 'SINGLE_CHOICE',
-        MULTIPLE_CHOICE: 'SINGLE_CHOICE',
+        MULTIPLE_CHOICE: 'MULTI_CHOICE',
         MULTI_CHOICE: 'MULTI_CHOICE',
         TRUE_FALSE: 'TRUE_FALSE',
         FILL_BLANK: 'SHORT_ANSWER',
         SHORT_ANSWER: 'SHORT_ANSWER',
-        ESSAY: 'ESSAY',
       };
 
       const answers = Array.isArray(item.answers)
@@ -470,7 +564,6 @@ export class DocxExamGeneratorService {
         MULTIPLE_CHOICE: 'MULTI_CHOICE',
         TRUE_FALSE: 'TRUE_FALSE',
         FILL_BLANK: 'SHORT_ANSWER',
-        ESSAY: 'ESSAY',
       };
 
       return unified.map((u) => ({
@@ -603,11 +696,6 @@ export class DocxExamGeneratorService {
           const label = labelMatch ? labelMatch[1].toUpperCase() : String.fromCharCode(65 + answers.length);
           answers.push({ label, content: cleanAns, isAnswer });
         });
-
-        // Đảm bảo ít nhất 1 đáp án đúng nếu file chưa đánh dấu
-        if (answers.length > 0 && !answers.some((a) => a.isAnswer)) {
-          answers[0].isAnswer = true;
-        }
       }
 
       parsed.push({
@@ -869,7 +957,6 @@ export class DocxExamGeneratorService {
       const qFormat: ParsedSeedQuestion['questionFormat'] =
         q.questionFormat === 'TRUE_FALSE' ||
         q.questionFormat === 'SHORT_ANSWER' ||
-        q.questionFormat === 'ESSAY' ||
         q.questionFormat === 'MULTI_CHOICE'
           ? q.questionFormat
           : 'SINGLE_CHOICE';
@@ -878,9 +965,7 @@ export class DocxExamGeneratorService {
           ? 'TRUE_FALSE'
           : qFormat === 'SHORT_ANSWER'
             ? 'FILL_BLANK'
-            : qFormat === 'ESSAY'
-              ? 'ESSAY'
-              : 'SINGLE_CHOICE';
+            : 'SINGLE_CHOICE';
       const topicObj =
         scopeAnalysis.detectedTopics[idx % scopeAnalysis.detectedTopics.length] || {
           topicName: 'Chuyên đề trong đề gốc',
@@ -1005,9 +1090,7 @@ export class DocxExamGeneratorService {
           ? 'TRUE_FALSE'
           : generated.questionFormat === 'SHORT_ANSWER'
             ? 'FILL_BLANK'
-            : generated.questionFormat === 'ESSAY'
-              ? 'ESSAY'
-              : 'SINGLE_CHOICE';
+            : 'SINGLE_CHOICE';
 
       results.push({
         id: qId,
@@ -1538,9 +1621,6 @@ export class DocxExamGeneratorService {
     }
     if (val === 'SHORT_ANSWER' || val === 'FILL_BLANK') {
       return { qFormat: QuestionFormat.SHORT_ANSWER, qType: QuestionType.SINGLE_CHOICE };
-    }
-    if (val === 'ESSAY') {
-      return { qFormat: QuestionFormat.ESSAY, qType: QuestionType.ESSAY };
     }
     if (val === 'MULTI_CHOICE') {
       return { qFormat: QuestionFormat.MULTI_CHOICE, qType: QuestionType.MULTIPLE_CHOICE };

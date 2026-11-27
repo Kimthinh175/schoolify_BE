@@ -1,14 +1,29 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
+import { SeasonStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { PayOSService } from './payos.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class CatalogService {
   private readonly logger = new Logger(CatalogService.name);
+  private readonly geoIpCache = new Map<
+    string,
+    {
+      countryCode: string | null;
+      countryName: string | null;
+      regionName: string | null;
+      cityName: string | null;
+      ispName: string | null;
+      timezone: string | null;
+      expiresAt: number;
+    }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly payosService: PayOSService,
+    @Optional() private readonly notificationsService?: NotificationsService,
   ) {}
 
 
@@ -336,15 +351,6 @@ export class CatalogService {
       },
     });
 
-    const transaction = await this.prisma.transaction.create({
-      data: {
-        order_id: order.id,
-        transaction_type: 'PAYMENT_TO_ADMIN',
-        amount: order.item_price_snapshot,
-        recipient_id: order.user_id,
-      },
-    });
-
     // Kích hoạt gói học sinh (50k hoặc 100k) và cấp quyền lợi tương ứng
     const amount = Number(order.item_price_snapshot);
     const packageName = String((order.item_name_snapshot as any)?.packageName || '').toLowerCase();
@@ -411,7 +417,6 @@ export class CatalogService {
 
     return {
       order: this.normalizeOrderRecord(updatedOrder),
-      transaction,
       activePackage,
       bonusPointsAwarded: initialBonusXin,
       dailyFreeAllowance,
@@ -449,7 +454,11 @@ export class CatalogService {
     const prevSnapshot =
       order.item_name_snapshot && typeof order.item_name_snapshot === 'object'
         ? (order.item_name_snapshot as Record<string, any>)
-        : { packageName: String(order.item_name_snapshot || order.subscription?.name || 'Gói Luyện Thi Schoolify') };
+        : {
+            packageName: String(
+              order.item_name_snapshot || order.subscription?.name || 'Gói Luyện Thi Schoolify',
+            ),
+          };
 
     const updatedOrder = await this.prisma.order.update({
       where: { id: orderId },
@@ -724,7 +733,8 @@ export class CatalogService {
       item_price_snapshot: Number(order.item_price_snapshot || 0),
       status: order.status || 'PAID',
       payment_method: order.payment_method || 'BANK',
-      cancel_reason: typeof snap === 'object' && snap?.cancelReason ? String(snap.cancelReason) : null,
+      cancel_reason:
+        typeof snap === 'object' && snap?.cancelReason ? String(snap.cancelReason) : null,
       created_at: order.created_at,
     };
   }
@@ -737,7 +747,6 @@ export class CatalogService {
       include: {
         user: { select: { id: true, fullname: true, email: true } },
         subscription: true,
-        transactions: true,
       },
       orderBy: { created_at: 'desc' },
       take: 100,
@@ -786,14 +795,14 @@ export class CatalogService {
             },
             {
               user_id: u2.id,
-              reference_type: 'COURSE',
-              subscription_id: proPkg.id,
+              reference_type: 'SUBSCRIPTION',
+              subscription_id: vipPkg.id,
               item_name_snapshot: {
-                packageName: 'Khóa Tổng Ôn Toán 12 & Luyện Đề GDPT 2018',
-                billingCycle: 'LIFETIME',
+                packageName: 'Gói Thủ Khoa VIP (Tháng)',
+                billingCycle: 'MONTHLY',
                 vietQrCode: 'ORD-2026-8803',
               },
-              item_price_snapshot: 499000,
+              item_price_snapshot: 100000,
               status: 'PAID',
               payment_method: 'BANK',
             },
@@ -804,7 +813,6 @@ export class CatalogService {
           include: {
             user: { select: { id: true, fullname: true, email: true } },
             subscription: true,
-            transactions: true,
           },
           orderBy: { created_at: 'desc' },
           take: 100,
@@ -816,9 +824,9 @@ export class CatalogService {
   }
 
   /**
-   * Bảng xếp hạng Học sinh (Leaderboard) từ PostgreSQL
+   * Bảng xếp hạng Học sinh (Leaderboard) từ PostgreSQL (hỗ trợ lọc grade, search, timeframe)
    */
-  async getLeaderboard() {
+  async getLeaderboard(params?: { timeframe?: string; grade?: string; search?: string }) {
     const students = await this.prisma.studentProfile.findMany({
       include: {
         user: {
@@ -827,20 +835,17 @@ export class CatalogService {
             fullname: true,
             email: true,
             avatar_url: true,
-            school_memberships: {
-              include: { school: true },
-            },
           },
         },
         submissions: {
-          select: { score: true, status: true },
+          select: { score: true, status: true, submitted_at: true },
         },
       },
       orderBy: { points: 'desc' },
-      take: 30,
+      take: 100,
     });
 
-    return students.map((st, idx) => {
+    const mapped = students.map((st, idx) => {
       const totalExams = st.submissions.length;
       const avgScore =
         totalExams > 0
@@ -852,8 +857,7 @@ export class CatalogService {
             )
           : 8.5;
 
-      const schoolName =
-        st.user.school_memberships?.[0]?.school?.name || 'THPT Chuyên Schoolify';
+      const schoolName = 'THPT Chuyên Schoolify';
       const gradeMatch = String(st.grade_level || '12').match(/\d+/);
       const numericGrade = gradeMatch ? Number(gradeMatch[0]) : 12;
 
@@ -867,13 +871,30 @@ export class CatalogService {
         schoolName,
         gradeLevel: String(numericGrade),
         grade: numericGrade,
-        points: Number(st.points || 1250 - idx * 60),
+        points: Number(st.points || 0),
         examPoints: Number(st.exam_points ?? 9),
         totalExams,
         avgScore,
-        streakDays: Math.max(3, 25 - idx * 2),
+        streakDays: Math.max(1, Math.min(30, totalExams + 3)),
       };
     });
+
+    const gradeFilter = params?.grade ? String(params.grade).match(/\d+/)?.[0] : undefined;
+    const searchLower = params?.search?.trim().toLowerCase();
+
+    const filtered = mapped.filter((entry) => {
+      if (gradeFilter && entry.gradeLevel !== gradeFilter) return false;
+      if (searchLower) {
+        const hay = `${entry.fullname} ${entry.schoolName} ${entry.email}`.toLowerCase();
+        if (!hay.includes(searchLower)) return false;
+      }
+      return true;
+    });
+
+    return filtered.slice(0, 50).map((item, idx) => ({
+      ...item,
+      rank: idx + 1,
+    }));
   }
 
   /**
@@ -883,11 +904,8 @@ export class CatalogService {
     const [
       totalUsers,
       totalStudents,
-      totalTeachers,
       totalQuestions,
       totalQuestionBanks,
-      totalCourses,
-      totalLessons,
       totalSubmissions,
       totalPackages,
       orders,
@@ -905,11 +923,8 @@ export class CatalogService {
     ] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.studentProfile.count(),
-      this.prisma.teacherProfile.count(),
       this.prisma.question.count(),
       this.prisma.questionBank.count(),
-      this.prisma.course.count(),
-      this.prisma.lesson.count(),
       this.prisma.examSubmission.count(),
       this.prisma.subscriptionPackage.count(),
       this.listOrders(),
@@ -969,7 +984,6 @@ export class CatalogService {
           role: true,
           status: true,
           created_at: true,
-          teacher_profile: { select: { id: true } },
           student_profile: { select: { id: true, grade_level: true, exam_points: true, points: true } },
         },
       }),
@@ -991,13 +1005,11 @@ export class CatalogService {
 
     const paidOrders = orders.filter((o) => o.status === 'PAID');
     const pendingOrdersCount = orders.filter((o) => o.status === 'PENDING').length;
-    const practiceRevenue = paidOrders
-      .filter((o) => o.reference_type === 'SUBSCRIPTION')
-      .reduce((sum, o) => sum + Number(o.item_price_snapshot || 0), 0);
-    const courseRevenue = paidOrders
-      .filter((o) => o.reference_type === 'COURSE')
-      .reduce((sum, o) => sum + Number(o.item_price_snapshot || 0), 0);
-    const totalRevenue = practiceRevenue + courseRevenue;
+    const practiceRevenue = paidOrders.reduce(
+      (sum, o) => sum + Number(o.item_price_snapshot || 0),
+      0,
+    );
+    const totalRevenue = practiceRevenue;
 
     // Phân bố câu hỏi theo 4 mức độ tư duy Bloom
     const bloomDistribution = bloomGroups.reduce(
@@ -1059,12 +1071,7 @@ export class CatalogService {
       id: u.id,
       fullname: u.fullname,
       email: u.email,
-      role:
-        u.role === 'SUPER_ADMIN'
-          ? 'SUPER_ADMIN'
-          : u.teacher_profile
-            ? 'TEACHER'
-            : 'STUDENT',
+      role: u.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'STUDENT',
       status: u.status,
       gradeLevel: u.student_profile?.grade_level || null,
       examPoints: u.student_profile?.exam_points ?? null,
@@ -1131,11 +1138,8 @@ export class CatalogService {
     return {
       totalUsers,
       totalStudents,
-      totalTeachers,
       totalQuestions,
       totalQuestionBanks,
-      totalCourses,
-      totalLessons,
       totalSubmissions,
       totalPackages,
       totalOrders: orders.length,
@@ -1143,7 +1147,7 @@ export class CatalogService {
       pendingOrdersCount,
       totalRevenue,
       practiceRevenue,
-      courseRevenue,
+      courseRevenue: 0,
       monthlyRevenueStats,
       recentOrders: orders.slice(0, 6),
       aiMetrics: {
@@ -1439,6 +1443,18 @@ export class CatalogService {
       },
     });
 
+    if (profile.user_id) {
+      await this.notificationsService
+        ?.createForUser({
+          userId: profile.user_id,
+          type: 'success',
+          title: `Đổi quà "${item.name}" thành công!`,
+          message: `Mã voucher của bạn: ${voucherCode}. Đã trừ ${requiredPoints} Tia Sáng.`,
+          link: '/student/rewards',
+        })
+        .catch(() => {});
+    }
+
     return {
       redeemed: true,
       voucherCode,
@@ -1493,4 +1509,2032 @@ export class CatalogService {
       is_used: !rec.active,
     }));
   }
+
+  private readHeaderValue(
+    headers: Record<string, string | string[] | undefined> | undefined,
+    key: string,
+  ): string {
+    if (!headers) return '';
+    const raw = headers[key] ?? headers[key.toLowerCase()];
+    const str = Array.isArray(raw) ? raw[0] || '' : raw || '';
+    if (!str) return '';
+    try {
+      return decodeURIComponent(str.trim());
+    } catch {
+      return str.trim();
+    }
+  }
+
+  private isPrivateOrLoopbackIp(ip: string): boolean {
+    const clean = (ip || '').trim().toLowerCase();
+    if (!clean || clean === 'localhost' || clean === '::1' || clean === '0.0.0.0') return true;
+    if (clean.startsWith('127.') || clean.startsWith('10.') || clean.startsWith('192.168.')) return true;
+    if (clean.startsWith('fe80:') || clean.startsWith('fc') || clean.startsWith('fd')) return true;
+    const m172 = clean.match(/^172\.(\d+)\./);
+    if (m172) {
+      const oct = Number(m172[1]);
+      if (oct >= 16 && oct <= 31) return true;
+    }
+    const m100 = clean.match(/^100\.(\d+)\./);
+    if (m100) {
+      const oct = Number(m100[1]);
+      if (oct >= 64 && oct <= 127) return true;
+    }
+    return false;
+  }
+
+  private extractClientIp(
+    headers?: Record<string, string | string[] | undefined>,
+    remoteAddress?: string,
+  ): string | null {
+    const normalize = (raw: string) =>
+      raw
+        .trim()
+        .replace(/^::ffff:/i, '')
+        .replace(/^\[|\]$/g, '');
+
+    const cfIp = normalize(this.readHeaderValue(headers, 'cf-connecting-ip'));
+    if (cfIp && !this.isPrivateOrLoopbackIp(cfIp)) return cfIp;
+
+    const trueClientIp = normalize(this.readHeaderValue(headers, 'true-client-ip'));
+    if (trueClientIp && !this.isPrivateOrLoopbackIp(trueClientIp)) return trueClientIp;
+
+    const xff = this.readHeaderValue(headers, 'x-forwarded-for');
+    if (xff) {
+      const candidates = xff
+        .split(',')
+        .map((s) => normalize(s))
+        .filter(Boolean);
+      const publicIp = candidates.find((c) => !this.isPrivateOrLoopbackIp(c));
+      if (publicIp) return publicIp;
+      if (candidates[0]) return candidates[0];
+    }
+
+    const realIp = normalize(this.readHeaderValue(headers, 'x-real-ip'));
+    if (realIp) return realIp;
+
+    if (cfIp) return cfIp;
+    if (remoteAddress) return normalize(remoteAddress);
+    return null;
+  }
+
+  private countryCodeToViName(code?: string | null, fallbackName?: string | null): string | null {
+    const c = (code || '').trim().toUpperCase();
+    const map: Record<string, string> = {
+      VN: 'Việt Nam',
+      US: 'Hoa Kỳ',
+      SG: 'Singapore',
+      JP: 'Nhật Bản',
+      KR: 'Hàn Quốc',
+      AU: 'Úc',
+      CA: 'Canada',
+      GB: 'Vương quốc Anh',
+      UK: 'Vương quốc Anh',
+      DE: 'Đức',
+      FR: 'Pháp',
+      CN: 'Trung Quốc',
+      TW: 'Đài Loan',
+      HK: 'Hồng Kông',
+      TH: 'Thái Lan',
+      MY: 'Malaysia',
+      ID: 'Indonesia',
+      PH: 'Philippines',
+      IN: 'Ấn Độ',
+      NL: 'Hà Lan',
+      IE: 'Ireland',
+    };
+    if (c && map[c]) return map[c];
+    if (fallbackName && fallbackName.trim()) {
+      const f = fallbackName.trim();
+      if (/^viet\s*nam$/i.test(f)) return 'Việt Nam';
+      if (/^united states$/i.test(f)) return 'Hoa Kỳ';
+      return f;
+    }
+    return c || null;
+  }
+
+  private normalizePlaceName(raw?: string | null): string | null {
+    if (!raw) return null;
+    const cleaned = raw.trim();
+    if (!cleaned) return null;
+    const key = cleaned
+      .toLowerCase()
+      .replace(/\s+(city|province|municipality)$/i, '')
+      .replace(/^(tinh|thanh pho|tp\.?)\s+/i, '')
+      .trim();
+
+    const vnMap: Record<string, string> = {
+      'ho chi minh': 'TP. Hồ Chí Minh',
+      'hồ chí minh': 'TP. Hồ Chí Minh',
+      saigon: 'TP. Hồ Chí Minh',
+      'ha noi': 'Hà Nội',
+      hanoi: 'Hà Nội',
+      'hà nội': 'Hà Nội',
+      'da nang': 'Đà Nẵng',
+      danang: 'Đà Nẵng',
+      'đà nẵng': 'Đà Nẵng',
+      'hai phong': 'Hải Phòng',
+      haiphong: 'Hải Phòng',
+      'hải phòng': 'Hải Phòng',
+      'can tho': 'Cần Thơ',
+      cantho: 'Cần Thơ',
+      'cần thơ': 'Cần Thơ',
+      'binh duong': 'Bình Dương',
+      'dong nai': 'Đồng Nai',
+      'ba ria - vung tau': 'Bà Rịa - Vũng Tàu',
+      'vung tau': 'Bà Rịa - Vũng Tàu',
+      'khanh hoa': 'Khánh Hòa',
+      'nha trang': 'Khánh Hòa',
+      'lam dong': 'Lâm Đồng',
+      'da lat': 'Lâm Đồng',
+      'thua thien-hue': 'Thừa Thiên Huế',
+      'thua thien hue': 'Thừa Thiên Huế',
+      hue: 'Thừa Thiên Huế',
+      'nghe an': 'Nghệ An',
+      'thanh hoa': 'Thanh Hóa',
+      'quang ninh': 'Quảng Ninh',
+      'bac ninh': 'Bắc Ninh',
+      'hai duong': 'Hải Dương',
+      'long an': 'Long An',
+      'tien giang': 'Tiền Giang',
+      'an giang': 'An Giang',
+      'kien giang': 'Kiên Giang',
+      'dak lak': 'Đắk Lắk',
+      'gia lai': 'Gia Lai',
+      'binh dinh': 'Bình Định',
+      'quang nam': 'Quảng Nam',
+      'quang ngai': 'Quảng Ngãi',
+      'thai nguyen': 'Thái Nguyên',
+      'nam dinh': 'Nam Định',
+      'thai binh': 'Thái Bình',
+      'phu tho': 'Phú Thọ',
+      'vinh phuc': 'Vĩnh Phúc',
+      'bac giang': 'Bắc Giang',
+      'hung yen': 'Hưng Yên',
+    };
+
+    return vnMap[key] || cleaned;
+  }
+
+  private parseUserAgentDetails(
+    uaRaw?: string | null,
+    fallbackDeviceType?: string | null,
+    clientPlatform?: string | null,
+  ): {
+    deviceType: 'DESKTOP' | 'MOBILE' | 'TABLET' | 'BOT';
+    osName: string;
+    browserName: string;
+    deviceModel: string;
+  } {
+    const ua = String(uaRaw || '').trim();
+    const fbType = String(fallbackDeviceType || '').toUpperCase();
+
+    if (!ua) {
+      const dt =
+        fbType === 'MOBILE' || fbType === 'TABLET' || fbType === 'BOT'
+          ? (fbType as 'MOBILE' | 'TABLET' | 'BOT')
+          : 'DESKTOP';
+      return {
+        deviceType: dt,
+        osName: clientPlatform ? String(clientPlatform).slice(0, 64) : 'Không rõ HĐH',
+        browserName: 'Trình duyệt Web',
+        deviceModel: dt === 'MOBILE' ? 'Điện thoại' : dt === 'TABLET' ? 'Máy tính bảng' : 'Máy tính',
+      };
+    }
+
+    // 1. Nhận diện Bot / Crawler trước
+    if (/hubspot/i.test(ua)) {
+      return {
+        deviceType: 'BOT',
+        osName: 'Bot / Crawler',
+        browserName: 'HubSpot Crawler',
+        deviceModel: 'HubSpot Bot',
+      };
+    }
+    if (/bingbot|bingpreview/i.test(ua)) {
+      return {
+        deviceType: 'BOT',
+        osName: 'Bot / Crawler',
+        browserName: 'Bingbot',
+        deviceModel: 'Microsoft Bing Bot',
+      };
+    }
+    if (/googlebot|adsbot-google/i.test(ua)) {
+      return {
+        deviceType: 'BOT',
+        osName: 'Bot / Crawler',
+        browserName: 'Googlebot',
+        deviceModel: 'Google Search Bot',
+      };
+    }
+    if (/facebookexternalhit|meta-externalagent/i.test(ua)) {
+      return {
+        deviceType: 'BOT',
+        osName: 'Bot / Crawler',
+        browserName: 'Meta Crawler',
+        deviceModel: 'Facebook / Meta Bot',
+      };
+    }
+    if (/bot|crawler|spider|slurp|headlesschrome|gptbot|claudebot|bytespider|ahrefsbot|semrushbot/i.test(ua)) {
+      return {
+        deviceType: 'BOT',
+        osName: 'Bot / Crawler',
+        browserName: 'Web Crawler',
+        deviceModel: 'Trình thu thập tự động',
+      };
+    }
+
+    // 2. Nhận diện Hệ điều hành & Thiết bị
+    let osName = 'Khác';
+    let deviceType: 'DESKTOP' | 'MOBILE' | 'TABLET' = 'DESKTOP';
+    let deviceModel = 'Máy tính';
+
+    if (/ipad|playbook|silk/i.test(ua) || (/macintosh/i.test(ua) && fbType === 'TABLET')) {
+      osName = 'iPadOS';
+      deviceType = 'TABLET';
+      deviceModel = 'Apple iPad';
+    } else if (/iphone|ipod/i.test(ua)) {
+      osName = 'iOS';
+      deviceType = 'MOBILE';
+      deviceModel = 'Apple iPhone';
+    } else if (/android/i.test(ua)) {
+      osName = 'Android';
+      const isTablet = !/mobile/i.test(ua) || /tablet|sm-t|pad/i.test(ua);
+      deviceType = isTablet ? 'TABLET' : 'MOBILE';
+      const modelMatch = ua.match(/;\s*([^;)]+?)\s+Build\//i);
+      const rawModel = modelMatch?.[1]?.trim();
+      if (rawModel && rawModel !== 'K') {
+        if (/^SM-/i.test(rawModel)) deviceModel = `Samsung (${rawModel})`;
+        else if (/redmi|poco|mi\s/i.test(rawModel)) deviceModel = `Xiaomi ${rawModel}`;
+        else if (/cph|oppo/i.test(rawModel)) deviceModel = `OPPO (${rawModel})`;
+        else if (/pixel/i.test(rawModel)) deviceModel = `Google ${rawModel}`;
+        else deviceModel = rawModel.slice(0, 64);
+      } else {
+        deviceModel = isTablet ? 'Máy tính bảng Android' : 'Điện thoại Android';
+      }
+    } else if (/windows nt/i.test(ua)) {
+      osName = 'Windows';
+      deviceType = 'DESKTOP';
+      deviceModel = 'PC Windows';
+    } else if (/mac os x|macintosh/i.test(ua)) {
+      osName = 'macOS';
+      deviceType = 'DESKTOP';
+      deviceModel = 'Apple Mac';
+    } else if (/cros/i.test(ua)) {
+      osName = 'ChromeOS';
+      deviceType = 'DESKTOP';
+      deviceModel = 'Chromebook';
+    } else if (/linux|x11|ubuntu/i.test(ua)) {
+      osName = 'Linux';
+      deviceType = 'DESKTOP';
+      deviceModel = 'PC Linux';
+    }
+
+    if (fbType === 'MOBILE' || fbType === 'TABLET') {
+      deviceType = fbType;
+    }
+
+    // 3. Nhận diện Trình duyệt (ưu tiên In-App & trình duyệt phổ biến tại VN trước Chrome/Safari)
+    let browserName = 'Trình duyệt khác';
+    if (/coc_coc_browser|coccoc/i.test(ua)) {
+      browserName = 'Cốc Cốc';
+    } else if (/zalo/i.test(ua)) {
+      browserName = 'Zalo In-App';
+    } else if (/fban|fbav|fb_iab/i.test(ua)) {
+      browserName = 'Facebook / Messenger';
+    } else if (/bytedancewebview|musical_ly|tiktok/i.test(ua)) {
+      browserName = 'TikTok In-App';
+    } else if (/edg\/|edga\/|edgios\//i.test(ua)) {
+      browserName = 'Microsoft Edge';
+    } else if (/opr\/|opera/i.test(ua)) {
+      browserName = 'Opera';
+    } else if (/samsungbrowser\//i.test(ua)) {
+      browserName = 'Samsung Internet';
+    } else if (/firefox\/|fxios\//i.test(ua)) {
+      browserName = 'Mozilla Firefox';
+    } else if (/crios\/|chrome\/|chromium\//i.test(ua)) {
+      browserName = 'Google Chrome';
+    } else if (/safari\//i.test(ua)) {
+      browserName = 'Apple Safari';
+    }
+
+    return {
+      deviceType,
+      osName,
+      browserName,
+      deviceModel,
+    };
+  }
+
+  private async resolveGeoLocation(
+    ipAddress: string | null,
+    headers?: Record<string, string | string[] | undefined>,
+    clientTimezone?: string | null,
+    clientLanguage?: string | null,
+  ): Promise<{
+    countryCode: string | null;
+    countryName: string | null;
+    regionName: string | null;
+    cityName: string | null;
+    ispName: string | null;
+    timezone: string | null;
+  }> {
+    const rawCfCountry = this.readHeaderValue(headers, 'cf-ipcountry').toUpperCase();
+    const cfCountry = rawCfCountry && rawCfCountry !== 'XX' && rawCfCountry !== 'T1' ? rawCfCountry : null;
+    const cfCity = this.normalizePlaceName(this.readHeaderValue(headers, 'cf-ipcity'));
+    const cfRegion = this.normalizePlaceName(this.readHeaderValue(headers, 'cf-region'));
+    const cfTimezone = this.readHeaderValue(headers, 'cf-timezone') || null;
+
+    let countryCode: string | null = cfCountry;
+    let countryName: string | null = cfCountry ? this.countryCodeToViName(cfCountry) : null;
+    let regionName: string | null = cfRegion;
+    let cityName: string | null = cfCity;
+    let ispName: string | null = null;
+    let timezone: string | null = clientTimezone || cfTimezone || null;
+
+    if (ipAddress && !this.isPrivateOrLoopbackIp(ipAddress)) {
+      // Nếu thiếu Tỉnh/Thành phố hoặc Nhà mạng thì tra cứu GeoIP nhanh (có cache RAM 12h + timeout 1.5s)
+      if (!cityName || !countryCode) {
+        const now = Date.now();
+        const cached = this.geoIpCache.get(ipAddress);
+        if (cached && cached.expiresAt > now) {
+          countryCode = countryCode || cached.countryCode;
+          countryName = countryName || cached.countryName;
+          regionName = regionName || cached.regionName;
+          cityName = cityName || cached.cityName;
+          ispName = ispName || cached.ispName;
+          timezone = timezone || cached.timezone;
+        } else {
+          let resolved = false;
+          try {
+            const res = await fetch(
+              `http://ip-api.com/json/${encodeURIComponent(ipAddress)}?fields=status,country,countryCode,regionName,city,isp,timezone`,
+              { signal: AbortSignal.timeout(1500) },
+            );
+            if (res.ok) {
+              const geo: any = await res.json();
+              if (geo?.status === 'success') {
+                const cc = String(geo.countryCode || cfCountry || '').toUpperCase() || null;
+                const cn = this.countryCodeToViName(cc, geo.country);
+                const rn = this.normalizePlaceName(geo.regionName);
+                const cty = this.normalizePlaceName(geo.city) || rn;
+                const isp = geo.isp ? String(geo.isp).trim().slice(0, 128) : null;
+                const tz = geo.timezone ? String(geo.timezone).trim().slice(0, 64) : null;
+
+                countryCode = countryCode || cc;
+                countryName = countryName || cn;
+                regionName = regionName || rn;
+                cityName = cityName || cty;
+                ispName = isp;
+                timezone = timezone || tz;
+                resolved = true;
+              }
+            }
+          } catch {
+            // Fallback sang ipwho.is bên dưới nếu ip-api bị nghẽn
+          }
+
+          if (!resolved) {
+            try {
+              const res2 = await fetch(`https://ipwho.is/${encodeURIComponent(ipAddress)}`, {
+                signal: AbortSignal.timeout(1500),
+              });
+              if (res2.ok) {
+                const geo2: any = await res2.json();
+                if (geo2?.success !== false && (geo2?.country_code || geo2?.city)) {
+                  const cc = String(geo2.country_code || cfCountry || '').toUpperCase() || null;
+                  const cn = this.countryCodeToViName(cc, geo2.country);
+                  const rn = this.normalizePlaceName(geo2.region);
+                  const cty = this.normalizePlaceName(geo2.city) || rn;
+                  const isp = geo2.connection?.isp
+                    ? String(geo2.connection.isp).trim().slice(0, 128)
+                    : null;
+                  const tz = geo2.timezone?.id
+                    ? String(geo2.timezone.id).trim().slice(0, 64)
+                    : null;
+
+                  countryCode = countryCode || cc;
+                  countryName = countryName || cn;
+                  regionName = regionName || rn;
+                  cityName = cityName || cty;
+                  ispName = isp;
+                  timezone = timezone || tz;
+                }
+              }
+            } catch {
+              // Bỏ qua lỗi mạng GeoIP để không bao giờ chặn ghi log lượt xem
+            }
+          }
+
+          if (this.geoIpCache.size > 2000) {
+            const firstKey = this.geoIpCache.keys().next().value;
+            if (firstKey) this.geoIpCache.delete(firstKey);
+          }
+          this.geoIpCache.set(ipAddress, {
+            countryCode,
+            countryName,
+            regionName,
+            cityName,
+            ispName,
+            timezone,
+            expiresAt: now + 12 * 3600 * 1000,
+          });
+        }
+      }
+    } else if (ipAddress && this.isPrivateOrLoopbackIp(ipAddress)) {
+      const tzLower = String(timezone || '').toLowerCase();
+      const langLower = String(clientLanguage || '').toLowerCase();
+      const isVnHint =
+        tzLower.includes('ho_chi_minh') ||
+        tzLower.includes('saigon') ||
+        langLower.startsWith('vi');
+      countryCode = countryCode || (isVnHint ? 'VN' : 'LOCAL');
+      countryName = countryName || (isVnHint ? 'Việt Nam' : 'Mạng nội bộ');
+      regionName = regionName || 'Mạng nội bộ (Local)';
+      cityName = cityName || (tzLower.includes('ho_chi_minh') || tzLower.includes('saigon') ? 'TP. Hồ Chí Minh (Local)' : 'Máy chủ / Local');
+      ispName = 'Mạng nội bộ / Localhost';
+    }
+
+    // Suy luận quốc gia từ timezone nếu vẫn chưa có
+    if (!countryCode && timezone) {
+      const tz = timezone.toLowerCase();
+      if (tz.includes('ho_chi_minh') || tz.includes('saigon')) {
+        countryCode = 'VN';
+        countryName = 'Việt Nam';
+      }
+    }
+
+    return {
+      countryCode,
+      countryName,
+      regionName,
+      cityName,
+      ispName,
+      timezone,
+    };
+  }
+
+  /**
+   * Ghi nhận lượt truy cập trang web thực tế vào PostgreSQL (web_visit_logs)
+   * Kèm bóc tách Thiết bị / Hệ điều hành / Trình duyệt & Vị trí địa lý (Cloudflare + GeoIP)
+   */
+  async recordWebVisit(
+    payload: {
+      path?: string;
+      pageTitle?: string;
+      userId?: string | null;
+      userRole?: string;
+      sessionId?: string;
+      deviceType?: string;
+      screenResolution?: string;
+      timezone?: string;
+      language?: string;
+      platform?: string;
+      referrer?: string;
+      userAgent?: string;
+    },
+    reqMeta?: {
+      headers?: Record<string, string | string[] | undefined>;
+      remoteAddress?: string;
+    },
+  ) {
+    const cleanPath = String(payload?.path || '/').trim().slice(0, 255) || '/';
+    const roleUpper = String(payload?.userRole || '').toUpperCase().trim();
+
+    // Chỉ tính lượt truy cập ở trang Client, tuyệt đối không tính trang Admin hoặc tài khoản Admin
+    if (
+      cleanPath.startsWith('/admin') ||
+      cleanPath.startsWith('/login/admin') ||
+      cleanPath.startsWith('/403') ||
+      roleUpper === 'SUPER_ADMIN' ||
+      roleUpper === 'ADMIN'
+    ) {
+      return {
+        recorded: false,
+        ignoredReason: 'ADMIN_VISIT_IGNORED',
+        path: cleanPath,
+      };
+    }
+
+    const validUuid =
+      payload?.userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.userId)
+        ? payload.userId
+        : null;
+
+    if (validUuid) {
+      const u = await this.prisma.user.findUnique({
+        where: { id: validUuid },
+        select: { role: true },
+      });
+      if (u?.role === 'SUPER_ADMIN') {
+        return {
+          recorded: false,
+          ignoredReason: 'SUPER_ADMIN_USER_IGNORED',
+          path: cleanPath,
+        };
+      }
+    }
+
+    const rawUa =
+      payload?.userAgent || this.readHeaderValue(reqMeta?.headers, 'user-agent') || null;
+    const parsedDevice = this.parseUserAgentDetails(
+      rawUa,
+      payload?.deviceType,
+      payload?.platform,
+    );
+
+    const ipAddress = this.extractClientIp(reqMeta?.headers, reqMeta?.remoteAddress);
+    const clientLanguage =
+      payload?.language ||
+      this.readHeaderValue(reqMeta?.headers, 'accept-language').split(',')[0]?.trim() ||
+      null;
+    const geo = await this.resolveGeoLocation(
+      ipAddress,
+      reqMeta?.headers,
+      payload?.timezone || null,
+      clientLanguage,
+    );
+
+    const visit = await this.prisma.webVisitLog.create({
+      data: {
+        path: cleanPath,
+        page_title: payload?.pageTitle ? String(payload.pageTitle).slice(0, 255) : null,
+        user_id: validUuid,
+        user_role: String(payload?.userRole || (validUuid ? 'STUDENT' : 'GUEST')).slice(0, 32),
+        session_id: payload?.sessionId ? String(payload.sessionId).slice(0, 128) : `ses-${Date.now()}`,
+        device_type: parsedDevice.deviceType,
+        os_name: parsedDevice.osName.slice(0, 64),
+        browser_name: parsedDevice.browserName.slice(0, 64),
+        device_model: parsedDevice.deviceModel.slice(0, 128),
+        screen_resolution: payload?.screenResolution
+          ? String(payload.screenResolution).slice(0, 32)
+          : null,
+        ip_address: ipAddress ? ipAddress.slice(0, 64) : null,
+        country_code: geo.countryCode ? geo.countryCode.slice(0, 8) : null,
+        country_name: geo.countryName ? geo.countryName.slice(0, 64) : null,
+        region_name: geo.regionName ? geo.regionName.slice(0, 128) : null,
+        city_name: geo.cityName ? geo.cityName.slice(0, 128) : null,
+        isp_name: geo.ispName ? geo.ispName.slice(0, 128) : null,
+        timezone: geo.timezone ? geo.timezone.slice(0, 64) : null,
+        language: clientLanguage ? String(clientLanguage).slice(0, 32) : null,
+        referrer: payload?.referrer ? String(payload.referrer).slice(0, 512) : null,
+        user_agent: rawUa ? String(rawUa) : null,
+      },
+    });
+
+    return {
+      recorded: true,
+      visitId: visit.id,
+      path: visit.path,
+      deviceType: visit.device_type,
+      osName: visit.os_name,
+      browserName: visit.browser_name,
+      cityName: visit.city_name,
+      countryName: visit.country_name,
+      createdAt: visit.created_at,
+    };
+  }
+
+  /**
+   * Thống kê Hành vi Học sinh & Toàn diện Hệ thống Web (100% PostgreSQL Real Data tính từ mốc 15:00:48 09/11/2026)
+   */
+  async getBehaviorAnalytics() {
+    // Mốc thời gian bắt đầu tính số liệu thực tế theo yêu cầu của Admin (15:00:48 09/11/2026 giờ VN)
+    const trackingSince = new Date('2026-11-09T08:00:48.000Z');
+
+    const SUBJECT_LABELS: Record<string, { name: string; color: string; group: string }> = {
+      'toan-hoc': { name: 'Toán học', color: '#00B8DD', group: 'Tự nhiên' },
+      'vat-ly': { name: 'Vật lý', color: '#6366F1', group: 'Tự nhiên' },
+      'hoa-hoc': { name: 'Hóa học', color: '#10B981', group: 'Tự nhiên' },
+      'sinh-hoc': { name: 'Sinh học', color: '#22C55E', group: 'Tự nhiên' },
+      'tieng-anh': { name: 'Tiếng Anh', color: '#F59E0B', group: 'Ngoại ngữ' },
+      'ngu-van': { name: 'Ngữ văn', color: '#EC4899', group: 'Xã hội' },
+      'lich-su': { name: 'Lịch sử', color: '#EF4444', group: 'Xã hội' },
+      'dia-ly': { name: 'Địa lý', color: '#14B8A6', group: 'Xã hội' },
+      'tin-hoc': { name: 'Tin học', color: '#3B82F6', group: 'Công nghệ' },
+      'gdcd': { name: 'GDCD / KT&PL', color: '#8B5CF6', group: 'Xã hội' },
+      'cong-nghe': { name: 'Công nghệ', color: '#F97316', group: 'Công nghệ' },
+      'khoa-hoc-tu-nhien': { name: 'Khoa học tự nhiên', color: '#06B6D4', group: 'Tự nhiên' },
+    };
+
+    const [
+      allVisits,
+      allSubmissions,
+      allStartExamLogs,
+      allPointLogs,
+      questionsBySubject,
+      questionsBySubjectBloom,
+      questionsBySubjectFormat,
+      questionsByGrade,
+      totalQuestionBanks,
+      allOrders,
+      allPackages,
+      allUsers,
+      allStudentProfiles,
+      chatSessions,
+      behaviorHistories,
+      topicMasteriesCount,
+      roadmapStepsCount,
+      storeRedemptionsCount,
+    ] = await Promise.all([
+      this.prisma.webVisitLog.findMany({
+        where: {
+          created_at: { gte: trackingSince },
+          NOT: [
+            { path: { startsWith: '/admin' } },
+            { path: { startsWith: '/login/admin' } },
+            { path: { startsWith: '/403' } },
+            { user_role: { in: ['SUPER_ADMIN', 'ADMIN'] } },
+          ],
+        },
+        orderBy: { created_at: 'desc' },
+      }),
+      this.prisma.examSubmission.findMany({
+        where: { started_at: { gte: trackingSince } },
+        orderBy: { started_at: 'desc' },
+        include: {
+          answers: {
+            select: {
+              id: true,
+              selected_answer_id: true,
+              student_text_answer: true,
+              sub_answers_json: true,
+            },
+          },
+          student: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  fullname: true,
+                  email: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.examPointLog.findMany({
+        where: {
+          action_type: 'START_EXAM',
+          created_at: { gte: trackingSince },
+        },
+        orderBy: { created_at: 'desc' },
+        include: {
+          student: {
+            include: {
+              user: { select: { id: true, fullname: true, email: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.examPointLog.findMany({
+        where: { created_at: { gte: trackingSince } },
+        orderBy: { created_at: 'desc' },
+        take: 300,
+      }),
+      this.prisma.question.groupBy({
+        by: ['subject'],
+        _count: { id: true },
+      }),
+      this.prisma.question.groupBy({
+        by: ['subject', 'bloom_level'],
+        _count: { id: true },
+      }),
+      this.prisma.question.groupBy({
+        by: ['subject', 'question_format'],
+        _count: { id: true },
+      }),
+      this.prisma.question.groupBy({
+        by: ['grade'],
+        _count: { id: true },
+      }),
+      this.prisma.questionBank.count(),
+      this.prisma.order.findMany({
+        where: { created_at: { gte: trackingSince } },
+        include: {
+          user: { select: { id: true, fullname: true, email: true } },
+          subscription: true,
+        },
+        orderBy: { created_at: 'desc' },
+      }),
+      this.listPackages(),
+      this.prisma.user.findMany({
+        select: { id: true, fullname: true, email: true, role: true, status: true, created_at: true },
+      }),
+      this.prisma.studentProfile.findMany({
+        include: {
+          user: { select: { id: true, fullname: true, email: true } },
+        },
+      }),
+      this.prisma.chatSession.findMany({
+        where: { createdAt: { gte: trackingSince } },
+        select: { id: true, userId: true, messages: true },
+      }),
+      this.prisma.studentBehaviorHistory.findMany({
+        where: { created_at: { gte: trackingSince } },
+        orderBy: { created_at: 'desc' },
+        include: {
+          student: {
+            include: {
+              user: { select: { fullname: true, email: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.studentTopicMastery.count({
+        where: { updated_at: { gte: trackingSince } },
+      }),
+      this.prisma.studentRoadmapStep.count({
+        where: { updated_at: { gte: trackingSince } },
+      }),
+      this.prisma.studentInventory.count({
+        where: { buy_at: { gte: trackingSince } },
+      }),
+    ]);
+
+    // =========================================================================
+    // 1. THỐNG KÊ LƯỢT TRUY CẬP WEB (WEB TRAFFIC & VISITS)
+    // =========================================================================
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+
+    const totalVisits = allVisits.length;
+    const todayVisits = allVisits.filter((v) => new Date(v.created_at) >= todayStart).length;
+    const last7DaysVisits = allVisits.filter((v) => new Date(v.created_at) >= sevenDaysAgo).length;
+
+    const uniqueSessionSet = new Set(
+      allVisits.map((v) => v.session_id || v.user_id || v.id),
+    );
+    const uniqueVisitors = uniqueSessionSet.size;
+    const loggedInVisits = allVisits.filter(
+      (v) => v.user_id || (v.user_role && v.user_role !== 'GUEST'),
+    ).length;
+    const guestVisits = Math.max(0, totalVisits - loggedInVisits);
+
+    const userNameById = new Map<string, string>();
+    for (const u of allUsers) {
+      if (u.id && u.fullname) userNameById.set(u.id, u.fullname);
+    }
+
+    const deviceTypeLabels: Record<string, string> = {
+      DESKTOP: 'Máy tính (Desktop)',
+      MOBILE: 'Điện thoại (Mobile)',
+      TABLET: 'Máy tính bảng (Tablet)',
+      BOT: 'Trình thu thập (Bot)',
+    };
+
+    const deviceTypeMap = new Map<string, { type: string; label: string; visits: number; sessions: Set<string> }>();
+    const osMap = new Map<string, { name: string; visits: number; sessions: Set<string> }>();
+    const browserMap = new Map<string, { name: string; visits: number; sessions: Set<string> }>();
+    const locationMap = new Map<
+      string,
+      {
+        locationKey: string;
+        city: string;
+        region: string | null;
+        country: string;
+        countryCode: string;
+        visits: number;
+        sessions: Set<string>;
+      }
+    >();
+    const countryMap = new Map<
+      string,
+      { country: string; countryCode: string; visits: number; sessions: Set<string> }
+    >();
+
+    const pageMap = new Map<
+      string,
+      { path: string; pageTitle: string; visits: number; sessions: Set<string> }
+    >();
+    const defaultPageTitles: Record<string, string> = {
+      '/': 'Trang chủ Schoolify',
+      '/luyen-thi': 'Cổng Luyện Thi THPT & K-12',
+      '/student/practice/exam-room': 'Phòng Thi Trực Tuyến',
+      '/student/practice': 'Lộ Trình Cá Nhân Hóa',
+      '/pricing': 'Bảng Giá Gói Đăng Ký',
+      '/student/exams': 'Lịch Sử Luyện Đề & Kết Quả',
+      '/leaderboard': 'Bảng Xếp Hạng Học Sinh',
+      '/student/rewards': 'Cửa Hàng Đổi Quà',
+      '/about': 'Giới Thiệu Schoolify',
+      '/admin/questions': 'Quản Trị Ngân Hàng Câu Hỏi',
+      '/admin/dashboard': 'Bảng Điều Khiển Admin',
+      '/admin/behavior': 'Thống Kê Hành Vi & Toàn Hệ Thống',
+    };
+
+    let desktopCount = 0;
+    let mobileCount = 0;
+    let tabletCount = 0;
+    let botCount = 0;
+
+    const enrichedVisits = allVisits.map((v) => {
+      const parsed = this.parseUserAgentDetails(v.user_agent, v.device_type);
+      const effectiveDeviceType =
+        parsed.deviceType === 'BOT'
+          ? 'BOT'
+          : (v.device_type === 'MOBILE' || v.device_type === 'TABLET' || v.device_type === 'BOT'
+              ? v.device_type
+              : parsed.deviceType) || 'DESKTOP';
+      const osName = v.os_name || parsed.osName || 'Khác';
+      const browserName = v.browser_name || parsed.browserName || 'Trình duyệt khác';
+      const deviceModel = v.device_model || parsed.deviceModel || 'Thiết bị Web';
+
+      let city = v.city_name || v.region_name || '';
+      let country =
+        v.country_name || (v.country_code ? this.countryCodeToViName(v.country_code) || '' : '');
+      let countryCode = (v.country_code || '').toUpperCase();
+
+      if (!city && !country) {
+        if (effectiveDeviceType === 'BOT') {
+          city = 'Máy chủ Crawler';
+          country = 'Quốc tế (Bot)';
+          countryCode = 'BOT';
+        } else {
+          city = 'Chưa định vị (Lượt cũ)';
+          country = 'Chưa ghi nhận vị trí';
+          countryCode = 'LEGACY';
+        }
+      } else {
+        if (!country) {
+          country = countryCode === 'VN' ? 'Việt Nam' : 'Quốc tế';
+        }
+        if (!city) {
+          city = country === 'Việt Nam' ? 'Việt Nam (Chưa rõ tỉnh)' : country;
+        }
+        if (!countryCode) {
+          countryCode = country === 'Việt Nam' ? 'VN' : 'INTL';
+        }
+      }
+
+      const locationLabel =
+        countryCode === 'LEGACY'
+          ? 'Chưa ghi nhận (Lượt cũ)'
+          : city === country
+            ? country
+            : `${city}, ${country}`;
+
+      return {
+        raw: v,
+        sessionKey: v.session_id || v.user_id || v.id,
+        effectiveDeviceType,
+        osName,
+        browserName,
+        deviceModel,
+        city,
+        region: v.region_name || null,
+        country,
+        countryCode,
+        locationLabel,
+      };
+    });
+
+    for (const item of enrichedVisits) {
+      const {
+        raw: v,
+        sessionKey,
+        effectiveDeviceType,
+        osName,
+        browserName,
+        city,
+        region,
+        country,
+        countryCode,
+      } = item;
+
+      if (effectiveDeviceType === 'MOBILE') mobileCount += 1;
+      else if (effectiveDeviceType === 'TABLET') tabletCount += 1;
+      else if (effectiveDeviceType === 'BOT') botCount += 1;
+      else desktopCount += 1;
+
+      // Nhóm theo Loại thiết bị
+      const dtEntry = deviceTypeMap.get(effectiveDeviceType) || {
+        type: effectiveDeviceType,
+        label: deviceTypeLabels[effectiveDeviceType] || effectiveDeviceType,
+        visits: 0,
+        sessions: new Set<string>(),
+      };
+      dtEntry.visits += 1;
+      dtEntry.sessions.add(sessionKey);
+      deviceTypeMap.set(effectiveDeviceType, dtEntry);
+
+      // Nhóm theo Hệ điều hành
+      const osEntry = osMap.get(osName) || {
+        name: osName,
+        visits: 0,
+        sessions: new Set<string>(),
+      };
+      osEntry.visits += 1;
+      osEntry.sessions.add(sessionKey);
+      osMap.set(osName, osEntry);
+
+      // Nhóm theo Trình duyệt
+      const brEntry = browserMap.get(browserName) || {
+        name: browserName,
+        visits: 0,
+        sessions: new Set<string>(),
+      };
+      brEntry.visits += 1;
+      brEntry.sessions.add(sessionKey);
+      browserMap.set(browserName, brEntry);
+
+      // Nhóm theo Vị trí địa lý (Tỉnh/Thành + Quốc gia)
+      const locKey = `${countryCode}::${city}`;
+      const locEntry = locationMap.get(locKey) || {
+        locationKey: locKey,
+        city,
+        region,
+        country,
+        countryCode,
+        visits: 0,
+        sessions: new Set<string>(),
+      };
+      locEntry.visits += 1;
+      locEntry.sessions.add(sessionKey);
+      locationMap.set(locKey, locEntry);
+
+      // Nhóm theo Quốc gia
+      const cKey = `${countryCode}::${country}`;
+      const cEntry = countryMap.get(cKey) || {
+        country,
+        countryCode,
+        visits: 0,
+        sessions: new Set<string>(),
+      };
+      cEntry.visits += 1;
+      cEntry.sessions.add(sessionKey);
+      countryMap.set(cKey, cEntry);
+
+      // Nhóm theo Trang
+      const normalizedPath = (v.path || '/').split('?')[0] || '/';
+      const existing = pageMap.get(normalizedPath) || {
+        path: normalizedPath,
+        pageTitle: v.page_title || defaultPageTitles[normalizedPath] || normalizedPath,
+        visits: 0,
+        sessions: new Set<string>(),
+      };
+      existing.visits += 1;
+      existing.sessions.add(sessionKey);
+      pageMap.set(normalizedPath, existing);
+    }
+
+    const deviceBreakdown = {
+      desktop: desktopCount,
+      mobile: mobileCount,
+      tablet: tabletCount,
+      bot: botCount,
+    };
+
+    const byDeviceType = Array.from(deviceTypeMap.values())
+      .sort((a, b) => b.visits - a.visits)
+      .map((d) => ({
+        type: d.type,
+        label: d.label,
+        visits: d.visits,
+        uniqueVisitors: d.sessions.size,
+        percentage: totalVisits > 0 ? Number(((d.visits / totalVisits) * 100).toFixed(1)) : 0,
+      }));
+
+    const byOs = Array.from(osMap.values())
+      .sort((a, b) => b.visits - a.visits)
+      .map((o) => ({
+        name: o.name,
+        visits: o.visits,
+        uniqueVisitors: o.sessions.size,
+        percentage: totalVisits > 0 ? Number(((o.visits / totalVisits) * 100).toFixed(1)) : 0,
+      }));
+
+    const byBrowser = Array.from(browserMap.values())
+      .sort((a, b) => b.visits - a.visits)
+      .map((b) => ({
+        name: b.name,
+        visits: b.visits,
+        uniqueVisitors: b.sessions.size,
+        percentage: totalVisits > 0 ? Number(((b.visits / totalVisits) * 100).toFixed(1)) : 0,
+      }));
+
+    const rankLocationBucket = (code: string) => {
+      if (code === 'LEGACY') return 2;
+      if (code === 'BOT') return 1;
+      return 0;
+    };
+
+    const byLocation = Array.from(locationMap.values())
+      .sort((a, b) => {
+        const ra = rankLocationBucket(a.countryCode);
+        const rb = rankLocationBucket(b.countryCode);
+        if (ra !== rb) return ra - rb;
+        return b.visits - a.visits;
+      })
+      .slice(0, 15)
+      .map((l) => ({
+        locationKey: l.locationKey,
+        city: l.city,
+        region: l.region,
+        country: l.country,
+        countryCode: l.countryCode,
+        visits: l.visits,
+        uniqueVisitors: l.sessions.size,
+        percentage: totalVisits > 0 ? Number(((l.visits / totalVisits) * 100).toFixed(1)) : 0,
+      }));
+
+    const byCountry = Array.from(countryMap.values())
+      .sort((a, b) => {
+        const ra = rankLocationBucket(a.countryCode);
+        const rb = rankLocationBucket(b.countryCode);
+        if (ra !== rb) return ra - rb;
+        return b.visits - a.visits;
+      })
+      .map((c) => ({
+        country: c.country,
+        countryCode: c.countryCode,
+        visits: c.visits,
+        uniqueVisitors: c.sessions.size,
+        percentage: totalVisits > 0 ? Number(((c.visits / totalVisits) * 100).toFixed(1)) : 0,
+      }));
+
+    const recentVisits = enrichedVisits.slice(0, 30).map((item) => {
+      const v = item.raw;
+      const normalizedPath = (v.path || '/').split('?')[0] || '/';
+      return {
+        id: v.id,
+        path: v.path || '/',
+        pageTitle: v.page_title || defaultPageTitles[normalizedPath] || normalizedPath,
+        sessionId: v.session_id || v.id.slice(0, 8),
+        userRole: v.user_role || 'GUEST',
+        userName: (v.user_id && userNameById.get(v.user_id)) || null,
+        deviceType: item.effectiveDeviceType,
+        osName: item.osName,
+        browserName: item.browserName,
+        deviceModel: item.deviceModel,
+        screenResolution: v.screen_resolution || null,
+        ipAddress: v.ip_address || null,
+        locationLabel: item.locationLabel,
+        cityName: item.city,
+        countryName: item.country,
+        countryCode: item.countryCode,
+        ispName: v.isp_name || null,
+        timezone: v.timezone || null,
+        createdAt: v.created_at,
+      };
+    });
+
+    const topPages = Array.from(pageMap.values())
+      .sort((a, b) => b.visits - a.visits)
+      .slice(0, 10)
+      .map((p) => ({
+        path: p.path,
+        pageTitle: p.pageTitle,
+        visits: p.visits,
+        uniqueVisitors: p.sessions.size,
+        percentage: totalVisits > 0 ? Number(((p.visits / totalVisits) * 100).toFixed(1)) : 0,
+      }));
+
+    // Xu hướng 14 ngày gần nhất
+    const dailyTrend = Array.from({ length: 14 }, (_, idx) => {
+      const d = new Date(now.getTime() - (13 - idx) * 24 * 3600 * 1000);
+      const dayKey = d.toISOString().slice(0, 10);
+      const label = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const dayVisits = allVisits.filter(
+        (v) => new Date(v.created_at).toISOString().slice(0, 10) === dayKey,
+      );
+      const daySubs = allSubmissions.filter(
+        (s) => s.started_at && new Date(s.started_at).toISOString().slice(0, 10) === dayKey,
+      );
+      return {
+        date: dayKey,
+        label,
+        visits: dayVisits.length,
+        uniqueVisitors: new Set(dayVisits.map((v) => v.session_id || v.user_id || v.id)).size,
+        examsCreated: daySubs.length,
+      };
+    });
+
+    // =========================================================================
+    // 2. THỐNG KÊ SỐ ĐỀ HỌC SINH ĐÃ TẠO & PHỔ ĐIỂM CHI TIẾT
+    // =========================================================================
+    let completedCount = 0;
+    let abandonedZeroCount = 0; // Không chọn câu nào (0 câu)
+    let abandonedUnder3Count = 0; // Chọn 1 hoặc 2 câu (< 3 câu)
+
+    // 4 mốc điểm của số đề hoàn thành (>= 3 câu)
+    let scoreUnder5 = 0; // < 5.0đ
+    let score5To6_5 = 0; // 5.0 - 6.5đ (5 <= score < 6.5)
+    let score6_5To8_5 = 0; // 6.5 - 8.5đ (6.5 <= score < 8.5)
+    let score8_5To10 = 0; // 8.5 - 10.0đ (8.5 <= score <= 10)
+
+    const completedScoresList: number[] = [];
+    const examAttemptRecords: Array<{
+      id: string;
+      attemptToken: string | null;
+      studentName: string;
+      studentEmail: string;
+      grade: number;
+      examTitle: string;
+      subjectSlug: string;
+      subjectName: string;
+      level: string;
+      answeredCount: number;
+      totalQuestions: number;
+      completionStatus: 'COMPLETED' | 'BLANK_0' | 'UNDER_3';
+      completionLabel: string;
+      score: number;
+      scoreBucket: string;
+      timeSpentSeconds: number;
+      createdAt: Date;
+    }> = [];
+
+    for (const sub of allSubmissions) {
+      const snap: any = sub.snapshot_data || {};
+      const ans1 = snap.answers || {};
+      const ans2 = snap.originalExam?.studentAnswers || {};
+
+      const mcCount = Math.max(
+        Object.keys(ans1.multipleChoices || {}).filter((k) => Boolean(ans1.multipleChoices[k])).length,
+        Object.keys(ans2.multipleChoices || {}).filter((k) => Boolean(ans2.multipleChoices[k])).length,
+      );
+      const tfCount = Math.max(
+        Object.keys(ans1.trueFalseAnswers || {}).filter(
+          (k) => Object.keys((ans1.trueFalseAnswers || {})[k] || {}).length > 0,
+        ).length,
+        Object.keys(ans2.trueFalseAnswers || {}).filter(
+          (k) => Object.keys((ans2.trueFalseAnswers || {})[k] || {}).length > 0,
+        ).length,
+      );
+      const saCount = Math.max(
+        Object.values(ans1.shortAnswers || {}).filter((v) => String(v || '').trim().length > 0).length,
+        Object.values(ans2.shortAnswers || {}).filter((v) => String(v || '').trim().length > 0).length,
+      );
+      const esCount = Math.max(
+        Object.values(ans1.essayAnswers || {}).filter((v) => String(v || '').trim().length > 0).length,
+        Object.values(ans2.essayAnswers || {}).filter((v) => String(v || '').trim().length > 0).length,
+      );
+      const relAnswersCount = (sub.answers || []).filter(
+        (a) => a.selected_answer_id || a.student_text_answer || a.sub_answers_json,
+      ).length;
+
+      const answeredCount = Math.max(mcCount + tfCount + saCount, relAnswersCount);
+      const numScore = Number(Number(sub.score ?? 0).toFixed(2));
+      const totalQ = Math.max(
+        1,
+        Number(
+          snap.totalQuestions ||
+            snap.originalExam?.totalQuestions ||
+            snap.originalExam?.questions?.length ||
+            10,
+        ),
+      );
+
+      const subjSlug = String(snap.subjectSlug || 'toan-hoc');
+      const subjInfo = SUBJECT_LABELS[subjSlug] || {
+        name: snap.subjectName || 'Toán học',
+        color: '#00B8DD',
+        group: 'Tự nhiên',
+      };
+      const gradeNum = Number(snap.grade || sub.student?.grade_level || 12);
+      const levelCode = String(snap.level || 'BASIC').toUpperCase();
+
+      let completionStatus: 'COMPLETED' | 'BLANK_0' | 'UNDER_3' = 'COMPLETED';
+      let completionLabel = 'Đã hoàn thành';
+      let scoreBucket = 'Chưa phân loại';
+
+      if (sub.status === 'IN_PROGRESS' || answeredCount === 0) {
+        abandonedZeroCount += 1;
+        completionStatus = 'BLANK_0';
+        completionLabel = 'Bỏ trống (0 câu chọn)';
+        scoreBucket = 'Bỏ trống (0 câu)';
+      } else if (answeredCount < 3) {
+        abandonedUnder3Count += 1;
+        completionStatus = 'UNDER_3';
+        completionLabel = `Bỏ dở (Chỉ chọn ${answeredCount} câu < 3 câu)`;
+        scoreBucket = 'Dưới 3 câu (< 3 câu)';
+      } else {
+        completedCount += 1;
+        completedScoresList.push(numScore);
+        if (numScore < 5.0) {
+          scoreUnder5 += 1;
+          scoreBucket = 'Dưới 5.0đ';
+        } else if (numScore >= 5.0 && numScore < 6.5) {
+          score5To6_5 += 1;
+          scoreBucket = '5.0 - 6.5đ';
+        } else if (numScore >= 6.5 && numScore < 8.5) {
+          score6_5To8_5 += 1;
+          scoreBucket = '6.5 - 8.5đ';
+        } else {
+          score8_5To10 += 1;
+          scoreBucket = '8.5 - 10.0đ';
+        }
+      }
+
+      examAttemptRecords.push({
+        id: sub.id,
+        attemptToken: sub.attempt_token,
+        studentName:
+          sub.student?.user?.fullname || snap.userFullName || 'Học sinh Schoolify',
+        studentEmail: sub.student?.user?.email || '',
+        grade: gradeNum,
+        examTitle: sub.exam_title || snap.examTitle || 'Đề luyện thi Schoolify',
+        subjectSlug: subjSlug,
+        subjectName: subjInfo.name,
+        level: levelCode,
+        answeredCount,
+        totalQuestions: totalQ,
+        completionStatus,
+        completionLabel,
+        score: numScore,
+        scoreBucket,
+        timeSpentSeconds: Number(sub.time_spent_seconds || 0),
+        createdAt: sub.started_at || sub.submitted_at || new Date(),
+      });
+    }
+
+    // Nếu học sinh đã bấm Tạo đề (START_EXAM bị trừ Tia Sáng) nhưng thoát phòng thi chưa nộp bài
+    const unsubmittedStartCount = Math.max(0, allStartExamLogs.length - allSubmissions.length);
+    if (unsubmittedStartCount > 0) {
+      abandonedZeroCount += unsubmittedStartCount;
+      for (const sLog of allStartExamLogs.slice(0, unsubmittedStartCount)) {
+        examAttemptRecords.push({
+          id: sLog.id,
+          attemptToken: null,
+          studentName: sLog.student?.user?.fullname || 'Học sinh Schoolify',
+          studentEmail: sLog.student?.user?.email || '',
+          grade: Number(sLog.student?.grade_level || 12),
+          examTitle: sLog.exam_title || 'Đề thi đã tạo (Thoát phòng thi chưa nộp)',
+          subjectSlug: 'toan-hoc',
+          subjectName: 'Đề luyện thi',
+          level: String(sLog.exam_level || 'BASIC'),
+          answeredCount: 0,
+          totalQuestions: 10,
+          completionStatus: 'BLANK_0',
+          completionLabel: 'Bỏ trống (Mở đề nhưng chưa nộp)',
+          score: 0,
+          scoreBucket: 'Bỏ trống (0 câu)',
+          timeSpentSeconds: 0,
+          createdAt: sLog.created_at,
+        });
+      }
+      examAttemptRecords.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    }
+
+    const totalAbandonedOrBlank = abandonedZeroCount + abandonedUnder3Count;
+    const totalExamsCreated = completedCount + totalAbandonedOrBlank;
+    const completedAboveOrEqual5 = score5To6_5 + score6_5To8_5 + score8_5To10;
+    const avgCompletedScore =
+      completedScoresList.length > 0
+        ? Number(
+            (
+              completedScoresList.reduce((sum, val) => sum + val, 0) /
+              completedScoresList.length
+            ).toFixed(2),
+          )
+        : 0;
+
+    // =========================================================================
+    // 3. TỔNG SỐ CÂU HỎI TRONG NGÂN HÀNG ĐỀ & CHI TIẾT TỪNG MÔN (HOVER)
+    // =========================================================================
+    const totalQuestions = questionsBySubject.reduce((sum, item) => sum + item._count.id, 0);
+
+    const bloomMapBySubject = new Map<string, Record<string, number>>();
+    for (const item of questionsBySubjectBloom) {
+      const subj = item.subject || 'toan-hoc';
+      const current = bloomMapBySubject.get(subj) || {
+        NHAN_BIET: 0,
+        THONG_HIEU: 0,
+        VAN_DUNG: 0,
+        VAN_DUNG_CAO: 0,
+      };
+      const bKey = item.bloom_level || 'THONG_HIEU';
+      current[bKey] = (current[bKey] || 0) + item._count.id;
+      bloomMapBySubject.set(subj, current);
+    }
+
+    const formatMapBySubject = new Map<string, Record<string, number>>();
+    for (const item of questionsBySubjectFormat) {
+      const subj = item.subject || 'toan-hoc';
+      const current = formatMapBySubject.get(subj) || {
+        SINGLE_CHOICE: 0,
+        TRUE_FALSE: 0,
+        SHORT_ANSWER: 0,
+      };
+      const fKey = item.question_format || 'SINGLE_CHOICE';
+      if (fKey === 'ESSAY') continue;
+      current[fKey] = (current[fKey] || 0) + item._count.id;
+      formatMapBySubject.set(subj, current);
+    }
+
+    const subjectsBreakdown = questionsBySubject
+      .map((item) => {
+        const slug = item.subject || 'toan-hoc';
+        const count = item._count.id;
+        const meta = SUBJECT_LABELS[slug] || {
+          name: slug.toUpperCase(),
+          color: '#00B8DD',
+          group: 'Khác',
+        };
+        const percentage =
+          totalQuestions > 0 ? Number(((count / totalQuestions) * 100).toFixed(1)) : 0;
+
+        return {
+          slug,
+          name: meta.name,
+          color: meta.color,
+          group: meta.group,
+          count,
+          percentage,
+          byBloom: bloomMapBySubject.get(slug) || {
+            NHAN_BIET: 0,
+            THONG_HIEU: 0,
+            VAN_DUNG: 0,
+            VAN_DUNG_CAO: 0,
+          },
+          byFormat: formatMapBySubject.get(slug) || {
+            SINGLE_CHOICE: 0,
+            TRUE_FALSE: 0,
+            SHORT_ANSWER: 0,
+          },
+        };
+      })
+      .sort((a, b) => b.count - a.count);
+
+    // =========================================================================
+    // 4. SỐ GÓI ĐĂNG KÝ ĐÃ BÁN TÍNH TỪ BÂY GIỜ (TÁCH RÕ GÓI 1 & GÓI 2)
+    // =========================================================================
+    const subscriptionOrders = allOrders.filter((o) => o.reference_type === 'SUBSCRIPTION');
+
+    const isPackage2Order = (o: any) => {
+      const snap = o.item_name_snapshot;
+      const nameStr = String(
+        typeof snap === 'string'
+          ? snap
+          : snap?.packageName || o.subscription?.name || '',
+      ).toLowerCase();
+      const priceNum = Number(o.item_price_snapshot || 0);
+      return (
+        nameStr.includes('vip') ||
+        nameStr.includes('thủ khoa') ||
+        nameStr.includes('100k') ||
+        priceNum === 100000 ||
+        priceNum === 99000 ||
+        priceNum >= 300000
+      );
+    };
+
+    const pkg1PaidOrders = subscriptionOrders.filter(
+      (o) => o.status === 'PAID' && !isPackage2Order(o) && Number(o.item_price_snapshot || 0) > 0,
+    );
+    const pkg1PendingOrders = subscriptionOrders.filter(
+      (o) => o.status === 'PENDING' && !isPackage2Order(o) && Number(o.item_price_snapshot || 0) > 0,
+    );
+    const pkg2PaidOrders = subscriptionOrders.filter(
+      (o) => o.status === 'PAID' && isPackage2Order(o),
+    );
+    const pkg2PendingOrders = subscriptionOrders.filter(
+      (o) => o.status === 'PENDING' && isPackage2Order(o),
+    );
+
+    const pkg1SoldCount = pkg1PaidOrders.length;
+    const pkg2SoldCount = pkg2PaidOrders.length;
+
+    const pkg1Revenue = pkg1PaidOrders.reduce(
+      (s, o) => s + Number(o.item_price_snapshot || 50000),
+      0,
+    );
+    const pkg2Revenue = pkg2PaidOrders.reduce(
+      (s, o) => s + Number(o.item_price_snapshot || 100000),
+      0,
+    );
+
+    const totalPackagesSold = pkg1SoldCount + pkg2SoldCount;
+    const totalPackagesRevenue = pkg1Revenue + pkg2Revenue;
+
+    // =========================================================================
+    // 5. THỐNG KÊ MỌI THỨ CỦA WEB (USERS, ĐIỂM TIA SÁNG/NGỌC, AI, HÀNH VI LUYỆN LẠI)
+    // =========================================================================
+    const totalChatMessages = chatSessions.reduce((sum, cs) => {
+      const msgs = Array.isArray(cs.messages) ? cs.messages.length : 0;
+      return sum + msgs;
+    }, 0);
+
+    const totalTiaSangInCirculation = allStudentProfiles.reduce(
+      (sum, sp) => sum + Number(sp.exam_points || 0),
+      0,
+    );
+    const totalDiamondsInCirculation = Number(
+      allStudentProfiles
+        .reduce((sum, sp) => sum + Number(sp.points || 0), 0)
+        .toFixed(2),
+    );
+
+    const totalCheckins = allPointLogs.filter((l) => l.action_type === 'DAILY_CHECKIN').length;
+    const totalRewardsGranted = allPointLogs.filter((l) =>
+      String(l.action_type || '').startsWith('SCORE_REWARD'),
+    ).length;
+    const totalPenalties = allPointLogs.filter(
+      (l) => l.action_type === 'SCORE_PENALTY_UNDER_5',
+    ).length;
+
+    const gritCount = behaviorHistories.filter(
+      (b) => b.learning_spirit_tag === 'HIGH_GRIT_PERSISTENT',
+    ).length;
+    const moderateCount = behaviorHistories.filter(
+      (b) => b.learning_spirit_tag === 'MODERATE_INITIATIVE',
+    ).length;
+    const lowPatienceCount = behaviorHistories.filter(
+      (b) => b.learning_spirit_tag === 'LOW_PATIENCE_PARTIAL_SKIP',
+    ).length;
+    const avoidanceCount = behaviorHistories.filter(
+      (b) => b.learning_spirit_tag === 'AVOIDANCE_SKIPPED',
+    ).length;
+    const usedAiExampleCount = behaviorHistories.filter((b) => b.used_ai_example).length;
+
+    return {
+      generatedAt: new Date().toISOString(),
+      trackingSince: trackingSince.toISOString(),
+      // 1. Lượt truy cập Web
+      webTraffic: {
+        totalVisits,
+        todayVisits,
+        last7DaysVisits,
+        uniqueVisitors,
+        loggedInVisits,
+        guestVisits,
+        deviceBreakdown,
+        byDeviceType,
+        byOs,
+        byBrowser,
+        byLocation,
+        byCountry,
+        recentVisits,
+        topPages,
+        dailyTrend,
+      },
+      // 2. Số đề học sinh đã tạo & Phổ điểm
+      studentExams: {
+        totalCreated: totalExamsCreated,
+        completedCount,
+        abandonedOrBlankCount: totalAbandonedOrBlank,
+        abandonedBreakdown: {
+          zeroAnswersCount: abandonedZeroCount,
+          under3AnswersCount: abandonedUnder3Count,
+        },
+        completionRate:
+          totalExamsCreated > 0
+            ? Number(((completedCount / totalExamsCreated) * 100).toFixed(1))
+            : 0,
+        abandonRate:
+          totalExamsCreated > 0
+            ? Number(((totalAbandonedOrBlank / totalExamsCreated) * 100).toFixed(1))
+            : 0,
+        avgCompletedScore,
+        completedOverview: {
+          aboveOrEqual5Count: completedAboveOrEqual5,
+          under5Count: scoreUnder5,
+        },
+        scoreDistribution: {
+          under5: {
+            label: 'Dưới 5.0 điểm',
+            range: '< 5.0đ',
+            count: scoreUnder5,
+            percentage:
+              completedCount > 0
+                ? Number(((scoreUnder5 / completedCount) * 100).toFixed(1))
+                : 0,
+          },
+          from5to6_5: {
+            label: 'Từ 5.0 - 6.5 điểm',
+            range: '5.0đ - 6.5đ',
+            count: score5To6_5,
+            percentage:
+              completedCount > 0
+                ? Number(((score5To6_5 / completedCount) * 100).toFixed(1))
+                : 0,
+          },
+          from6_5to8_5: {
+            label: 'Từ 6.5 - 8.5 điểm',
+            range: '6.5đ - 8.5đ',
+            count: score6_5To8_5,
+            percentage:
+              completedCount > 0
+                ? Number(((score6_5To8_5 / completedCount) * 100).toFixed(1))
+                : 0,
+          },
+          from8_5to10: {
+            label: 'Từ 8.5 - 10.0 điểm',
+            range: '8.5đ - 10.0đ',
+            count: score8_5To10,
+            percentage:
+              completedCount > 0
+                ? Number(((score8_5To10 / completedCount) * 100).toFixed(1))
+                : 0,
+          },
+        },
+        recentAttempts: examAttemptRecords.slice(0, 40),
+      },
+      // 3. Ngân hàng câu hỏi & chi tiết từng môn (Hover)
+      questionBank: {
+        totalQuestions,
+        totalQuestionBanks,
+        totalSubjects: subjectsBreakdown.length,
+        bySubject: subjectsBreakdown,
+        byGrade: questionsByGrade.map((g) => ({
+          grade: Number(g.grade || 12),
+          count: g._count.id,
+        })),
+      },
+      // 4. Số gói đăng ký đã bán { Gói 1, Gói 2 }
+      packageSales: {
+        totalSold: totalPackagesSold,
+        totalRevenue: totalPackagesRevenue,
+        totalPendingOrders: pkg1PendingOrders.length + pkg2PendingOrders.length,
+        package1: {
+          code: 'GOI_1',
+          label: 'Gói 1: Gói Bứt Phá (50k)',
+          shortName: 'Gói 1 (Bứt Phá 50k)',
+          unitPrice: 50000,
+          soldCount: pkg1SoldCount,
+          paidOrdersCount: pkg1PaidOrders.length,
+          pendingOrdersCount: pkg1PendingOrders.length,
+          activeSubscribersCount: pkg1SoldCount,
+          revenue: pkg1Revenue,
+          buyers: pkg1PaidOrders
+            .map((o) => o.user?.fullname || 'Học sinh')
+            .filter((v, i, a) => Boolean(v) && a.indexOf(v) === i),
+        },
+        package2: {
+          code: 'GOI_2',
+          label: 'Gói 2: Gói Thủ Khoa VIP (100k)',
+          shortName: 'Gói 2 (Thủ Khoa VIP 100k)',
+          unitPrice: 100000,
+          soldCount: pkg2SoldCount,
+          paidOrdersCount: pkg2PaidOrders.length,
+          pendingOrdersCount: pkg2PendingOrders.length,
+          activeSubscribersCount: pkg2SoldCount,
+          revenue: pkg2Revenue,
+          buyers: pkg2PaidOrders
+            .map((o) => o.user?.fullname || 'Học sinh')
+            .filter((v, i, a) => Boolean(v) && a.indexOf(v) === i),
+        },
+        recentSubscriptionOrders: subscriptionOrders.slice(0, 15).map((o) => {
+          const isPkg2 = isPackage2Order(o);
+          return {
+            id: o.id,
+            buyerName: o.user?.fullname || 'Học sinh Schoolify',
+            buyerEmail: o.user?.email || '',
+            packageCode: isPkg2 ? 'GOI_2' : 'GOI_1',
+            packageLabel: isPkg2 ? 'Gói 2: Thủ Khoa VIP (100k)' : 'Gói 1: Bứt Phá (50k)',
+            amount: Number(o.item_price_snapshot || (isPkg2 ? 100000 : 50000)),
+            status: o.status,
+            createdAt: o.created_at,
+          };
+        }),
+      },
+      // 5. Thống kê toàn diện mọi thứ khác của Web
+      platformEverything: {
+        users: (() => {
+          let grade12Count = 0;
+          let grade11Count = 0;
+          let grade10Count = 0;
+          let otherGradesCount = 0;
+          let incompleteProfileCount = 0;
+
+          for (const sp of allStudentProfiles) {
+            const rawGrade = String(sp.grade_level || '').trim();
+            if (
+              !rawGrade ||
+              rawGrade === 'UNKNOWN' ||
+              rawGrade.toLowerCase().includes('chưa')
+            ) {
+              incompleteProfileCount += 1;
+            } else if (/\b12\b|^12/i.test(rawGrade) || rawGrade.includes('12')) {
+              grade12Count += 1;
+            } else if (/\b11\b|^11/i.test(rawGrade) || rawGrade.includes('11')) {
+              grade11Count += 1;
+            } else if (/\b10\b|^10/i.test(rawGrade) || rawGrade.includes('10')) {
+              grade10Count += 1;
+            } else {
+              otherGradesCount += 1;
+            }
+          }
+
+          return {
+            totalUsers: allUsers.length,
+            studentsCount: allStudentProfiles.length,
+            grade12Count,
+            grade11Count,
+            grade10Count,
+            otherGradesCount,
+            incompleteProfileCount,
+            adminsCount: allUsers.filter((u) => u.role === 'SUPER_ADMIN').length,
+          };
+        })(),
+        contentAndCourses: {
+          totalQuestionBanks,
+          totalQuestions,
+        },
+        pointsAndEconomy: {
+          totalTiaSangInCirculation,
+          totalDiamondsInCirculation,
+          totalExamStartsLogged: allStartExamLogs.length,
+          totalCheckins,
+          totalRewardsGranted,
+          totalPenalties,
+          storeRedemptionsCount,
+        },
+        aiAndAdaptiveLearning: {
+          totalAiChatSessions: chatSessions.length,
+          totalAiChatMessages: totalChatMessages,
+          totalDrill3Sessions: behaviorHistories.length,
+          usedAiExampleCount,
+          topicMasteriesCount,
+          roadmapStepsCount,
+          spiritBreakdown: {
+            highGrit: gritCount,
+            moderateInitiative: moderateCount,
+            lowPatience: lowPatienceCount,
+            avoidanceSkipped: avoidanceCount,
+          },
+          recentDrillBehaviors: behaviorHistories.slice(0, 15).map((b) => ({
+            id: b.id,
+            studentName: b.student?.user?.fullname || 'Học sinh',
+            subject: SUBJECT_LABELS[b.subject]?.name || b.subject,
+            grade: b.grade,
+            topicTag: b.topic_tag,
+            completedTurns: b.completed_turns,
+            totalTurns: b.total_turns,
+            correctTurns: b.correct_turns,
+            usedAiExample: b.used_ai_example,
+            spiritTag: b.learning_spirit_tag,
+            spiritLabel: b.learning_spirit_label,
+            intelligenceLabel: b.intelligence_label,
+            timeSeconds: b.total_time_seconds,
+            createdAt: b.created_at,
+          })),
+        },
+      },
+    };
+  }
+
+  // =========================================================================
+  // LEADERBOARD SEASONS & REWARD DISTRIBUTION (POSTGRESQL)
+  // =========================================================================
+
+  private async ensureDefaultSeasons() {
+    const count = await this.prisma.leaderboardSeason.count();
+    if (count > 0) return;
+
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 1);
+    const end = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+    const freeze = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+
+    await this.prisma.leaderboardSeason.create({
+      data: {
+        code: `SS-${now.getFullYear()}-Q1`,
+        name: `Mùa ${now.getFullYear()}: Thức Tỉnh Tri Thức`,
+        description:
+          'Mùa giải bảng xếp hạng học thuật chính thức toàn quốc trên Schoolify.',
+        status: SeasonStatus.ACTIVE,
+        start_date: start,
+        end_date: end,
+        freeze_date: freeze,
+        total_participants: await this.prisma.studentProfile.count(),
+        total_gems_pool: 25000,
+        is_frozen: false,
+        scoring_multiplier: 1.0,
+        rules: [
+          'Hoàn thành mỗi bài thi THPT/SGK với điểm >= 8.5 được cộng Điểm Xịn & XP xếp hạng.',
+          'Kết thúc mùa giải hệ thống đóng băng BXH 24h để chống gian lận trước khi phát thưởng.',
+        ],
+        rewards: [
+          {
+            id: 'tier-1',
+            tierRank: 'Hạng 1',
+            minRank: 1,
+            maxRank: 1,
+            gemReward: 500,
+            badgeName: 'Quán Quân Toàn Quốc',
+            titleName: 'Thủ Khoa Schoolify',
+            description: 'Tặng 500 Ngọc Tri Thức & Danh hiệu Quán Quân.',
+          },
+          {
+            id: 'tier-2-3',
+            tierRank: 'Hạng 2 - 3',
+            minRank: 2,
+            maxRank: 3,
+            gemReward: 300,
+            badgeName: 'Á Quân Học Thuật',
+            titleName: 'Bảng Vàng Danh Dự',
+            description: 'Tặng 300 Ngọc Tri Thức & Huy hiệu Á Quân.',
+          },
+          {
+            id: 'tier-4-10',
+            tierRank: 'Top 4 - 10',
+            minRank: 4,
+            maxRank: 10,
+            gemReward: 150,
+            badgeName: 'Tinh Hoa Top 10',
+            titleName: 'Học Giả Xuất Sắc',
+            description: 'Tặng 150 Ngọc Tri Thức & Huy hiệu Top 10.',
+          },
+          {
+            id: 'tier-11-50',
+            tierRank: 'Top 11 - 50',
+            minRank: 11,
+            maxRank: 50,
+            gemReward: 50,
+            badgeName: 'Ngôi Sao Triển Vọng',
+            titleName: 'Chiến Binh Bền Bỉ',
+            description: 'Tặng 50 Ngọc Tri Thức cho Top 50 toàn quốc.',
+          },
+        ],
+        distribution_status: 'NOT_STARTED',
+      },
+    });
+  }
+
+  private formatSeason(s: any) {
+    return {
+      id: s.id,
+      code: s.code,
+      name: s.name,
+      description: s.description,
+      status: s.status,
+      startDate: s.start_date?.toISOString?.() || s.start_date,
+      endDate: s.end_date?.toISOString?.() || s.end_date,
+      freezeDate: s.freeze_date?.toISOString?.() || s.freeze_date || undefined,
+      totalParticipants: Number(s.total_participants || 0),
+      totalGemsPool: Number(s.total_gems_pool || 0),
+      isFrozen: Boolean(s.is_frozen),
+      scoringMultiplier: Number(s.scoring_multiplier || 1),
+      rules: Array.isArray(s.rules) ? s.rules : [],
+      rewards: Array.isArray(s.rewards) ? s.rewards : [],
+      settlementDate: s.settlement_date?.toISOString?.() || undefined,
+      distributedGems: s.distributed_gems ?? undefined,
+      distributionStatus: s.distribution_status || 'NOT_STARTED',
+      distributedBy: s.distributed_by || undefined,
+    };
+  }
+
+  async listSeasons() {
+    await this.ensureDefaultSeasons();
+    const [seasons, participantsCount] = await Promise.all([
+      this.prisma.leaderboardSeason.findMany({
+        orderBy: { start_date: 'desc' },
+      }),
+      this.prisma.studentProfile.count(),
+    ]);
+
+    return seasons.map((s) =>
+      this.formatSeason({
+        ...s,
+        total_participants: s.total_participants || participantsCount,
+      }),
+    );
+  }
+
+  async createSeason(body: any) {
+    const code = String(body?.code || `SS-${Date.now()}`).trim().toUpperCase();
+    const name = String(body?.name || '').trim();
+    if (!name) {
+      throw new BadRequestException('Tên mùa giải không được để trống');
+    }
+
+    const startDate = body?.startDate ? new Date(body.startDate) : new Date();
+    const endDate = body?.endDate
+      ? new Date(body.endDate)
+      : new Date(startDate.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const freezeDate = body?.freezeDate
+      ? new Date(body.freezeDate)
+      : new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
+
+    const status = Object.values(SeasonStatus).includes(body?.status)
+      ? (body.status as SeasonStatus)
+      : SeasonStatus.UPCOMING;
+
+    const created = await this.prisma.leaderboardSeason.create({
+      data: {
+        code,
+        name,
+        description: String(body?.description || name),
+        status,
+        start_date: startDate,
+        end_date: endDate,
+        freeze_date: freezeDate,
+        total_participants: Number(body?.totalParticipants || 0),
+        total_gems_pool: Number(body?.totalGemsPool || 10000),
+        is_frozen: Boolean(body?.isFrozen),
+        scoring_multiplier: Number(body?.scoringMultiplier || 1),
+        rules: Array.isArray(body?.rules) ? body.rules : [],
+        rewards: Array.isArray(body?.rewards) ? body.rewards : [],
+        distribution_status: 'NOT_STARTED',
+      },
+    });
+
+    return this.formatSeason(created);
+  }
+
+  async updateSeason(id: string, body: any) {
+    const existing = await this.prisma.leaderboardSeason.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Không tìm thấy mùa giải');
+
+    const updated = await this.prisma.leaderboardSeason.update({
+      where: { id },
+      data: {
+        name: body?.name !== undefined ? String(body.name) : undefined,
+        description: body?.description !== undefined ? String(body.description) : undefined,
+        status:
+          body?.status && Object.values(SeasonStatus).includes(body.status)
+            ? (body.status as SeasonStatus)
+            : undefined,
+        start_date: body?.startDate ? new Date(body.startDate) : undefined,
+        end_date: body?.endDate ? new Date(body.endDate) : undefined,
+        freeze_date: body?.freezeDate ? new Date(body.freezeDate) : undefined,
+        total_gems_pool:
+          body?.totalGemsPool !== undefined ? Number(body.totalGemsPool) : undefined,
+        scoring_multiplier:
+          body?.scoringMultiplier !== undefined ? Number(body.scoringMultiplier) : undefined,
+        rules: Array.isArray(body?.rules) ? body.rules : undefined,
+        rewards: Array.isArray(body?.rewards) ? body.rewards : undefined,
+      },
+    });
+
+    return this.formatSeason(updated);
+  }
+
+  async toggleSeasonFreeze(id: string) {
+    const existing = await this.prisma.leaderboardSeason.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Không tìm thấy mùa giải');
+
+    const nextFrozen = !existing.is_frozen;
+    const nextStatus =
+      existing.status === SeasonStatus.COMPLETED
+        ? SeasonStatus.COMPLETED
+        : nextFrozen
+          ? SeasonStatus.FREEZING
+          : SeasonStatus.ACTIVE;
+
+    const updated = await this.prisma.leaderboardSeason.update({
+      where: { id },
+      data: {
+        is_frozen: nextFrozen,
+        status: nextStatus,
+      },
+    });
+
+    return this.formatSeason(updated);
+  }
+
+  async distributeSeasonRewards(
+    id: string,
+    adminUser?: { id?: string; fullname?: string; email?: string },
+  ) {
+    const season = await this.prisma.leaderboardSeason.findUnique({ where: { id } });
+    if (!season) throw new NotFoundException('Không tìm thấy mùa giải');
+    if (season.distribution_status === 'COMPLETED') {
+      throw new BadRequestException('Mùa giải này đã được phát thưởng trước đó');
+    }
+
+    const rewardTiers: Array<{
+      minRank: number;
+      maxRank: number;
+      gemReward: number;
+      badgeName?: string;
+    }> = Array.isArray(season.rewards) ? (season.rewards as any[]) : [];
+
+    const leaderboard = await this.getLeaderboard();
+    let totalGemsDistributed = 0;
+    let totalRecipients = 0;
+    const topWinners: Array<{
+      rank: number;
+      userName: string;
+      gemsAwarded: number;
+      badge: string;
+    }> = [];
+
+    for (const entry of leaderboard) {
+      const tier = rewardTiers.find(
+        (t) => entry.rank >= Number(t.minRank) && entry.rank <= Number(t.maxRank),
+      );
+      if (!tier || Number(tier.gemReward) <= 0) continue;
+
+      const award = Number(tier.gemReward);
+      totalGemsDistributed += award;
+      totalRecipients += 1;
+
+      if (topWinners.length < 5) {
+        topWinners.push({
+          rank: entry.rank,
+          userName: entry.fullname,
+          gemsAwarded: award,
+          badge: tier.badgeName || `Top ${tier.maxRank}`,
+        });
+      }
+
+      if (entry.studentId) {
+        const before = Number(entry.points || 0);
+        await this.prisma.studentProfile.update({
+          where: { id: entry.studentId },
+          data: { points: { increment: award } },
+        });
+        await this.prisma.examPointLog.create({
+          data: {
+            student_id: entry.studentId,
+            action_type: 'SEASON_REWARD',
+            exam_title: season.name,
+            points_before: before,
+            points_delta: award,
+            points_after: before + award,
+            note: `Thưởng Top ${entry.rank} mùa giải ${season.name} (${tier.badgeName || 'Vinh danh'})`,
+          },
+        });
+      }
+
+      if (entry.userId) {
+        await this.notificationsService
+          ?.createForUser({
+            userId: entry.userId,
+            type: 'success',
+            title: `Chúc mừng Top ${entry.rank} ${season.name}!`,
+            message: `Bạn nhận được +${award} Ngọc Tri Thức và danh hiệu "${tier.badgeName || 'Xuất Sắc'}".`,
+            link: '/leaderboard',
+          })
+          .catch(() => {});
+      }
+    }
+
+    const adminName = adminUser?.fullname || 'Quản trị viên Hệ thống';
+    const adminEmail = adminUser?.email || 'admin@schoolify.vn';
+
+    const [updatedSeason, log] = await this.prisma.$transaction([
+      this.prisma.leaderboardSeason.update({
+        where: { id },
+        data: {
+          status: SeasonStatus.COMPLETED,
+          is_frozen: true,
+          settlement_date: new Date(),
+          distributed_gems: totalGemsDistributed,
+          distribution_status: 'COMPLETED',
+          distributed_by: adminName,
+        },
+      }),
+      this.prisma.seasonDistributionLog.create({
+        data: {
+          season_id: season.id,
+          season_name: season.name,
+          season_code: season.code,
+          admin_name: adminName,
+          admin_email: adminEmail,
+          total_recipients: totalRecipients,
+          total_gems_distributed: totalGemsDistributed,
+          status: 'SUCCESS',
+          top_winners: topWinners,
+          audit_notes: `Phát thưởng hoàn tất cho ${totalRecipients} học sinh với tổng ${totalGemsDistributed} Ngọc Tri Thức.`,
+        },
+      }),
+    ]);
+
+    return {
+      season: this.formatSeason(updatedSeason),
+      log: {
+        id: log.id,
+        seasonId: log.season_id,
+        seasonName: log.season_name,
+        seasonCode: log.season_code,
+        settledAt: log.settled_at.toISOString(),
+        adminName: log.admin_name,
+        adminEmail: log.admin_email,
+        totalRecipients: log.total_recipients,
+        totalGemsDistributed: log.total_gems_distributed,
+        status: log.status,
+        topWinners,
+        auditNotes: log.audit_notes || undefined,
+      },
+    };
+  }
+
+  async listDistributionLogs() {
+    const logs = await this.prisma.seasonDistributionLog.findMany({
+      orderBy: { settled_at: 'desc' },
+      take: 50,
+    });
+
+    return logs.map((log) => ({
+      id: log.id,
+      seasonId: log.season_id,
+      seasonName: log.season_name,
+      seasonCode: log.season_code,
+      settledAt: log.settled_at.toISOString(),
+      adminName: log.admin_name,
+      adminEmail: log.admin_email,
+      totalRecipients: log.total_recipients,
+      totalGemsDistributed: log.total_gems_distributed,
+      status: log.status as 'SUCCESS' | 'WARNING' | 'FAILED',
+      topWinners: Array.isArray(log.top_winners) ? log.top_winners : [],
+      auditNotes: log.audit_notes || undefined,
+    }));
+  }
 }
+

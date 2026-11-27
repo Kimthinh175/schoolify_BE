@@ -2,14 +2,18 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Delete,
   Param,
+  Query,
   Body,
+  UseGuards,
   UseInterceptors,
   UploadedFile,
+  ForbiddenException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiConsumes } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiCookieAuth, ApiBearerAuth } from '@nestjs/swagger';
 import {
   EvaluateSemanticCheckpointDto,
   AgentChatDto,
@@ -29,8 +33,16 @@ import { AntigravityIpcBridgeService } from './services/antigravity-ipc-bridge.s
 import { DocxExamGeneratorService } from './services/docx-exam-generator.service';
 import { ChatMemoryService } from './services/chat-memory.service';
 import { PrismaService } from '../../database/prisma.service';
+import { SystemRole } from '@prisma/client';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @ApiTags('AI Agent & Semantic Intelligence (Trợ lý Tác nhân & Đối soát Ngữ nghĩa)')
+@ApiCookieAuth('access_token')
+@ApiBearerAuth()
 @Controller('agent')
 export class AgentController {
   constructor(
@@ -52,11 +64,10 @@ export class AgentController {
   }
 
   /**
-   * Tính toán Điểm Xịn phải trả cho lượt hỏi Gia sư AI theo số lượng Token:
-   * - Tỉ lệ: 1 Điểm Xịn = 1.000 Token.
-   * - Quy tắc làm tròn: >= 0.5 làm tròn lên, < 0.5 làm tròn xuống.
-   * - Sàn tối thiểu: Nếu < 0.5 (hoặc làm tròn = 0), vẫn tính 0.5 điểm tối thiểu.
-   * - Gói 2 (STUDENT_100K): Giảm 50% Điểm Xịn.
+   * Tính toán Ngọc Tri Thức phải trả cho lượt hỏi Gia sư AI theo số lượng Token thực tế (Cách 1):
+   * - Tỉ lệ: 1 Ngọc Tri Thức = 1.000 Token (làm tròn 2 chữ số thập phân).
+   * - Sàn tối thiểu: 0.05 Ngọc Tri Thức (tránh hỏi câu ngắn như "1+1=?" bị trừ tới 0.5).
+   * - Gói 2 (STUDENT_100K): Giảm 50% Ngọc Tri Thức (sàn 0.03).
    */
   private calculateAiTutorPointsCost(
     tokens: number,
@@ -66,14 +77,9 @@ export class AgentController {
     pointsCost: number;
     hasDiscount: boolean;
   } {
-    const ratio = tokens / 1000;
-    let raw = Math.round(ratio);
-    if (raw < 0.5) {
-      raw = 0.5; // Sàn tối thiểu 0.5 điểm
-    }
-
+    const raw = Math.max(0.05, Number((tokens / 1000).toFixed(2)));
     const isStudent100k = activePackage === 'STUDENT_100K';
-    const pointsCost = isStudent100k ? Number((raw * 0.5).toFixed(2)) : raw;
+    const pointsCost = isStudent100k ? Math.max(0.03, Number((raw * 0.5).toFixed(2))) : raw;
 
     return {
       rawPoints: raw,
@@ -84,8 +90,8 @@ export class AgentController {
 
   /**
    * Phân loại ý định (Intent Classification):
-   * - 'PLATFORM_INFO': Câu hỏi về tính năng Schoolify, gói cước, bảng giá, nạp điểm, đăng ký, đăng nhập, hướng dẫn tạo đề... (MIỄN PHÍ 100%)
-   * - 'ACADEMIC_STUDY': Câu hỏi bài tập, giải phương trình, toán, lý, hóa, giải thích kiến thức K-12... (TÍNH PHÍ ĐIỂM XỊN)
+   * - 'PLATFORM_INFO': Chỉ những câu hỏi rõ ràng về tính năng web Schoolify, bảng giá, mua gói, nạp điểm, thanh toán VietQR... (MIỄN PHÍ)
+   * - 'ACADEMIC_STUDY': Toàn bộ các câu hỏi bài tập, kiến thức, trò chuyện học tập... (TÍNH PHÍ NGỌC TRI THỨC THEO TOKEN)
    */
   private classifyUserIntent(message: string): 'PLATFORM_INFO' | 'ACADEMIC_STUDY' {
     if (!message) return 'PLATFORM_INFO';
@@ -95,73 +101,18 @@ export class AgentController {
       .replace(/[\u0300-\u036f]/g, '')
       .trim();
 
-    // 1. Nhận diện các từ khóa học thuật / bài tập đặc trưng -> ACADEMIC_STUDY
-    const academicKeywords = [
-      'giai bai',
-      'giai toan',
-      'giai phuong trinh',
-      'phuong trinh',
-      'he phuong trinh',
-      'dao ham',
-      'tich phan',
-      'nguyen ham',
-      'cuc tri',
-      'dong bien',
-      'nghich bien',
-      'hinh hoc',
-      'the tich',
-      'khoang cach',
-      'vecto',
-      'toa do',
-      'hoa hoc',
-      'phuong trinh hoa hoc',
-      'can bang',
-      'mol',
-      'vat ly',
-      'dong nang',
-      'the nang',
-      'dao dong',
-      'song co',
-      'quang hop',
-      'ho hap',
-      'di truyen',
-      'adn',
-      'arn',
-      'viet code',
-      'python',
-      'lap trinh',
-      'de bai',
-      'bai 1',
-      'bai 2',
-      'bai 3',
-      'cau 1',
-      'cau 2',
-      'cau 3',
-      'dap an cau',
-      'tinh giup',
-      'giai giup',
-      'chi cach lam',
-      'cach giai',
-      'socratic',
-    ];
+    // Có chứa công thức toán KaTeX ($...$), ký hiệu toán học hoặc phép tính số học (ví dụ: 1+1=?)
+    const hasMathSymbols =
+      /[\$∫∑√π∆]|\b(lim|sin|cos|tan|log|ln)\b|\d+\s*[\+\-\*\/\^=]\s*\d+|\bx\^?\d*\s*[\+\-=]/i.test(
+        message,
+      );
 
-    // Có chứa công thức toán KaTeX ($...$) hoặc ký hiệu toán học
-    const hasMathSymbols = /[\$∫∑√π∆]|\b(lim|sin|cos|tan|log|ln)\b/.test(message);
-
-    // 2. Nhận diện các từ khóa thông tin web / nền tảng -> PLATFORM_INFO
-    const platformKeywords = [
+    // Chỉ miễn phí khi hỏi trực tiếp về nền tảng Schoolify / bảng giá / thanh toán
+    const explicitPlatformKeywords = [
       'schoolify',
-      'nen tang',
-      'web',
-      'trang web',
-      'app',
-      'he thong',
-      'la gi',
-      'gioi thieu',
-      'tinh nang',
-      'chuc nang',
-      'ban la ai',
-      'tro ly',
+      'nen tang nay',
+      'trang web nay',
+      'web nay',
       'bang gia',
       'goi pro',
       'goi vip',
@@ -169,55 +120,53 @@ export class AgentController {
       'goi 100k',
       'mua goi',
       'dang ky goi',
-      'gia bao nhieu',
-      'bao nhieu tien',
-      'chi phi',
-      'hoc phi',
       'nap tien',
       'thanh toan',
       'payos',
       'vietqr',
-      'diem xin',
-      'diem free',
-      'kim cuong',
-      'nap diem',
-      'mua diem',
-      'tai khoan',
-      'mat khau',
-      'dang nhap',
-      'dang ky',
+      'ngoc tri thuc la gi',
+      'tia sang la gi',
+      'nap ngoc',
+      'mua ngoc',
       'doi mat khau',
-      'ho tro',
-      'lien he',
-      'huong dan',
-      'cach dung',
-      'cach su dung',
-      'cach tao de',
-      'phong thi',
-      'lich su',
-      'xep hang',
-      'bang vang',
-      'doi qua',
-      'store',
     ];
 
-    const isPlatform = platformKeywords.some((kw) => norm.includes(kw));
-    const isAcademic = academicKeywords.some((kw) => norm.includes(kw)) || hasMathSymbols;
-
-    // Nếu chứa từ khóa platform và không có công thức toán/giải bài -> Chắc chắn là PLATFORM_INFO
-    if (isPlatform && !hasMathSymbols) {
+    const isExplicitPlatform = explicitPlatformKeywords.some((kw) => norm.includes(kw));
+    if (isExplicitPlatform && !hasMathSymbols) {
       return 'PLATFORM_INFO';
     }
 
-    if (isAcademic) {
-      return 'ACADEMIC_STUDY';
-    }
+    // Mặc định mọi câu hỏi học tập / giải bài / trò chuyện với AI đều tính Token -> trừ Ngọc Tri Thức
+    return 'ACADEMIC_STUDY';
+  }
 
-    // Mặc định câu hỏi chung / chào hỏi / hỏi thông tin -> Miễn phí PLATFORM_INFO
-    return 'PLATFORM_INFO';
+  /**
+   * Cắt câu trả lời ngay giữa chừng theo tỉ lệ ngân sách Ngọc còn lại (giống Antigravity khi hết quota giữa lúc đang suy luận)
+   */
+  private truncateMessageAtTokenBudget(
+    fullText: string,
+    allowedRatio: number,
+  ): {
+    partialText: string;
+    remainingText: string;
+  } {
+    const clean = (fullText || '').trim();
+    if (!clean) {
+      return { partialText: '', remainingText: '' };
+    }
+    const clampedRatio = Math.max(0.18, Math.min(0.85, allowedRatio));
+    const targetCharIdx = Math.max(35, Math.floor(clean.length * clampedRatio));
+    // Tìm khoảng trắng gần nhất để cắt giữa chừng tự nhiên
+    const spaceIdx = clean.lastIndexOf(' ', targetCharIdx);
+    const cutIdx = spaceIdx > 20 ? spaceIdx : targetCharIdx;
+
+    const partialText = `${clean.slice(0, cutIdx).trimEnd()} ...`;
+    const remainingText = clean.slice(cutIdx).trimStart();
+    return { partialText, remainingText };
   }
 
   @Post('semantic-checkpoint')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Chấm điểm đối soát ngữ nghĩa bán tự động (Tự luận / Điền từ ngắn)',
     description:
@@ -234,29 +183,33 @@ export class AgentController {
   }
 
   @Post('chat')
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
-    summary: 'Trò chuyện với AI Agentic Assistant (Phân loại Intent: Hỏi Web miễn phí vs Hỏi Bài tính điểm)',
+    summary: 'Trò chuyện với AI Agentic Assistant (Xác thực JWT: Đã login dùng AI thật + trừ Ngọc; Khách chỉ trả lời tự động)',
     description:
-      'Phân biệt Intent: Hỏi bài tập đo lường Token & trừ Điểm Xịn (1 điểm = 1000 token, sàn 0.5đ, Gói 100k VIP giảm 50%). Hỏi thông tin web hoàn toàn MIỄN PHÍ.',
+      'Xác thực người dùng qua JWT Cookie / Bearer Token. Nếu chưa đăng nhập (Guest) chỉ trả lời kịch bản tự động có sẵn, không gọi Gemini thật. Nếu đã đăng nhập: đo lường Token thực tế & trừ Ngọc Tri Thức.',
   })
   @ApiResponse({
     status: 200,
-    description: 'Phản hồi từ AI Agent kèm biểu cảm robot và chi tiết Token/Điểm Xịn trừ',
+    description: 'Phản hồi từ AI Agent kèm biểu cảm robot và chi tiết Token/Ngọc Tri Thức trừ',
     type: AgentChatResponseDto,
   })
-  async chatWithAgent(@Body() dto: AgentChatDto) {
-    // 1. Phân loại Ý định (Intent Classification): Hỏi thông tin Web (Miễn phí) vs Hỏi Bài Tập (Tính phí)
-    const intent = this.classifyUserIntent(dto.message);
-    const isFreePlatformQuestion = intent === 'PLATFORM_INFO';
+  async chatWithAgent(@Body() dto: AgentChatDto, @CurrentUser() currentUser?: any) {
+    const isSocraticTopicHint = dto.questionContext?.mode === 'SOCRATIC_TOPIC_HINT';
 
-    // 2. Tìm thông tin StudentProfile để xác định Gói & Điểm Xịn hiện có
-    const effectiveUserId = dto.userId || 'usr-student-01';
-    let profile = await this.prisma.studentProfile.findUnique({
-      where: { user_id: effectiveUserId },
-    });
-    if (!profile) {
-      profile = await this.prisma.studentProfile.findFirst();
-    }
+    // 1. Phân loại Ý định (Intent Classification)
+    const intent = isSocraticTopicHint ? 'PLATFORM_INFO' : this.classifyUserIntent(dto.message);
+    const isFreePlatformQuestion = isSocraticTopicHint || intent === 'PLATFORM_INFO';
+
+    // 2. Xác định người dùng từ JWT đã xác thực (chống giả mạo userId trong body).
+    //    Nếu chưa có JWT hợp lệ => KHÁCH (isGuest = true): chỉ nhận câu trả lời tự động có sẵn, không dùng AI thật, không trừ Ngọc.
+    const GUEST_USER_ID = 'usr-student-01';
+    const verifiedUserId: string | null = currentUser?.id || null;
+    const effectiveUserId = verifiedUserId || GUEST_USER_ID;
+    const profile = verifiedUserId
+      ? await this.prisma.studentProfile.findUnique({ where: { user_id: verifiedUserId } })
+      : null;
+    const isGuest = !verifiedUserId || !profile;
 
     const isPackageExpired =
       profile?.package_expires_at &&
@@ -264,28 +217,70 @@ export class AgentController {
     const activePackage = isPackageExpired ? 'FREE' : profile?.active_package || 'FREE';
     const currentDiamonds = Number(profile?.points ?? 0);
 
-    // 3. Nếu là HỎI BÀI TẬP: Kiểm tra sàn số dư tối thiểu (0.25đ đối với Gói VIP 100k, 0.5đ đối với Free/Gói 50k)
-    // Nếu là HỎI THÔNG TIN WEB: MIỄN PHÍ 100%, không kiểm tra số dư và không chặn người dùng!
-    if (!isFreePlatformQuestion) {
-      const minRequiredDiamonds = activePackage === 'STUDENT_100K' ? 0.25 : 0.5;
-      if (profile && currentDiamonds < minRequiredDiamonds) {
-        return {
-          success: false,
-          errorCode: 'INSUFFICIENT_XIN_POINTS',
-          message: `Bạn không đủ Điểm Xịn (💎) để hỏi Gia sư AI. Số dư hiện tại là ${currentDiamonds} 💎 (cần tối thiểu ${minRequiredDiamonds} 💎). Hãy làm đề thi đạt trên 8.5 điểm để cày thêm Điểm Xịn miễn phí hoặc nâng cấp gói học sinh nhé!`,
-          data: {
-            currentDiamonds,
-            minRequired: minRequiredDiamonds,
-            activePackage,
-            emotion: 'sad',
-            emotionDurationMs: 4000,
-          },
-        };
+    // 3. Nếu đã cạn sạch 0 Ngọc ngay từ trước khi suy luận -> Chặn và báo nạp/cày thêm Ngọc
+    // (Nếu còn > 0 Ngọc dù rất ít như 0.01 - 0.04 💎, vẫn cho AI bắt đầu suy luận rồi dừng giữa chừng khi chạm 0 💎!)
+    if (!isFreePlatformQuestion && profile && currentDiamonds <= 0) {
+      return {
+        success: false,
+        errorCode: 'INSUFFICIENT_XIN_POINTS',
+        message: `Bạn đã hết Ngọc Tri Thức (0 💎). Hãy làm đề thi đạt trên 8.5 điểm để nhận thêm Ngọc Tri Thức miễn phí hoặc nâng cấp gói học sinh để AI tiếp tục giải phần đang dang dở nhé!`,
+        data: {
+          currentDiamonds: 0,
+          minRequired: activePackage === 'STUDENT_100K' ? 0.03 : 0.05,
+          activePackage,
+          emotion: 'sad',
+          emotionDurationMs: 4000,
+        },
+      };
+    }
+
+    // Kiểm tra xem phiên hiện tại có ngữ cảnh đang giải dở từ lượt bị ngắt trước đó không
+    let existingSessionMsgs: any[] = [];
+    let pendingInterruptedContext: any = dto.context?.interruptedContext || null;
+    if (dto.sessionId && !isSocraticTopicHint && !isGuest) {
+      existingSessionMsgs = await this.chatMemoryService.getSession(dto.sessionId);
+      if (!pendingInterruptedContext && existingSessionMsgs.length > 0) {
+        const lastAssistantMsg = [...existingSessionMsgs]
+          .reverse()
+          .find((m: any) => m.role === 'assistant');
+        if (lastAssistantMsg?.isInterrupted && lastAssistantMsg?.interruptedContext) {
+          pendingInterruptedContext = lastAssistantMsg.interruptedContext;
+        }
       }
     }
 
-    // 2. Kiểm tra Semantic Cache trước
-    const cacheResult = await this.cacheService.findInCache(dto.message, dto.subject, dto.grade);
+    // 4. Truy xuất Bộ nhớ Vector hóa Đa tầng chuẩn Antigravity
+    const vectorCtx = isSocraticTopicHint || isGuest
+      ? {
+          session: null,
+          hotWindow: [],
+          recalledTurns: [],
+          contextSummary: '',
+          instantMemoryHit: null,
+          stats: { totalStoredTurns: 0, recalledTurnCount: 0, hotWindowCount: 0 },
+        }
+      : await this.chatMemoryService.buildVectorizedContext(
+          effectiveUserId,
+          dto.sessionId || '',
+          dto.message,
+          Array.isArray(dto.history) ? (dto.history as any) : [],
+        );
+
+    // Chỉ dùng Semantic Cache toàn cục cho câu hỏi độc lập (không phụ thuộc ngữ cảnh đề thi / hội thoại trước đó)
+    const hasConversationHistory = Array.isArray(dto.history) && dto.history.length > 0;
+    const hasQuestionContext = Boolean(
+      dto.questionContext && (dto.questionContext.questionId || dto.questionContext.content),
+    );
+    const isSubstantiveQuery =
+      !isSocraticTopicHint &&
+      !isGuest &&
+      !pendingInterruptedContext &&
+      !hasConversationHistory &&
+      !hasQuestionContext &&
+      dto.message.trim().length >= 14;
+    const cacheResult = isSubstantiveQuery
+      ? await this.cacheService.findInCache(dto.message, dto.subject, dto.grade)
+      : { hit: false };
 
     let responseMessage = '';
     let responseActions: any[] = [];
@@ -293,84 +288,120 @@ export class AgentController {
     let responseSuggestions: string[] = [];
     let isFromCache = false;
     let cacheSimilarity = 1.0;
+    let responseSource = isGuest ? 'SCRIPTED_GUEST' : 'GEMINI_2_5_FLASH';
+    let exactUsageMetadata:
+      | { promptTokens: number; completionTokens: number; totalTokens: number }
+      | undefined;
 
-    if (cacheResult.hit && cacheResult.responseText) {
+    if (
+      isSubstantiveQuery &&
+      vectorCtx.instantMemoryHit?.hit &&
+      vectorCtx.instantMemoryHit.responseMessage &&
+      !vectorCtx.instantMemoryHit.responseMessage.startsWith('Tớ đã nắm được ý của bạn!')
+    ) {
+      isFromCache = true;
+      cacheSimilarity = vectorCtx.instantMemoryHit.similarity;
+      responseMessage = vectorCtx.instantMemoryHit.responseMessage;
+      responseActions = vectorCtx.instantMemoryHit.actions || [];
+      responseEmotion = vectorCtx.instantMemoryHit.emotion as RobotEmotion | undefined;
+      responseSuggestions = vectorCtx.instantMemoryHit.suggestions || [];
+      responseSource = 'VECTOR_SESSION_MEMORY';
+    } else if (
+      isSubstantiveQuery &&
+      cacheResult.hit &&
+      cacheResult.responseText &&
+      !cacheResult.responseText.startsWith('Tớ đã nắm được ý của bạn!')
+    ) {
       isFromCache = true;
       cacheSimilarity = cacheResult.similarity ?? 1.0;
       responseMessage = cacheResult.responseText;
       responseActions = cacheResult.clientActions || [];
       responseEmotion = (cacheResult as any).emotion;
       responseSuggestions = (cacheResult as any).suggestions || [];
+      responseSource = 'SEMANTIC_CACHE';
     } else {
-      // 3. Cache Miss -> Gọi qua Antigravity Headless IPC Bridge
-      const bridgeResult = await this.ipcBridgeService.generateAgentResponse(dto);
+      // Gửi Context đã nén + Ngữ cảnh đang dang dở (nếu có) qua Gemini
+      const compactedDto: AgentChatDto = {
+        ...dto,
+        history: vectorCtx.hotWindow as any,
+        context: {
+          ...(dto.context || {}),
+          contextSummary: vectorCtx.contextSummary,
+          recalledTurns: vectorCtx.recalledTurns,
+          ...(pendingInterruptedContext ? { interruptedContext: pendingInterruptedContext } : {}),
+        },
+      };
+      const bridgeResult = await this.ipcBridgeService.generateAgentResponse(compactedDto, {
+        allowRealAi: !isGuest,
+      });
       responseMessage = bridgeResult.message;
       responseActions = bridgeResult.actions || [];
       responseEmotion = bridgeResult.emotion;
       responseSuggestions = bridgeResult.suggestions || [];
+      exactUsageMetadata = bridgeResult.usageMetadata;
 
       const initialEmotion: RobotEmotion = isRobotEmotion(responseEmotion)
         ? responseEmotion
         : inferEmotion(responseMessage, responseActions);
 
-      // Lưu vào Semantic Cache để tái sử dụng kèm emotion và suggestions (Chuẩn cho-cong-nghe)
-      await this.cacheService.saveToCache(
-        dto.message,
-        bridgeResult.message,
-        bridgeResult.actions,
-        dto.subject,
-        dto.grade,
-        initialEmotion,
-        responseSuggestions,
-        7,
-      );
+      if (isSubstantiveQuery && !responseMessage.startsWith('Tớ đã nắm được ý của bạn!')) {
+        await this.cacheService.saveToCache(
+          dto.message,
+          bridgeResult.message,
+          bridgeResult.actions,
+          dto.subject,
+          dto.grade,
+          initialEmotion,
+          responseSuggestions,
+          7,
+        );
+      }
     }
 
-    const emotion: RobotEmotion = isRobotEmotion(responseEmotion)
-      ? responseEmotion
-      : inferEmotion(responseMessage, responseActions);
-    const emotionDurationMs = clampEmotionDuration(4000);
-
-    // 4. Đo lường Token tiêu thụ & tính Điểm Xịn phải trả
-    const promptTokens =
-      this.estimateTokens(dto.message) +
-      (dto.context ? this.estimateTokens(JSON.stringify(dto.context)) : 0);
-    const completionTokens = this.estimateTokens(responseMessage);
-    const totalTokens = promptTokens + completionTokens;
+    // 5. Đo lường Token tiêu thụ chính xác từ Gemini usageMetadata
+    const promptTokens = exactUsageMetadata?.promptTokens ?? this.estimateTokens(dto.message);
+    let completionTokens =
+      exactUsageMetadata?.completionTokens ?? this.estimateTokens(responseMessage);
+    let totalTokens = exactUsageMetadata?.totalTokens ?? promptTokens + completionTokens;
 
     let rawPoints = 0;
     let pointsCost = 0;
     let hasDiscount = false;
+    let isInterrupted = false;
+    let newInterruptedContext: any = null;
 
-    // 5. Nếu là HỎI BÀI TẬP: Tính toán điểm theo Token & trừ Điểm Xịn
-    if (!isFreePlatformQuestion) {
+    if (!isFreePlatformQuestion && !isGuest) {
       const pointCalc = this.calculateAiTutorPointsCost(totalTokens, activePackage);
       rawPoints = pointCalc.rawPoints;
       pointsCost = pointCalc.pointsCost;
       hasDiscount = pointCalc.hasDiscount;
 
-      // Kiểm tra nếu số dư không đủ cho chi phí câu trả lời đầy đủ
+      // NẾU ĐANG SUY LUẬN MÀ SỐ NGỌC CÒN LẠI KHÔNG ĐỦ CHI TRẢ TOÀN BỘ -> DỪNG GIỮA CHỪNG GIỐNG ANTIGRAVITY!
       if (profile && currentDiamonds < pointsCost) {
-        return {
-          success: false,
-          errorCode: 'INSUFFICIENT_XIN_POINTS',
-          message: `Bạn không đủ Điểm Xịn (💎) để nhận giải đáp đầy đủ. Lượt hỏi này tiêu thụ ${totalTokens.toLocaleString(
-            'vi-VN',
-          )} token (cần ${pointsCost} 💎), nhưng bạn chỉ còn ${currentDiamonds} 💎. Hãy làm bài thi đạt trên 8.5đ để kiếm thêm 💎 nhé!`,
-          data: {
-            currentDiamonds,
-            requiredPoints: pointsCost,
-            totalTokens,
-            activePackage,
-            emotion: 'sad',
-            emotionDurationMs: 4000,
-          },
+        const allowedRatio = currentDiamonds / pointsCost;
+        const { partialText, remainingText } = this.truncateMessageAtTokenBudget(
+          responseMessage,
+          allowedRatio,
+        );
+
+        isInterrupted = true;
+        newInterruptedContext = {
+          originalUserQuery: pendingInterruptedContext?.originalUserQuery || dto.message,
+          partialAssistantReply: partialText,
+          remainingUnreleasedReply: remainingText,
+          interruptedAt: new Date().toISOString(),
         };
+
+        responseMessage = partialText;
+        responseActions = [];
+        completionTokens = Math.max(1, Math.round(completionTokens * allowedRatio));
+        totalTokens = promptTokens + completionTokens;
+        pointsCost = Number(currentDiamonds.toFixed(2));
       }
 
-      // Trừ Điểm Xịn trong Database & Ghi nhật ký ExamPointLog
-      if (profile) {
-        const pointsAfter = Number((currentDiamonds - pointsCost).toFixed(2));
+      // Trừ Ngọc Tri Thức trong Database & Ghi nhật ký ExamPointLog
+      if (profile && pointsCost > 0) {
+        const pointsAfter = Math.max(0, Number((currentDiamonds - pointsCost).toFixed(2)));
         await this.prisma.studentProfile.update({
           where: { id: profile.id },
           data: { points: pointsAfter },
@@ -383,20 +414,68 @@ export class AgentController {
             points_before: currentDiamonds,
             points_delta: -pointsCost,
             points_after: pointsAfter,
-            note: `Hỏi Gia sư AI: ${totalTokens.toLocaleString('vi-VN')} token (Trừ ${pointsCost} 💎${
-              hasDiscount ? ' - Đã giảm 50% Gói VIP' : ''
-            })`,
+            note: isInterrupted
+              ? `Hỏi Gia sư AI (Tạm dừng giữa chừng do hết Ngọc): ${totalTokens.toLocaleString(
+                  'vi-VN',
+                )} token (Trừ hết ${pointsCost} 💎 còn lại)`
+              : `Hỏi Gia sư AI: ${totalTokens.toLocaleString('vi-VN')} token (Trừ ${pointsCost} 💎${
+                  hasDiscount ? ' - Đã giảm 50% Gói VIP' : ''
+                })`,
           },
         });
       }
     }
 
     const remainingDiamonds = profile
-      ? Number((currentDiamonds - pointsCost).toFixed(2))
+      ? Math.max(0, Number((currentDiamonds - pointsCost).toFixed(2)))
       : currentDiamonds;
 
-    // 6. Tự động lưu hội thoại vào Chat Session Memory Cache (Sliding Window 40 tin - Chuẩn cho-cong-nghe)
-    if (dto.sessionId) {
+    // Cảnh báo khi số Ngọc Tri Thức còn lại <= 1 💎
+    const lowBalanceWarning = remainingDiamonds <= 1 && remainingDiamonds > 0;
+    const warningMessage = isInterrupted
+      ? '⏸️ Đã dừng suy luận giữa chừng do hết Ngọc Tri Thức (0 💎). Lần nhắn tiếp theo sau khi có thêm Ngọc sẽ tự động nối tiếp ngữ cảnh đang dang dở!'
+      : lowBalanceWarning
+        ? `⚠️ Cảnh báo: Bạn chỉ còn ${remainingDiamonds} 💎 (≤ 1 Ngọc Tri Thức). Nếu hết Ngọc trong lúc AI đang suy luận, câu trả lời sẽ bị dừng giữa chừng!`
+        : undefined;
+
+    const emotion: RobotEmotion = isInterrupted
+      ? 'sad'
+      : isRobotEmotion(responseEmotion)
+        ? responseEmotion
+        : inferEmotion(responseMessage, responseActions);
+    const emotionDurationMs = clampEmotionDuration(4000);
+
+    const pointUsagePayload = {
+      intent,
+      isFree: isFreePlatformQuestion || isGuest,
+      tokensUsed: totalTokens,
+      promptTokens,
+      completionTokens,
+      rawPoints,
+      pointsDeducted: pointsCost,
+      remainingDiamonds: isGuest ? null : remainingDiamonds,
+      hasDiscount,
+      activePackage,
+      lowBalanceWarning,
+      isInterrupted,
+      warningMessage,
+      badge: isGuest
+        ? '🤖 Trả lời tự động'
+        : isFreePlatformQuestion
+          ? '✨ Miễn phí'
+          : `Trừ ${pointsCost} 💎`,
+    };
+
+    // 6. Tự động lưu hội thoại vào Chat Session Memory (kèm trạng thái isInterrupted & interruptedContext nếu bị dừng giữa chừng)
+    let savedSessionSummary: any = null;
+    if (dto.sessionId && !isSocraticTopicHint && !isGuest) {
+      const baseHistory =
+        existingSessionMsgs.length > 0
+          ? existingSessionMsgs
+          : Array.isArray(dto.history)
+            ? dto.history
+            : [];
+
       const userMsg = {
         id: `usr-${Date.now()}`,
         role: 'user' as const,
@@ -411,88 +490,162 @@ export class AgentController {
         actions: responseActions,
         emotion,
         suggestions: responseSuggestions,
-        pointUsage: {
-          intent,
-          isFree: isFreePlatformQuestion,
-          tokensUsed: totalTokens,
-          pointsDeducted: pointsCost,
-          remainingDiamonds,
-          hasDiscount,
-          activePackage,
-          badge: isFreePlatformQuestion ? '✨ Miễn phí (Hỏi thông tin web)' : `Trừ ${pointsCost} 💎`,
-        },
+        isInterrupted,
+        interruptedContext: newInterruptedContext,
+        pointUsage: pointUsagePayload,
       };
-      const fullHistory = Array.isArray(dto.history)
-        ? [...dto.history, userMsg, assistantMsg]
-        : [userMsg, assistantMsg];
-      this.chatMemoryService
-        .saveSession(dto.sessionId, effectiveUserId, fullHistory as any)
-        .catch(() => {});
+      const fullHistory = [...baseHistory, userMsg, assistantMsg];
+      savedSessionSummary = await this.chatMemoryService.saveSession(
+        dto.sessionId,
+        effectiveUserId,
+        fullHistory as any,
+      );
     }
 
     return {
       success: true,
       fromCache: isFromCache,
       cacheSimilarity,
-      pointUsage: {
-        intent,
-        isFree: isFreePlatformQuestion,
-        tokensUsed: totalTokens,
-        promptTokens,
-        completionTokens,
-        rawPoints,
-        pointsDeducted: pointsCost,
-        remainingDiamonds,
-        hasDiscount,
-        activePackage,
-        badge: isFreePlatformQuestion ? '✨ Miễn phí (Hỏi thông tin web)' : `Trừ ${pointsCost} 💎`,
-      },
+      pointUsage: pointUsagePayload,
       data: {
-        source: isFromCache ? 'SEMANTIC_CACHE' : 'ANTIGRAVITY_AGENT',
+        source: responseSource,
         similarity: cacheSimilarity,
         message: responseMessage,
         actions: responseActions,
         emotion,
         emotionDurationMs,
         suggestions: responseSuggestions,
-        pointUsage: {
-          intent,
-          isFree: isFreePlatformQuestion,
-          tokensUsed: totalTokens,
-          pointsDeducted: pointsCost,
-          remainingDiamonds,
-          hasDiscount,
-          activePackage,
-          badge: isFreePlatformQuestion ? '✨ Miễn phí (Hỏi thông tin web)' : `Trừ ${pointsCost} 💎`,
+        isInterrupted,
+        interruptedContext: newInterruptedContext,
+        resumedFromInterrupted: Boolean(pendingInterruptedContext),
+        session: savedSessionSummary,
+        vectorMemoryStats: vectorCtx.stats,
+        pointUsage: pointUsagePayload,
+      },
+    };
+  }
+
+  @Get('sessions')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary: 'Lấy danh sách các phiên trò chuyện của người dùng đã đăng nhập (Phân nhóm kiểu Gemini + Tìm kiếm Vector)',
+  })
+  async listChatSessions(@CurrentUser() currentUser?: any, @Query('q') q?: string) {
+    if (!currentUser?.id) {
+      return {
+        success: true,
+        data: {
+          sessions: [],
+          grouped: { pinned: [], today: [], previous7Days: [], older: [] },
         },
+      };
+    }
+    const data = await this.chatMemoryService.listUserSessions(currentUser.id, q);
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Post('sessions')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Tạo phiên trò chuyện mới theo phong cách Gemini (+ Cuộc trò chuyện mới)' })
+  async createChatSession(@CurrentUser() currentUser?: any, @Body() body?: { title?: string }) {
+    if (!currentUser?.id) {
+      const guestSessionKey = `sess-guest-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      return {
+        success: true,
+        data: {
+          session: {
+            id: guestSessionKey,
+            sessionKey: guestSessionKey,
+            userId: 'usr-student-01',
+            title: body?.title || 'Cuộc trò chuyện mới',
+            isPinned: false,
+            messageCount: 0,
+            lastMessagePreview: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    }
+    const session = await this.chatMemoryService.createNewSession(currentUser.id, body?.title);
+    return {
+      success: true,
+      data: {
+        session,
       },
     };
   }
 
   @Get('chat/session/:sessionId')
-  @ApiOperation({ summary: 'Lấy lại toàn bộ lịch sử tin nhắn đã cache của một session (Khôi phục khi F5)' })
-  async getChatSession(@Param('sessionId') sessionId: string) {
-    const messages = await this.chatMemoryService.getSession(sessionId);
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Lấy lại toàn bộ lịch sử tin nhắn & metadata của một session' })
+  async getChatSession(@Param('sessionId') sessionId: string, @CurrentUser() currentUser?: any) {
+    if (!currentUser?.id) {
+      return {
+        success: true,
+        data: {
+          sessionId,
+          session: null,
+          messages: [],
+        },
+      };
+    }
+    const detail = await this.chatMemoryService.getSessionDetail(sessionId);
+    if (detail.session && detail.session.userId !== currentUser.id && currentUser.role !== 'SUPER_ADMIN') {
+      throw new ForbiddenException('Bạn không có quyền truy cập phiên trò chuyện này');
+    }
     return {
       success: true,
       data: {
         sessionId,
-        messages,
+        session: detail.session,
+        messages: detail.messages,
+      },
+    };
+  }
+
+  @Patch('chat/session/:sessionId')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Đổi tên cuộc trò chuyện hoặc Ghim / Bỏ ghim phiên trò chuyện' })
+  async updateChatSession(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() currentUser: any,
+    @Body() body: { title?: string; isPinned?: boolean },
+  ) {
+    const detail = await this.chatMemoryService.getSessionDetail(sessionId);
+    if (detail.session && detail.session.userId !== currentUser.id && currentUser.role !== 'SUPER_ADMIN') {
+      throw new ForbiddenException('Bạn không có quyền chỉnh sửa phiên trò chuyện này');
+    }
+    const updated = await this.chatMemoryService.updateSessionMetadata(sessionId, body || {});
+    return {
+      success: Boolean(updated),
+      data: {
+        session: updated,
       },
     };
   }
 
   @Delete('chat/session/:sessionId')
-  @ApiOperation({ summary: 'Xóa phiên trò chuyện để bắt đầu cuộc trò chuyện mới' })
-  async clearChatSession(@Param('sessionId') sessionId: string) {
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Xóa một phiên trò chuyện khỏi lịch sử' })
+  async clearChatSession(@Param('sessionId') sessionId: string, @CurrentUser() currentUser: any) {
+    const detail = await this.chatMemoryService.getSessionDetail(sessionId);
+    if (detail.session && detail.session.userId !== currentUser.id && currentUser.role !== 'SUPER_ADMIN') {
+      throw new ForbiddenException('Bạn không có quyền xóa phiên trò chuyện này');
+    }
     const result = await this.chatMemoryService.clearSession(sessionId);
     return {
       success: result,
-      message: result ? 'Đã làm mới phiên trò chuyện' : 'Không tìm thấy phiên',
+      message: result ? 'Đã xóa cuộc trò chuyện' : 'Không tìm thấy phiên',
     };
   }
 
   @Post('docx-scan-generate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiOperation({
@@ -518,7 +671,24 @@ export class AgentController {
     };
   }
 
+  @Post('docx-check-duplicates')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
+  @ApiOperation({
+    summary: 'Kiểm tra câu hỏi trùng lặp hoặc xung đột đáp án trong lô nhập và với PostgreSQL',
+  })
+  @ApiResponse({ status: 201, description: 'Trả về kết quả kiểm tra trùng lặp và xung đột đáp án' })
+  async checkDocxQuestionsDuplicates(@Body() dto: SaveGeneratedQuestionsDto) {
+    const data = await this.docxGeneratorService.checkQuestionsDuplicates(dto);
+    return {
+      success: true,
+      data,
+    };
+  }
+
   @Post('docx-save-to-bank')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiOperation({
     summary: 'Lưu các câu hỏi AI đã sinh từ đề .docx vào Ngân hàng câu hỏi PostgreSQL',
   })
@@ -533,6 +703,8 @@ export class AgentController {
   }
 
   @Get('cache-stats')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Xem thống kê hiệu suất của Semantic Cache' })
   async getCacheStats() {
     const data = await this.cacheService.getStats();

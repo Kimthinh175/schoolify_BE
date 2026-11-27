@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { AgentController } from './agent.controller';
 import { SemanticCheckpointService } from './services/semantic-checkpoint.service';
 import { SemanticCacheService } from './services/semantic-cache.service';
@@ -7,6 +8,7 @@ import { DocxExamGeneratorService } from './services/docx-exam-generator.service
 import { ChatMemoryService } from './services/chat-memory.service';
 
 @Module({
+  imports: [AuthModule],
   controllers: [AgentController],
   providers: [
     SemanticCheckpointService,
