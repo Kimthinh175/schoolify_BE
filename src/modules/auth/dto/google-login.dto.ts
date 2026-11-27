@@ -11,7 +11,8 @@ export class GoogleLoginDto {
   idToken?: string;
 
   @ApiPropertyOptional({
-    description: 'Google OAuth2 Access Token (nếu dùng popup OAuth2 tokenClient)',
+    description:
+      'Google OAuth2 Access Token (nếu dùng popup OAuth2 tokenClient)',
   })
   @IsOptional()
   @IsString()

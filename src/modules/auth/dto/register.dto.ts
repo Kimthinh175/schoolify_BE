@@ -1,4 +1,11 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength, IsIn } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MinLength,
+  IsIn,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RegisterDto {
@@ -45,4 +52,12 @@ export class RegisterDto {
     message: 'Profile type phải là TEACHER, STUDENT hoặc PARENT',
   })
   profile_type?: 'TEACHER' | 'STUDENT' | 'PARENT';
+
+  @ApiPropertyOptional({
+    description: 'Khối lớp mặc định của học sinh',
+    example: 'Lớp 12',
+  })
+  @IsOptional()
+  @IsString({ message: 'Khối lớp phải là chuỗi ký tự' })
+  grade_level?: string;
 }

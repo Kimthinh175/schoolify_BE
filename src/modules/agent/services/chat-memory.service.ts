@@ -78,7 +78,10 @@ export class ChatMemoryService {
     const cleaned = (text || '')
       .toLowerCase()
       .normalize('NFC')
-      .replace(/^(cho mình hỏi|cho tớ hỏi|giúp mình|giúp tớ|bạn ơi|ai ơi|hãy|làm ơn|cho hỏi)\s+/i, '')
+      .replace(
+        /^(cho mình hỏi|cho tớ hỏi|giúp mình|giúp tớ|bạn ơi|ai ơi|hãy|làm ơn|cho hỏi)\s+/i,
+        '',
+      )
       .replace(/\b(nhé|nha|ạ|với|đi)\b/gi, ' ')
       .replace(/\bbậc 2\b/g, 'bậc hai')
       .replace(/\bbac 2\b/g, 'bac hai')
@@ -148,7 +151,12 @@ export class ChatMemoryService {
   }
 
   cosineSimilarity(v1?: number[] | null, v2?: number[] | null): number {
-    if (!Array.isArray(v1) || !Array.isArray(v2) || v1.length !== v2.length || v1.length === 0) {
+    if (
+      !Array.isArray(v1) ||
+      !Array.isArray(v2) ||
+      v1.length !== v2.length ||
+      v1.length === 0
+    ) {
       return 0;
     }
     let dot = 0;
@@ -172,7 +180,10 @@ export class ChatMemoryService {
 
     // Nếu câu hỏi bắt đầu bằng các cụm rườm rà, rút gọn cho tinh tế như Gemini
     const stripped = clean
-      .replace(/^(cho mình hỏi|cho tớ hỏi|giúp mình|giúp tớ|bạn ơi|ai ơi|hãy|làm ơn)\s+/i, '')
+      .replace(
+        /^(cho mình hỏi|cho tớ hỏi|giúp mình|giúp tớ|bạn ơi|ai ơi|hãy|làm ơn)\s+/i,
+        '',
+      )
       .trim();
 
     const base = stripped.charAt(0).toUpperCase() + stripped.slice(1);
@@ -203,41 +214,68 @@ export class ChatMemoryService {
 
     // Các tin nhắn cũ hơn Hot Window (từ đầu đến trước 4 tin cuối)
     const coldMessages = messages.slice(0, -4);
-    const userMessages = coldMessages.filter((m) => m.role === 'user' && m.content?.trim());
-    const assistantMessages = coldMessages.filter((m) => m.role === 'assistant' && m.content?.trim());
+    const userMessages = coldMessages.filter(
+      (m) => m.role === 'user' && m.content?.trim(),
+    );
+    const assistantMessages = coldMessages.filter(
+      (m) => m.role === 'assistant' && m.content?.trim(),
+    );
 
     if (userMessages.length === 0) return '';
 
     // 1. Phân loại Chuyên đề & Lĩnh vực toán học cốt lõi
     const allUserText = userMessages.map((m) => m.content).join(' ');
     const detectedTopics: string[] = [];
-    if (/hình học|hình chóp|lăng trụ|tứ diện|thể tích|mặt phẳng|vuông góc|khoảng cách|góc giữa|vectơ/i.test(allUserText)) {
+    if (
+      /hình học|hình chóp|lăng trụ|tứ diện|thể tích|mặt phẳng|vuông góc|khoảng cách|góc giữa|vectơ/i.test(
+        allUserText,
+      )
+    ) {
       detectedTopics.push('Hình học không gian (Oxyz / Khối đa diện)');
     }
-    if (/phương trình|bậc 2|bậc hai|tam thức|delta|vi-?ét|hệ phương trình|bất phương trình/i.test(allUserText)) {
+    if (
+      /phương trình|bậc 2|bậc hai|tam thức|delta|vi-?ét|hệ phương trình|bất phương trình/i.test(
+        allUserText,
+      )
+    ) {
       detectedTopics.push('Phương trình đại số & Hệ thức Vi-ét');
     }
-    if (/đạo hàm|cực trị|đồng biến|nghịch biến|tiệm cận|bảng biến thiên|đồ thị|tiếp tuyến/i.test(allUserText)) {
+    if (
+      /đạo hàm|cực trị|đồng biến|nghịch biến|tiệm cận|bảng biến thiên|đồ thị|tiếp tuyến/i.test(
+        allUserText,
+      )
+    ) {
       detectedTopics.push('Khảo sát hàm số & Ứng dụng đạo hàm');
     }
-    if (/tích phân|nguyên hàm|diện tích hình phẳng|thể tích tròn xoay/i.test(allUserText)) {
+    if (
+      /tích phân|nguyên hàm|diện tích hình phẳng|thể tích tròn xoay/i.test(
+        allUserText,
+      )
+    ) {
       detectedTopics.push('Nguyên hàm - Tích phân');
     }
     if (/xác suất|tổ hợp|chỉnh hợp|nhị thức/i.test(allUserText)) {
       detectedTopics.push('Tổ hợp & Xác suất');
     }
-    if (/sql|python|vòng lặp|mảng|đệ quy|thuật toán|tin học/i.test(allUserText)) {
+    if (
+      /sql|python|vòng lặp|mảng|đệ quy|thuật toán|tin học/i.test(allUserText)
+    ) {
       detectedTopics.push('Lập trình & Cơ sở dữ liệu Tin học');
     }
 
-    const topicLabel = detectedTopics.length > 0 ? detectedTopics.join(', ') : 'Toán học & Khoa học K-12';
+    const topicLabel =
+      detectedTopics.length > 0
+        ? detectedTopics.join(', ')
+        : 'Toán học & Khoa học K-12';
 
     // 2. Bài toán gốc & Giả thiết ban đầu (thường ở tin nhắn user đầu tiên)
     const firstUserQuery = userMessages[0].content.trim();
 
     // 3. Trích lọc các biểu thức toán học / Ký hiệu KaTeX chính
     const mathExpressions = Array.from(
-      allUserText.matchAll(/(\$\$[\s\S]+?\$\$|\$[^\$]+?\$|[a-zA-Z]\s*=\s*[\d\w\/\.\+\-]+|[A-Z]{2,4}\s*[\perp\parallel]\s*[A-Z\(\)]+)/g),
+      allUserText.matchAll(
+        /(\$\$[\s\S]+?\$\$|\$[^\$]+?\$|[a-zA-Z]\s*=\s*[\d\w\/\.\+\-]+|[A-Z]{2,4}\s*[\perp\parallel]\s*[A-Z\(\)]+)/g,
+      ),
     )
       .map((m) => m[0].trim())
       .filter((v, idx, arr) => arr.indexOf(v) === idx)
@@ -247,7 +285,9 @@ export class ChatMemoryService {
     const resolvedPoints: string[] = [];
     for (const aMsg of assistantMessages) {
       const text = aMsg.content;
-      const stepMatches = text.match(/(?:bước \d+|suy ra|kết quả|ta có|vậy|tính được)\s*[:=]?\s*([^\n\.\?!]{15,90})/gi);
+      const stepMatches = text.match(
+        /(?:bước \d+|suy ra|kết quả|ta có|vậy|tính được)\s*[:=]?\s*([^\n\.\?!]{15,90})/gi,
+      );
       if (stepMatches) {
         for (const st of stepMatches.slice(0, 2)) {
           const cleanedStep = st.replace(/^[*\s•\-]+/g, '').trim();
@@ -261,7 +301,9 @@ export class ChatMemoryService {
     // 5. Bẫy sai lầm / Điều kiện biên đã được nhắc nhở
     const traps: string[] = [];
     for (const aMsg of assistantMessages) {
-      const trapMatch = aMsg.content.match(/(?:chú ý|lưu ý|cẩn thận|bẫy|sai lầm|điều kiện xác định)\s*[:=]?\s*([^\n\.\?!]{15,100})/i);
+      const trapMatch = aMsg.content.match(
+        /(?:chú ý|lưu ý|cẩn thận|bẫy|sai lầm|điều kiện xác định)\s*[:=]?\s*([^\n\.\?!]{15,100})/i,
+      );
       if (trapMatch && trapMatch[0]) {
         traps.push(trapMatch[0].trim());
       }
@@ -279,7 +321,9 @@ export class ChatMemoryService {
     }
 
     if (resolvedPoints.length > 0) {
-      lines.push(`- Tiến trình đã thống nhất: ${resolvedPoints.slice(0, 2).join('; ')}`);
+      lines.push(
+        `- Tiến trình đã thống nhất: ${resolvedPoints.slice(0, 2).join('; ')}`,
+      );
     }
 
     if (traps.length > 0) {
@@ -321,13 +365,25 @@ export class ChatMemoryService {
       }
 
       const summaryText = this.buildCompactSummary(msgs);
-      const rawLength = msgs.reduce((acc, m) => acc + (m.content?.length || 0), 0);
+      const rawLength = msgs.reduce(
+        (acc, m) => acc + (m.content?.length || 0),
+        0,
+      );
       const hotWindow = msgs.slice(-4);
-      const hotLength = hotWindow.reduce((acc, m) => acc + (m.content?.length || 0), 0);
+      const hotLength = hotWindow.reduce(
+        (acc, m) => acc + (m.content?.length || 0),
+        0,
+      );
       const compactedLength = hotLength + summaryText.length;
       const tokenSavedPercent =
         rawLength > compactedLength
-          ? Math.max(15, Math.min(88, Math.round(((rawLength - compactedLength) / rawLength) * 100)))
+          ? Math.max(
+              15,
+              Math.min(
+                88,
+                Math.round(((rawLength - compactedLength) / rawLength) * 100),
+              ),
+            )
           : 0;
 
       await this.prisma.chatSession.update({
@@ -349,7 +405,9 @@ export class ChatMemoryService {
         tokenSavedPercent,
       };
     } catch (err: any) {
-      this.logger.warn(`[AutoCompaction] Lỗi khi nén session ${sessionKey}: ${err.message}`);
+      this.logger.warn(
+        `[AutoCompaction] Lỗi khi nén session ${sessionKey}: ${err.message}`,
+      );
       return null;
     }
   }
@@ -367,18 +425,25 @@ export class ChatMemoryService {
     try {
       // Giữ tối đa 50 tin nhắn trong 1 session, loại bỏ tin nhắn welcome mẫu nếu đã có hội thoại thật
       const realMessages = messages.filter((m) => m.id !== 'welcome-msg');
-      const slicedMessages = (realMessages.length > 0 ? realMessages : messages).slice(-50);
+      const slicedMessages = (
+        realMessages.length > 0 ? realMessages : messages
+      ).slice(-50);
 
       // Gắn turnVector cho các tin nhắn user chưa có vector
-      const enrichedMessages: StoredChatMessage[] = slicedMessages.map((msg) => {
-        if (msg.role === 'user' && (!Array.isArray(msg.turnVector) || msg.turnVector.length === 0)) {
-          return {
-            ...msg,
-            turnVector: this.computeFastVector(msg.content),
-          };
-        }
-        return msg;
-      });
+      const enrichedMessages: StoredChatMessage[] = slicedMessages.map(
+        (msg) => {
+          if (
+            msg.role === 'user' &&
+            (!Array.isArray(msg.turnVector) || msg.turnVector.length === 0)
+          ) {
+            return {
+              ...msg,
+              turnVector: this.computeFastVector(msg.content),
+            };
+          }
+          return msg;
+        },
+      );
 
       const existing = await this.prisma.chatSession.findUnique({
         where: { sessionKey },
@@ -399,12 +464,18 @@ export class ChatMemoryService {
           : existing?.title || 'Cuộc trò chuyện mới';
 
       const lastPreview = lastMsg
-        ? lastMsg.content.replace(/[#*`_~>\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 110)
+        ? lastMsg.content
+            .replace(/[#*`_~>\n]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 110)
         : null;
 
       const summaryText = this.buildCompactSummary(enrichedMessages);
       const combinedTextForSessionVector = `${resolvedTitle} ${summaryText}`;
-      const sessionVector = this.computeFastVector(combinedTextForSessionVector);
+      const sessionVector = this.computeFastVector(
+        combinedTextForSessionVector,
+      );
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 90); // Lưu trữ 90 ngày chuẩn Gemini Workspace
@@ -438,7 +509,10 @@ export class ChatMemoryService {
 
       return this.mapRecordToSummary(saved);
     } catch (err: any) {
-      this.logger.error(`[ChatMemory] Lỗi khi lưu session ${sessionKey}:`, err.message);
+      this.logger.error(
+        `[ChatMemory] Lỗi khi lưu session ${sessionKey}:`,
+        err.message,
+      );
       return null;
     }
   }
@@ -453,7 +527,10 @@ export class ChatMemoryService {
     userId: string,
     currentSessionKey: string,
     queryText: string,
-    fallbackHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+    fallbackHistory: Array<{
+      role: 'user' | 'assistant';
+      content: string;
+    }> = [],
   ): Promise<VectorizedContextResult> {
     const startTime = Date.now();
     const queryVector = this.computeFastVector(queryText);
@@ -490,7 +567,11 @@ export class ChatMemoryService {
         for (let i = 0; i < msgs.length - 1; i++) {
           const uMsg = msgs[i];
           const aMsg = msgs[i + 1];
-          if (uMsg?.role === 'user' && aMsg?.role === 'assistant' && !aMsg.isError) {
+          if (
+            uMsg?.role === 'user' &&
+            aMsg?.role === 'assistant' &&
+            !aMsg.isError
+          ) {
             totalTurnsScanned++;
             const uVec = this.computeFastVector(uMsg.content);
             const sim = this.cosineSimilarity(queryVector, uVec);
@@ -510,7 +591,10 @@ export class ChatMemoryService {
 
       const sourceHistory =
         currentSessionMessages.length > 0
-          ? currentSessionMessages.map((m) => ({ role: m.role, content: m.content }))
+          ? currentSessionMessages.map((m) => ({
+              role: m.role,
+              content: m.content,
+            }))
           : fallbackHistory;
 
       // Hot Window: chỉ giữ 4 tin nhắn gần nhất để nối mạch trực tiếp
@@ -528,31 +612,60 @@ export class ChatMemoryService {
           similarity: Number(t.similarity.toFixed(3)),
         }));
 
-      const currentSessRecord = sessions.find((s) => s.sessionKey === currentSessionKey);
+      const currentSessRecord = sessions.find(
+        (s) => s.sessionKey === currentSessionKey,
+      );
       const contextSummary =
         currentSessRecord?.summaryText ||
         this.buildCompactSummary(
-          currentSessionMessages.length > 0 ? currentSessionMessages : (fallbackHistory as any),
+          currentSessionMessages.length > 0
+            ? currentSessionMessages
+            : (fallbackHistory as any),
         );
 
       // Tính toán tỉ lệ tiết kiệm token chuẩn xác (dựa trên ký tự thô so với ngữ cảnh nén)
-      const rawHistoryLength = sourceHistory.reduce((acc, m) => acc + (m.content?.length || 0), 0);
+      const rawHistoryLength = sourceHistory.reduce(
+        (acc, m) => acc + (m.content?.length || 0),
+        0,
+      );
       const compactedLength =
         hotWindow.reduce((acc, m) => acc + (m.content?.length || 0), 0) +
         (contextSummary?.length || 0) +
-        recalledTurns.reduce((acc, t) => acc + t.userQuery.length + t.assistantReply.length, 0);
+        recalledTurns.reduce(
+          (acc, t) => acc + t.userQuery.length + t.assistantReply.length,
+          0,
+        );
 
       const tokenSavedPercent =
         rawHistoryLength > 300 && rawHistoryLength > compactedLength
-          ? Math.min(92, Math.max(15, Math.round(((rawHistoryLength - compactedLength) / rawHistoryLength) * 100)))
+          ? Math.min(
+              92,
+              Math.max(
+                15,
+                Math.round(
+                  ((rawHistoryLength - compactedLength) / rawHistoryLength) *
+                    100,
+                ),
+              ),
+            )
           : sourceHistory.length > 4
-            ? Math.min(85, Math.max(20, Math.round(((sourceHistory.length - hotWindow.length) / sourceHistory.length) * 100)))
+            ? Math.min(
+                85,
+                Math.max(
+                  20,
+                  Math.round(
+                    ((sourceHistory.length - hotWindow.length) /
+                      sourceHistory.length) *
+                      100,
+                  ),
+                ),
+              )
             : 0;
 
       const vectorComputeMs = Math.max(1, Date.now() - startTime);
 
       // Kiểm tra Instant Vector Memory Hit (đã từng hỏi câu tương đồng >= 0.90)
-      if (bestTurn && bestTurn.similarity >= 0.90) {
+      if (bestTurn && bestTurn.similarity >= 0.9) {
         return {
           hotWindow,
           recalledTurns,
@@ -588,7 +701,9 @@ export class ChatMemoryService {
         },
       };
     } catch (err: any) {
-      this.logger.warn(`[ChatMemory] Lỗi buildVectorizedContext: ${err.message}`);
+      this.logger.warn(
+        `[ChatMemory] Lỗi buildVectorizedContext: ${err.message}`,
+      );
       return {
         hotWindow: fallbackHistory.slice(-4),
         recalledTurns: [],
@@ -631,7 +746,9 @@ export class ChatMemoryService {
       const items: ChatSessionSummaryItem[] = [];
       for (const rec of records) {
         const msgs = Array.isArray(rec.messages)
-          ? (rec.messages as unknown as StoredChatMessage[]).filter((m) => m.id !== 'welcome-msg')
+          ? (rec.messages as unknown as StoredChatMessage[]).filter(
+              (m) => m.id !== 'welcome-msg',
+            )
           : [];
 
         // Bỏ qua các session rỗng hoàn toàn chưa có tin nhắn trừ khi vừa mới tạo trong vòng 10 phút
@@ -652,7 +769,11 @@ export class ChatMemoryService {
         const preview =
           rec.lastMessagePreview ||
           (lastMsg
-            ? lastMsg.content.replace(/[#*`_~>\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 110)
+            ? lastMsg.content
+                .replace(/[#*`_~>\n]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 110)
             : 'Bắt đầu cuộc trò chuyện mới');
 
         items.push({
@@ -704,7 +825,11 @@ export class ChatMemoryService {
 
       // Phân nhóm theo chuẩn Sidebar của Google Gemini
       const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const startOfToday = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+      ).getTime();
       const startOf7DaysAgo = startOfToday - 7 * 24 * 60 * 60 * 1000;
 
       const pinned: ChatSessionSummaryItem[] = [];
@@ -792,7 +917,10 @@ export class ChatMemoryService {
         return { session: null, messages: [] };
       }
 
-      if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
+      if (
+        record.expiresAt &&
+        new Date(record.expiresAt).getTime() < Date.now()
+      ) {
         await this.clearSession(sessionKey);
         return { session: null, messages: [] };
       }
@@ -806,7 +934,10 @@ export class ChatMemoryService {
         messages,
       };
     } catch (err: any) {
-      this.logger.error(`[ChatMemory] Lỗi đọc chi tiết session ${sessionKey}:`, err.message);
+      this.logger.error(
+        `[ChatMemory] Lỗi đọc chi tiết session ${sessionKey}:`,
+        err.message,
+      );
       return { session: null, messages: [] };
     }
   }
@@ -852,7 +983,10 @@ export class ChatMemoryService {
 
       return this.mapRecordToSummary(updated);
     } catch (err: any) {
-      this.logger.error(`[ChatMemory] Lỗi cập nhật metadata session ${sessionKey}:`, err.message);
+      this.logger.error(
+        `[ChatMemory] Lỗi cập nhật metadata session ${sessionKey}:`,
+        err.message,
+      );
       return null;
     }
   }
@@ -870,14 +1004,19 @@ export class ChatMemoryService {
       this.logger.log(`🧹 [ChatMemory] Đã xóa session ${sessionKey}`);
       return true;
     } catch (err: any) {
-      this.logger.warn(`[ChatMemory] Lỗi khi xóa session ${sessionKey}:`, err.message);
+      this.logger.warn(
+        `[ChatMemory] Lỗi khi xóa session ${sessionKey}:`,
+        err.message,
+      );
       return false;
     }
   }
 
   private mapRecordToSummary(rec: any): ChatSessionSummaryItem {
     const msgs = Array.isArray(rec.messages)
-      ? (rec.messages as unknown as StoredChatMessage[]).filter((m) => m.id !== 'welcome-msg')
+      ? (rec.messages as unknown as StoredChatMessage[]).filter(
+          (m) => m.id !== 'welcome-msg',
+        )
       : [];
     return {
       id: rec.id,
@@ -885,11 +1024,18 @@ export class ChatMemoryService {
       userId: rec.userId || null,
       title: rec.title || 'Cuộc trò chuyện mới',
       isPinned: Boolean(rec.isPinned),
-      messageCount: typeof rec.messageCount === 'number' ? rec.messageCount : msgs.length,
+      messageCount:
+        typeof rec.messageCount === 'number' ? rec.messageCount : msgs.length,
       lastMessagePreview: rec.lastMessagePreview || null,
       summaryText: rec.summaryText || null,
-      createdAt: rec.createdAt instanceof Date ? rec.createdAt.toISOString() : String(rec.createdAt),
-      updatedAt: rec.updatedAt instanceof Date ? rec.updatedAt.toISOString() : String(rec.updatedAt),
+      createdAt:
+        rec.createdAt instanceof Date
+          ? rec.createdAt.toISOString()
+          : String(rec.createdAt),
+      updatedAt:
+        rec.updatedAt instanceof Date
+          ? rec.updatedAt.toISOString()
+          : String(rec.updatedAt),
     };
   }
 }

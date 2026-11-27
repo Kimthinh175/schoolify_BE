@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { PayOSService } from './payos.service';
 
@@ -23,7 +28,6 @@ export class CatalogService {
     private readonly payosService: PayOSService,
   ) {}
 
-
   /**
    * Lấy danh sách gói cước SaaS (2 gói học sinh duy nhất 50k & 100k + Gói Miễn Phí)
    */
@@ -32,7 +36,12 @@ export class CatalogService {
       orderBy: { price: 'asc' },
     });
 
-    if (packages.length === 0 || packages.some((p) => Number(p.price) === 199000 || Number(p.price) === 499000)) {
+    if (
+      packages.length === 0 ||
+      packages.some(
+        (p) => Number(p.price) === 199000 || Number(p.price) === 499000,
+      )
+    ) {
       // Xóa các gói cũ nếu có để đồng bộ sang 2 gói học sinh chuẩn 50k & 100k
       try {
         await this.prisma.subscriptionPackage.deleteMany({
@@ -42,12 +51,15 @@ export class CatalogService {
         });
       } catch {}
 
-      const existing50k = await this.prisma.subscriptionPackage.findFirst({ where: { price: 50000 } });
+      const existing50k = await this.prisma.subscriptionPackage.findFirst({
+        where: { price: 50000 },
+      });
       if (!existing50k) {
         await this.prisma.subscriptionPackage.create({
           data: {
             name: 'Gói Bứt Phá (50k)',
-            description: '+5 Điểm Xịn mỗi ngày (tích lũy), +9 Điểm Free mỗi ngày (tổng 18đ Free/ngày) để tạo & luyện đề thả ga.',
+            description:
+              '+5 Điểm Xịn mỗi ngày (tích lũy), +9 Điểm Free mỗi ngày (tổng 18đ Free/ngày) để tạo & luyện đề thả ga.',
             price: 50000,
             billing_cycle: 'MONTHLY',
             duration_days: 30,
@@ -69,12 +81,15 @@ export class CatalogService {
         });
       }
 
-      const existing100k = await this.prisma.subscriptionPackage.findFirst({ where: { price: 100000 } });
+      const existing100k = await this.prisma.subscriptionPackage.findFirst({
+        where: { price: 100000 },
+      });
       if (!existing100k) {
         await this.prisma.subscriptionPackage.create({
           data: {
             name: 'Gói Thủ Khoa VIP (100k)',
-            description: '+10 Điểm Xịn mỗi ngày, +20 Điểm Free (tổng 29đ Free/ngày), GIẢM 50% Điểm khi dùng Gia Sư AI.',
+            description:
+              '+10 Điểm Xịn mỗi ngày, +20 Điểm Free (tổng 29đ Free/ngày), GIẢM 50% Điểm khi dùng Gia Sư AI.',
             price: 100000,
             billing_cycle: 'MONTHLY',
             duration_days: 30,
@@ -97,12 +112,15 @@ export class CatalogService {
         });
       }
 
-      const existingFree = await this.prisma.subscriptionPackage.findFirst({ where: { price: 0 } });
+      const existingFree = await this.prisma.subscriptionPackage.findFirst({
+        where: { price: 0 },
+      });
       if (!existingFree) {
         await this.prisma.subscriptionPackage.create({
           data: {
             name: 'Gói Tân Binh (Miễn Phí)',
-            description: '9 Điểm Free mỗi ngày (reset 00:00 hàng ngày), cày Điểm Xịn khi làm đề >= 8.5 điểm.',
+            description:
+              '9 Điểm Free mỗi ngày (reset 00:00 hàng ngày), cày Điểm Xịn khi làm đề >= 8.5 điểm.',
             price: 0,
             billing_cycle: 'MONTHLY',
             duration_days: 30,
@@ -176,7 +194,11 @@ export class CatalogService {
         features:
           Array.isArray(payload.features) && payload.features.length > 0
             ? payload.features
-            : ['Quản lý toàn diện', 'Luyện đề chuẩn GDPT 2018', 'Hỗ trợ kỹ thuật 24/7'],
+            : [
+                'Quản lý toàn diện',
+                'Luyện đề chuẩn GDPT 2018',
+                'Hỗ trợ kỹ thuật 24/7',
+              ],
       },
     });
 
@@ -204,7 +226,9 @@ export class CatalogService {
       features?: string[];
     },
   ) {
-    const existing = await this.prisma.subscriptionPackage.findUnique({ where: { id } });
+    const existing = await this.prisma.subscriptionPackage.findUnique({
+      where: { id },
+    });
     if (!existing) {
       throw new NotFoundException(`Không tìm thấy gói cước ID=${id}`);
     }
@@ -213,18 +237,30 @@ export class CatalogService {
       where: { id },
       data: {
         ...(payload.name !== undefined ? { name: payload.name.trim() } : {}),
-        ...(payload.description !== undefined ? { description: payload.description } : {}),
-        ...(payload.price !== undefined ? { price: Number(payload.price) } : {}),
-        ...(payload.billing_cycle !== undefined ? { billing_cycle: payload.billing_cycle } : {}),
-        ...(payload.max_teachers !== undefined ? { max_teachers: Number(payload.max_teachers) } : {}),
+        ...(payload.description !== undefined
+          ? { description: payload.description }
+          : {}),
+        ...(payload.price !== undefined
+          ? { price: Number(payload.price) }
+          : {}),
+        ...(payload.billing_cycle !== undefined
+          ? { billing_cycle: payload.billing_cycle }
+          : {}),
+        ...(payload.max_teachers !== undefined
+          ? { max_teachers: Number(payload.max_teachers) }
+          : {}),
         ...(payload.max_students_total !== undefined
           ? { max_students_total: Number(payload.max_students_total) }
           : {}),
         ...(payload.storage_limit_gb !== undefined
           ? { storage_limit_gb: Number(payload.storage_limit_gb) }
           : {}),
-        ...(payload.is_active !== undefined ? { is_active: Boolean(payload.is_active) } : {}),
-        ...(payload.features !== undefined ? { features: payload.features } : {}),
+        ...(payload.is_active !== undefined
+          ? { is_active: Boolean(payload.is_active) }
+          : {}),
+        ...(payload.features !== undefined
+          ? { features: payload.features }
+          : {}),
       },
     });
 
@@ -239,7 +275,9 @@ export class CatalogService {
    * Xóa gói đăng ký trên PostgreSQL (Admin)
    */
   async deletePackage(id: string) {
-    const existing = await this.prisma.subscriptionPackage.findUnique({ where: { id } });
+    const existing = await this.prisma.subscriptionPackage.findUnique({
+      where: { id },
+    });
     if (!existing) {
       throw new NotFoundException(`Không tìm thấy gói cước ID=${id}`);
     }
@@ -260,14 +298,16 @@ export class CatalogService {
     paymentMethod?: 'BANK' | 'COD';
   }) {
     // Tìm hoặc tạo user mua hàng nếu chưa truyền userId
-    let user = payload.userId
+    const user = payload.userId
       ? await this.prisma.user.findUnique({ where: { id: payload.userId } })
       : payload.email
         ? await this.prisma.user.findUnique({ where: { email: payload.email } })
         : await this.prisma.user.findFirst({ orderBy: { created_at: 'desc' } });
 
     if (!user) {
-      throw new BadRequestException('Không tìm thấy người dùng để khởi tạo đơn hàng');
+      throw new BadRequestException(
+        'Không tìm thấy người dùng để khởi tạo đơn hàng',
+      );
     }
 
     const packages = await this.listPackages();
@@ -283,7 +323,8 @@ export class CatalogService {
       pkg = packages[0];
     }
 
-    const price = payload.amount !== undefined ? Number(payload.amount) : Number(pkg.price);
+    const price =
+      payload.amount !== undefined ? Number(payload.amount) : Number(pkg.price);
     const displayPackageName = payload.packageName || pkg.name;
     const vietQrCode = `SCHOOLIFY-${Date.now().toString().slice(-6)}`;
 
@@ -328,7 +369,10 @@ export class CatalogService {
   async confirmOrderPayment(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { subscription: true, user: { include: { student_profile: true } } },
+      include: {
+        subscription: true,
+        user: { include: { student_profile: true } },
+      },
     });
 
     if (!order) {
@@ -336,7 +380,9 @@ export class CatalogService {
     }
 
     if (order.status === 'CANCELLED') {
-      throw new BadRequestException('Đơn hàng đã bị hủy, không thể xác nhận thanh toán.');
+      throw new BadRequestException(
+        'Đơn hàng đã bị hủy, không thể xác nhận thanh toán.',
+      );
     }
 
     const updatedOrder = await this.prisma.order.update({
@@ -359,7 +405,9 @@ export class CatalogService {
 
     // Kích hoạt gói học sinh (50k hoặc 100k) và cấp quyền lợi tương ứng
     const amount = Number(order.item_price_snapshot);
-    const packageName = String((order.item_name_snapshot as any)?.packageName || '').toLowerCase();
+    const packageName = String(
+      (order.item_name_snapshot as any)?.packageName || '',
+    ).toLowerCase();
 
     let activePackage = 'STUDENT_50K';
     let dailyFreeAllowance = 18;
@@ -448,7 +496,9 @@ export class CatalogService {
     }
 
     if (order.status === 'PAID') {
-      throw new BadRequestException('Đơn hàng đã thanh toán thành công, không thể hủy.');
+      throw new BadRequestException(
+        'Đơn hàng đã thanh toán thành công, không thể hủy.',
+      );
     }
 
     if (order.status === 'CANCELLED') {
@@ -457,13 +507,16 @@ export class CatalogService {
       };
     }
 
-    const cleanReason = typeof reason === 'string' && reason.trim() ? reason.trim() : undefined;
+    const cleanReason =
+      typeof reason === 'string' && reason.trim() ? reason.trim() : undefined;
     const prevSnapshot =
       order.item_name_snapshot && typeof order.item_name_snapshot === 'object'
         ? (order.item_name_snapshot as Record<string, any>)
         : {
             packageName: String(
-              order.item_name_snapshot || order.subscription?.name || 'Gói Luyện Thi Schoolify',
+              order.item_name_snapshot ||
+                order.subscription?.name ||
+                'Gói Luyện Thi Schoolify',
             ),
           };
 
@@ -500,14 +553,16 @@ export class CatalogService {
     returnUrl?: string;
   }) {
     // 1. Tìm hoặc lấy user
-    let user = payload.userId
+    const user = payload.userId
       ? await this.prisma.user.findUnique({ where: { id: payload.userId } })
       : payload.email
         ? await this.prisma.user.findUnique({ where: { email: payload.email } })
         : await this.prisma.user.findFirst({ orderBy: { created_at: 'desc' } });
 
     if (!user) {
-      throw new BadRequestException('Không tìm thấy người dùng để khởi tạo đơn hàng PayOS');
+      throw new BadRequestException(
+        'Không tìm thấy người dùng để khởi tạo đơn hàng PayOS',
+      );
     }
 
     // 2. Tìm gói cước
@@ -524,12 +579,14 @@ export class CatalogService {
       pkg = packages[0];
     }
 
-    const price = payload.amount !== undefined ? Number(payload.amount) : Number(pkg.price);
+    const price =
+      payload.amount !== undefined ? Number(payload.amount) : Number(pkg.price);
     const displayPackageName = payload.packageName || pkg.name;
 
     // Sinh orderCode duy nhất dạng số nguyên 8-9 chữ số theo yêu cầu PayOS
     const orderCode = Number(
-      String(Date.now()).slice(-6) + Math.floor(100 + Math.random() * 900).toString(),
+      String(Date.now()).slice(-6) +
+        Math.floor(100 + Math.random() * 900).toString(),
     );
     const vietQrCode = `SCH-${orderCode}`;
 
@@ -575,7 +632,9 @@ export class CatalogService {
       amount: price,
       description: `SCH ${orderCode}`,
       cancelUrl: payload.cancelUrl || 'http://localhost:3000/pricing',
-      returnUrl: payload.returnUrl || 'http://localhost:3000/pricing?payment_status=success',
+      returnUrl:
+        payload.returnUrl ||
+        'http://localhost:3000/pricing?payment_status=success',
       items: [
         {
           name: displayPackageName,
@@ -618,10 +677,13 @@ export class CatalogService {
       where: { status: 'PENDING' },
       orderBy: { created_at: 'desc' },
       take: 50,
-      include: { subscription: true, user: { include: { student_profile: true } } },
+      include: {
+        subscription: true,
+        user: { include: { student_profile: true } },
+      },
     });
 
-    let matchedOrder = pendingOrders.find(
+    const matchedOrder = pendingOrders.find(
       (o) => (o.item_name_snapshot as any)?.orderCode === Number(orderCode),
     );
 
@@ -631,7 +693,10 @@ export class CatalogService {
         where: { status: 'PAID' },
         orderBy: { updated_at: 'desc' },
         take: 50,
-        include: { subscription: true, user: { include: { student_profile: true } } },
+        include: {
+          subscription: true,
+          user: { include: { student_profile: true } },
+        },
       });
       const alreadyPaidOrder = paidOrders.find(
         (o) => (o.item_name_snapshot as any)?.orderCode === Number(orderCode),
@@ -649,7 +714,9 @@ export class CatalogService {
     const payosStatus = await this.payosService.getPaymentStatus(orderCode);
 
     if (payosStatus.status === 'PAID' && matchedOrder) {
-      this.logger.log(`🎉 PayOS báo đơn hàng orderCode=${orderCode} đã thanh toán! Đang gạch nợ tự động...`);
+      this.logger.log(
+        `🎉 PayOS báo đơn hàng orderCode=${orderCode} đã thanh toán! Đang gạch nợ tự động...`,
+      );
       const confirmed = await this.confirmOrderPayment(matchedOrder.id);
       return {
         status: 'PAID',
@@ -660,7 +727,9 @@ export class CatalogService {
     }
 
     return {
-      status: matchedOrder ? matchedOrder.status : payosStatus.status || 'PENDING',
+      status: matchedOrder
+        ? matchedOrder.status
+        : payosStatus.status || 'PENDING',
       orderCode,
       order: matchedOrder ? this.normalizeOrderRecord(matchedOrder) : null,
     };
@@ -681,7 +750,9 @@ export class CatalogService {
 
     const orderCode = verifiedData?.orderCode;
     if (!orderCode) {
-      this.logger.log(`📩 Nhận PayOS webhook ping/test xác thực URL: ${JSON.stringify(webhookBody)}`);
+      this.logger.log(
+        `📩 Nhận PayOS webhook ping/test xác thực URL: ${JSON.stringify(webhookBody)}`,
+      );
       return {
         success: true,
         message: 'PayOS webhook endpoint is active and verified',
@@ -703,7 +774,9 @@ export class CatalogService {
 
     if (targetOrder) {
       const result = await this.confirmOrderPayment(targetOrder.id);
-      this.logger.log(`✅ Đã gạch nợ thành công đơn hàng ${targetOrder.id} qua PayOS Webhook`);
+      this.logger.log(
+        `✅ Đã gạch nợ thành công đơn hàng ${targetOrder.id} qua PayOS Webhook`,
+      );
       return {
         success: true,
         message: 'Đã gạch nợ thành công đơn hàng PayOS',
@@ -713,7 +786,8 @@ export class CatalogService {
 
     return {
       success: true,
-      message: 'Không tìm thấy đơn hàng PENDING hoặc đơn hàng đã xử lý trước đó',
+      message:
+        'Không tìm thấy đơn hàng PENDING hoặc đơn hàng đã xử lý trước đó',
     };
   }
 
@@ -722,7 +796,10 @@ export class CatalogService {
     const itemName =
       typeof snap === 'string'
         ? snap
-        : snap?.packageName || snap?.courseTitle || order.subscription?.name || 'Gói Luyện Thi Schoolify Pro';
+        : snap?.packageName ||
+          snap?.courseTitle ||
+          order.subscription?.name ||
+          'Gói Luyện Thi Schoolify Pro';
     const vietQrCode =
       typeof snap === 'object' && snap?.vietQrCode
         ? snap.vietQrCode
@@ -741,7 +818,9 @@ export class CatalogService {
       status: order.status || 'PAID',
       payment_method: order.payment_method || 'BANK',
       cancel_reason:
-        typeof snap === 'object' && snap?.cancelReason ? String(snap.cancelReason) : null,
+        typeof snap === 'object' && snap?.cancelReason
+          ? String(snap.cancelReason)
+          : null,
       created_at: order.created_at,
     };
   }
@@ -767,7 +846,8 @@ export class CatalogService {
       ]);
 
       if (users.length > 0 && packages.length > 0) {
-        const proPkg = packages.find((p) => p.price > 0 && p.price < 400000) || packages[0];
+        const proPkg =
+          packages.find((p) => p.price > 0 && p.price < 400000) || packages[0];
         const vipPkg = packages.find((p) => p.price >= 400000) || proPkg;
         const u0 = users[0];
         const u1 = users[1] || u0;
@@ -863,14 +943,17 @@ export class CatalogService {
         totalExams > 0
           ? Number(
               (
-                st.submissions.reduce((acc, s) => acc + Number(s.score || 0), 0) /
-                totalExams
+                st.submissions.reduce(
+                  (acc, s) => acc + Number(s.score || 0),
+                  0,
+                ) / totalExams
               ).toFixed(2),
             )
           : 8.5;
 
       const schoolName =
-        st.user.school_memberships?.[0]?.school?.name || 'THPT Chuyên Schoolify';
+        st.user.school_memberships?.[0]?.school?.name ||
+        'THPT Chuyên Schoolify';
       const gradeMatch = String(st.grade_level || '12').match(/\d+/);
       const numericGrade = gradeMatch ? Number(gradeMatch[0]) : 12;
 
@@ -987,7 +1070,14 @@ export class CatalogService {
           status: true,
           created_at: true,
           teacher_profile: { select: { id: true } },
-          student_profile: { select: { id: true, grade_level: true, exam_points: true, points: true } },
+          student_profile: {
+            select: {
+              id: true,
+              grade_level: true,
+              exam_points: true,
+              points: true,
+            },
+          },
         },
       }),
       this.getLeaderboard(),
@@ -1007,7 +1097,9 @@ export class CatalogService {
     ]);
 
     const paidOrders = orders.filter((o) => o.status === 'PAID');
-    const pendingOrdersCount = orders.filter((o) => o.status === 'PENDING').length;
+    const pendingOrdersCount = orders.filter(
+      (o) => o.status === 'PENDING',
+    ).length;
     const practiceRevenue = paidOrders
       .filter((o) => o.reference_type === 'SUBSCRIPTION')
       .reduce((sum, o) => sum + Number(o.item_price_snapshot || 0), 0);
@@ -1061,7 +1153,11 @@ export class CatalogService {
     const numericScores = allScores.map((s) => Number(s.score ?? 0));
     const avgScore =
       numericScores.length > 0
-        ? Number((numericScores.reduce((a, b) => a + b, 0) / numericScores.length).toFixed(2))
+        ? Number(
+            (
+              numericScores.reduce((a, b) => a + b, 0) / numericScores.length
+            ).toFixed(2),
+          )
         : 0;
     const under5 = numericScores.filter((s) => s < 5).length;
     const from5to6_9 = numericScores.filter((s) => s >= 5 && s < 7).length;
@@ -1069,7 +1165,9 @@ export class CatalogService {
     const from8_5to10 = numericScores.filter((s) => s >= 8.5).length;
     const passRate =
       numericScores.length > 0
-        ? Math.round(((numericScores.length - under5) / numericScores.length) * 100)
+        ? Math.round(
+            ((numericScores.length - under5) / numericScores.length) * 100,
+          )
         : 0;
 
     const recentUsers = recentUsersRaw.map((u) => ({
@@ -1126,7 +1224,10 @@ export class CatalogService {
 
     const monthlyRevenueStats = realMonthlyData.map((item, idx) => {
       const total = item.practice + item.course;
-      const prevTotal = idx > 0 ? realMonthlyData[idx - 1].practice + realMonthlyData[idx - 1].course : 0;
+      const prevTotal =
+        idx > 0
+          ? realMonthlyData[idx - 1].practice + realMonthlyData[idx - 1].course
+          : 0;
       const growthPct =
         prevTotal > 0 && total > 0
           ? Number((((total - prevTotal) / prevTotal) * 100).toFixed(1))
@@ -1202,111 +1303,135 @@ export class CatalogService {
       const seedData = [
         {
           name: 'Thẻ Gợi Ý Giải Chi Tiết AI Socratic (3 Lượt)',
-          description: 'Mở khóa 3 lượt hỏi đáp chuyên sâu từng bước với Gia sư AI Socratic trong phòng luyện đề.',
+          description:
+            'Mở khóa 3 lượt hỏi đáp chuyên sâu từng bước với Gia sư AI Socratic trong phòng luyện đề.',
           points: 2,
           stock: 150,
           type: 'VOUCHER' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=400&auto=format&fit=crop&q=80',
         },
         {
           name: 'Huy Hiệu "Chiến Binh Chuyên Cần 7 Ngày"',
-          description: 'Huy hiệu vinh danh học sinh duy trì chuỗi điểm danh và làm đề liên tục trong tuần.',
+          description:
+            'Huy hiệu vinh danh học sinh duy trì chuỗi điểm danh và làm đề liên tục trong tuần.',
           points: 3,
           stock: 200,
           type: 'BADGE' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400&auto=format&fit=crop&q=80',
         },
         {
           name: 'Bộ Sổ Tay Công Thức Toán - Lý - Hóa THPT (PDF)',
-          description: 'Tài liệu tóm tắt toàn bộ công thức giải nhanh chuẩn chương trình GDPT 2018.',
+          description:
+            'Tài liệu tóm tắt toàn bộ công thức giải nhanh chuẩn chương trình GDPT 2018.',
           points: 4,
           stock: 95,
           type: 'THEME' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=400&auto=format&fit=crop&q=80',
         },
         {
           name: 'Voucher Giảm 20% Gói Luyện Thi PRO 1 Tháng',
-          description: 'Mã ưu đãi giảm trực tiếp 20% khi đăng ký hoặc gia hạn Gói Chuyên Sâu (PRO) qua VietQR.',
+          description:
+            'Mã ưu đãi giảm trực tiếp 20% khi đăng ký hoặc gia hạn Gói Chuyên Sâu (PRO) qua VietQR.',
           points: 5,
           stock: 60,
           type: 'VOUCHER' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=400&auto=format&fit=crop&q=80',
         },
         {
           name: 'Huy Hiệu "Thợ Săn Điểm 10 Đạo Hàm & Hàm Số"',
-          description: 'Danh hiệu đặc biệt hiển thị nổi bật trên Bảng xếp hạng và Hồ sơ học tập cá nhân.',
+          description:
+            'Danh hiệu đặc biệt hiển thị nổi bật trên Bảng xếp hạng và Hồ sơ học tập cá nhân.',
           points: 6,
           stock: 80,
           type: 'BADGE' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=80',
         },
         {
           name: 'Giao Diện Phòng Thi "Dark Focus Cyberpunk"',
-          description: 'Chủ đề giao diện phòng thi tập trung cao độ, chống mỏi mắt khi luyện đề ban đêm.',
+          description:
+            'Chủ đề giao diện phòng thi tập trung cao độ, chống mỏi mắt khi luyện đề ban đêm.',
           points: 7,
           stock: 120,
           type: 'THEME' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=400&auto=format&fit=crop&q=80',
         },
         {
           name: 'Voucher Giảm 50% Khóa Học IELTS / Tiếng Anh THPT',
-          description: 'Áp dụng cho mọi khóa học Ngoại ngữ & Luyện đề Tiếng Anh trên sàn Schoolify trong 30 ngày.',
+          description:
+            'Áp dụng cho mọi khóa học Ngoại ngữ & Luyện đề Tiếng Anh trên sàn Schoolify trong 30 ngày.',
           points: 8,
           stock: 40,
           type: 'VOUCHER' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=400&auto=format&fit=crop&q=80',
         },
         {
           name: 'Tuyển Tập 50 Đề Minh Họa Tốt Nghiệp THPT 2026',
-          description: 'Mở khóa trọn bộ 50 đề thi chuẩn cấu trúc mới của Bộ GD&ĐT kèm lời giải chi tiết KaTeX.',
+          description:
+            'Mở khóa trọn bộ 50 đề thi chuẩn cấu trúc mới của Bộ GD&ĐT kèm lời giải chi tiết KaTeX.',
           points: 9,
           stock: 75,
           type: 'THEME' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=400&auto=format&fit=crop&q=80',
         },
         {
           name: 'Huy Hiệu "Thủ Khoa Bảng Vàng Schoolify"',
-          description: 'Huy hiệu danh giá dành cho học sinh tích cực chinh phục các đề thi Vận dụng cao.',
+          description:
+            'Huy hiệu danh giá dành cho học sinh tích cực chinh phục các đề thi Vận dụng cao.',
           points: 12,
           stock: 50,
           type: 'BADGE' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1567427017947-545c5f8d16ad?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1567427017947-545c5f8d16ad?w=400&auto=format&fit=crop&q=80',
         },
         {
           name: 'Sổ Tay Lò Xo & Bộ Bút Highlight Schoolify',
-          description: 'Bộ quà tặng học tập vật lý gửi tận nhà dành cho học sinh chăm chỉ tích lũy điểm thưởng.',
+          description:
+            'Bộ quà tặng học tập vật lý gửi tận nhà dành cho học sinh chăm chỉ tích lũy điểm thưởng.',
           points: 15,
           stock: 30,
           type: 'OTHER' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1517842645767-c639042777db?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1517842645767-c639042777db?w=400&auto=format&fit=crop&q=80',
         },
         {
           name: 'Bình Giữ Nhiệt Inox Cao Cấp Schoolify 500ml',
-          description: 'Quà tặng vật lý cao cấp giữ nhiệt 12 tiếng, in logo Schoolify phiên bản giới hạn.',
+          description:
+            'Quà tặng vật lý cao cấp giữ nhiệt 12 tiếng, in logo Schoolify phiên bản giới hạn.',
           points: 20,
           stock: 20,
           type: 'OTHER' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=400&auto=format&fit=crop&q=80',
         },
         {
           name: 'Voucher Miễn Phí 100% Khóa Tổng Ôn Toán 12',
-          description: 'Tặng toàn bộ học phí khóa Tổng ôn & Luyện đề Toán 12 trị giá 499.000đ trên hệ thống.',
+          description:
+            'Tặng toàn bộ học phí khóa Tổng ôn & Luyện đề Toán 12 trị giá 499.000đ trên hệ thống.',
           points: 25,
           stock: 10,
           type: 'VOUCHER' as const,
           status: 'ACTIVE' as const,
-          image_url: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=400&auto=format&fit=crop&q=80',
+          image_url:
+            'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=400&auto=format&fit=crop&q=80',
         },
       ];
 
@@ -1359,7 +1484,9 @@ export class CatalogService {
     const created = await this.prisma.storeItem.create({
       data: {
         name: payload.name.trim(),
-        description: payload.description || 'Phần thưởng khích lệ tinh thần học tập trên Schoolify.',
+        description:
+          payload.description ||
+          'Phần thưởng khích lệ tinh thần học tập trên Schoolify.',
         points: pts,
         stock: stk,
         type: payload.type || 'VOUCHER',
@@ -1387,16 +1514,22 @@ export class CatalogService {
    * Học sinh đổi quà tặng bằng Điểm Năng Lượng & lưu vào StudentInventory + ExamPointLog
    */
   async redeemStoreItem(itemId: string, userId?: string) {
-    const item = await this.prisma.storeItem.findUnique({ where: { id: itemId } });
+    const item = await this.prisma.storeItem.findUnique({
+      where: { id: itemId },
+    });
     if (!item) {
-      throw new NotFoundException('Không tìm thấy phần thưởng này trong cửa hàng');
+      throw new NotFoundException(
+        'Không tìm thấy phần thưởng này trong cửa hàng',
+      );
     }
     if (item.stock <= 0 || item.status === 'SOLDOUT') {
       throw new BadRequestException('Phần thưởng này đã hết số lượng quy đổi');
     }
 
     let profile = userId
-      ? await this.prisma.studentProfile.findUnique({ where: { user_id: userId } })
+      ? await this.prisma.studentProfile.findUnique({
+          where: { user_id: userId },
+        })
       : null;
 
     if (!profile) {
@@ -1421,28 +1554,29 @@ export class CatalogService {
     const nextPoints = currentPoints - requiredPoints;
     const voucherCode = `SCH-${String(item.type || 'GIFT').slice(0, 3)}-${Math.floor(100000 + Math.random() * 900000)}`;
 
-    const [updatedProfile, updatedItem, inventoryRecord] = await this.prisma.$transaction([
-      this.prisma.studentProfile.update({
-        where: { id: profile.id },
-        data: { exam_points: nextPoints },
-      }),
-      this.prisma.storeItem.update({
-        where: { id: item.id },
-        data: {
-          stock: { decrement: 1 },
-          status: item.stock - 1 <= 0 ? 'SOLDOUT' : 'ACTIVE',
-        },
-      }),
-      this.prisma.studentInventory.create({
-        data: {
-          student_id: profile.id,
-          item_id: item.id,
-          type: voucherCode,
-          points: requiredPoints,
-          active: true,
-        },
-      }),
-    ]);
+    const [updatedProfile, updatedItem, inventoryRecord] =
+      await this.prisma.$transaction([
+        this.prisma.studentProfile.update({
+          where: { id: profile.id },
+          data: { exam_points: nextPoints },
+        }),
+        this.prisma.storeItem.update({
+          where: { id: item.id },
+          data: {
+            stock: { decrement: 1 },
+            status: item.stock - 1 <= 0 ? 'SOLDOUT' : 'ACTIVE',
+          },
+        }),
+        this.prisma.studentInventory.create({
+          data: {
+            student_id: profile.id,
+            item_id: item.id,
+            type: voucherCode,
+            points: requiredPoints,
+            active: true,
+          },
+        }),
+      ]);
 
     await this.prisma.examPointLog.create({
       data: {
@@ -1478,7 +1612,9 @@ export class CatalogService {
    */
   async listStudentInventory(userId?: string) {
     let profile = userId
-      ? await this.prisma.studentProfile.findUnique({ where: { user_id: userId } })
+      ? await this.prisma.studentProfile.findUnique({
+          where: { user_id: userId },
+        })
       : null;
 
     if (!profile) {
@@ -1528,9 +1664,25 @@ export class CatalogService {
 
   private isPrivateOrLoopbackIp(ip: string): boolean {
     const clean = (ip || '').trim().toLowerCase();
-    if (!clean || clean === 'localhost' || clean === '::1' || clean === '0.0.0.0') return true;
-    if (clean.startsWith('127.') || clean.startsWith('10.') || clean.startsWith('192.168.')) return true;
-    if (clean.startsWith('fe80:') || clean.startsWith('fc') || clean.startsWith('fd')) return true;
+    if (
+      !clean ||
+      clean === 'localhost' ||
+      clean === '::1' ||
+      clean === '0.0.0.0'
+    )
+      return true;
+    if (
+      clean.startsWith('127.') ||
+      clean.startsWith('10.') ||
+      clean.startsWith('192.168.')
+    )
+      return true;
+    if (
+      clean.startsWith('fe80:') ||
+      clean.startsWith('fc') ||
+      clean.startsWith('fd')
+    )
+      return true;
     const m172 = clean.match(/^172\.(\d+)\./);
     if (m172) {
       const oct = Number(m172[1]);
@@ -1557,8 +1709,11 @@ export class CatalogService {
     const cfIp = normalize(this.readHeaderValue(headers, 'cf-connecting-ip'));
     if (cfIp && !this.isPrivateOrLoopbackIp(cfIp)) return cfIp;
 
-    const trueClientIp = normalize(this.readHeaderValue(headers, 'true-client-ip'));
-    if (trueClientIp && !this.isPrivateOrLoopbackIp(trueClientIp)) return trueClientIp;
+    const trueClientIp = normalize(
+      this.readHeaderValue(headers, 'true-client-ip'),
+    );
+    if (trueClientIp && !this.isPrivateOrLoopbackIp(trueClientIp))
+      return trueClientIp;
 
     const xff = this.readHeaderValue(headers, 'x-forwarded-for');
     if (xff) {
@@ -1579,7 +1734,10 @@ export class CatalogService {
     return null;
   }
 
-  private countryCodeToViName(code?: string | null, fallbackName?: string | null): string | null {
+  private countryCodeToViName(
+    code?: string | null,
+    fallbackName?: string | null,
+  ): string | null {
     const c = (code || '').trim().toUpperCase();
     const map: Record<string, string> = {
       VN: 'Việt Nam',
@@ -1693,13 +1851,20 @@ export class CatalogService {
     if (!ua) {
       const dt =
         fbType === 'MOBILE' || fbType === 'TABLET' || fbType === 'BOT'
-          ? (fbType as 'MOBILE' | 'TABLET' | 'BOT')
+          ? fbType
           : 'DESKTOP';
       return {
         deviceType: dt,
-        osName: clientPlatform ? String(clientPlatform).slice(0, 64) : 'Không rõ HĐH',
+        osName: clientPlatform
+          ? String(clientPlatform).slice(0, 64)
+          : 'Không rõ HĐH',
         browserName: 'Trình duyệt Web',
-        deviceModel: dt === 'MOBILE' ? 'Điện thoại' : dt === 'TABLET' ? 'Máy tính bảng' : 'Máy tính',
+        deviceModel:
+          dt === 'MOBILE'
+            ? 'Điện thoại'
+            : dt === 'TABLET'
+              ? 'Máy tính bảng'
+              : 'Máy tính',
       };
     }
 
@@ -1736,7 +1901,11 @@ export class CatalogService {
         deviceModel: 'Facebook / Meta Bot',
       };
     }
-    if (/bot|crawler|spider|slurp|headlesschrome|gptbot|claudebot|bytespider|ahrefsbot|semrushbot/i.test(ua)) {
+    if (
+      /bot|crawler|spider|slurp|headlesschrome|gptbot|claudebot|bytespider|ahrefsbot|semrushbot/i.test(
+        ua,
+      )
+    ) {
       return {
         deviceType: 'BOT',
         osName: 'Bot / Crawler',
@@ -1750,7 +1919,10 @@ export class CatalogService {
     let deviceType: 'DESKTOP' | 'MOBILE' | 'TABLET' = 'DESKTOP';
     let deviceModel = 'Máy tính';
 
-    if (/ipad|playbook|silk/i.test(ua) || (/macintosh/i.test(ua) && fbType === 'TABLET')) {
+    if (
+      /ipad|playbook|silk/i.test(ua) ||
+      (/macintosh/i.test(ua) && fbType === 'TABLET')
+    ) {
       osName = 'iPadOS';
       deviceType = 'TABLET';
       deviceModel = 'Apple iPad';
@@ -1766,7 +1938,8 @@ export class CatalogService {
       const rawModel = modelMatch?.[1]?.trim();
       if (rawModel && rawModel !== 'K') {
         if (/^SM-/i.test(rawModel)) deviceModel = `Samsung (${rawModel})`;
-        else if (/redmi|poco|mi\s/i.test(rawModel)) deviceModel = `Xiaomi ${rawModel}`;
+        else if (/redmi|poco|mi\s/i.test(rawModel))
+          deviceModel = `Xiaomi ${rawModel}`;
         else if (/cph|oppo/i.test(rawModel)) deviceModel = `OPPO (${rawModel})`;
         else if (/pixel/i.test(rawModel)) deviceModel = `Google ${rawModel}`;
         else deviceModel = rawModel.slice(0, 64);
@@ -1840,14 +2013,26 @@ export class CatalogService {
     ispName: string | null;
     timezone: string | null;
   }> {
-    const rawCfCountry = this.readHeaderValue(headers, 'cf-ipcountry').toUpperCase();
-    const cfCountry = rawCfCountry && rawCfCountry !== 'XX' && rawCfCountry !== 'T1' ? rawCfCountry : null;
-    const cfCity = this.normalizePlaceName(this.readHeaderValue(headers, 'cf-ipcity'));
-    const cfRegion = this.normalizePlaceName(this.readHeaderValue(headers, 'cf-region'));
+    const rawCfCountry = this.readHeaderValue(
+      headers,
+      'cf-ipcountry',
+    ).toUpperCase();
+    const cfCountry =
+      rawCfCountry && rawCfCountry !== 'XX' && rawCfCountry !== 'T1'
+        ? rawCfCountry
+        : null;
+    const cfCity = this.normalizePlaceName(
+      this.readHeaderValue(headers, 'cf-ipcity'),
+    );
+    const cfRegion = this.normalizePlaceName(
+      this.readHeaderValue(headers, 'cf-region'),
+    );
     const cfTimezone = this.readHeaderValue(headers, 'cf-timezone') || null;
 
     let countryCode: string | null = cfCountry;
-    let countryName: string | null = cfCountry ? this.countryCodeToViName(cfCountry) : null;
+    let countryName: string | null = cfCountry
+      ? this.countryCodeToViName(cfCountry)
+      : null;
     let regionName: string | null = cfRegion;
     let cityName: string | null = cfCity;
     let ispName: string | null = null;
@@ -1875,12 +2060,18 @@ export class CatalogService {
             if (res.ok) {
               const geo: any = await res.json();
               if (geo?.status === 'success') {
-                const cc = String(geo.countryCode || cfCountry || '').toUpperCase() || null;
+                const cc =
+                  String(geo.countryCode || cfCountry || '').toUpperCase() ||
+                  null;
                 const cn = this.countryCodeToViName(cc, geo.country);
                 const rn = this.normalizePlaceName(geo.regionName);
                 const cty = this.normalizePlaceName(geo.city) || rn;
-                const isp = geo.isp ? String(geo.isp).trim().slice(0, 128) : null;
-                const tz = geo.timezone ? String(geo.timezone).trim().slice(0, 64) : null;
+                const isp = geo.isp
+                  ? String(geo.isp).trim().slice(0, 128)
+                  : null;
+                const tz = geo.timezone
+                  ? String(geo.timezone).trim().slice(0, 64)
+                  : null;
 
                 countryCode = countryCode || cc;
                 countryName = countryName || cn;
@@ -1897,13 +2088,22 @@ export class CatalogService {
 
           if (!resolved) {
             try {
-              const res2 = await fetch(`https://ipwho.is/${encodeURIComponent(ipAddress)}`, {
-                signal: AbortSignal.timeout(1500),
-              });
+              const res2 = await fetch(
+                `https://ipwho.is/${encodeURIComponent(ipAddress)}`,
+                {
+                  signal: AbortSignal.timeout(1500),
+                },
+              );
               if (res2.ok) {
                 const geo2: any = await res2.json();
-                if (geo2?.success !== false && (geo2?.country_code || geo2?.city)) {
-                  const cc = String(geo2.country_code || cfCountry || '').toUpperCase() || null;
+                if (
+                  geo2?.success !== false &&
+                  (geo2?.country_code || geo2?.city)
+                ) {
+                  const cc =
+                    String(
+                      geo2.country_code || cfCountry || '',
+                    ).toUpperCase() || null;
                   const cn = this.countryCodeToViName(cc, geo2.country);
                   const rn = this.normalizePlaceName(geo2.region);
                   const cty = this.normalizePlaceName(geo2.city) || rn;
@@ -1952,7 +2152,11 @@ export class CatalogService {
       countryCode = countryCode || (isVnHint ? 'VN' : 'LOCAL');
       countryName = countryName || (isVnHint ? 'Việt Nam' : 'Mạng nội bộ');
       regionName = regionName || 'Mạng nội bộ (Local)';
-      cityName = cityName || (tzLower.includes('ho_chi_minh') || tzLower.includes('saigon') ? 'TP. Hồ Chí Minh (Local)' : 'Máy chủ / Local');
+      cityName =
+        cityName ||
+        (tzLower.includes('ho_chi_minh') || tzLower.includes('saigon')
+          ? 'TP. Hồ Chí Minh (Local)'
+          : 'Máy chủ / Local');
       ispName = 'Mạng nội bộ / Localhost';
     }
 
@@ -1999,8 +2203,13 @@ export class CatalogService {
       remoteAddress?: string;
     },
   ) {
-    const cleanPath = String(payload?.path || '/').trim().slice(0, 255) || '/';
-    const roleUpper = String(payload?.userRole || '').toUpperCase().trim();
+    const cleanPath =
+      String(payload?.path || '/')
+        .trim()
+        .slice(0, 255) || '/';
+    const roleUpper = String(payload?.userRole || '')
+      .toUpperCase()
+      .trim();
 
     // Chỉ tính lượt truy cập ở trang Client, tuyệt đối không tính trang Admin hoặc tài khoản Admin
     if (
@@ -2018,7 +2227,10 @@ export class CatalogService {
     }
 
     const validUuid =
-      payload?.userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.userId)
+      payload?.userId &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        payload.userId,
+      )
         ? payload.userId
         : null;
 
@@ -2037,17 +2249,24 @@ export class CatalogService {
     }
 
     const rawUa =
-      payload?.userAgent || this.readHeaderValue(reqMeta?.headers, 'user-agent') || null;
+      payload?.userAgent ||
+      this.readHeaderValue(reqMeta?.headers, 'user-agent') ||
+      null;
     const parsedDevice = this.parseUserAgentDetails(
       rawUa,
       payload?.deviceType,
       payload?.platform,
     );
 
-    const ipAddress = this.extractClientIp(reqMeta?.headers, reqMeta?.remoteAddress);
+    const ipAddress = this.extractClientIp(
+      reqMeta?.headers,
+      reqMeta?.remoteAddress,
+    );
     const clientLanguage =
       payload?.language ||
-      this.readHeaderValue(reqMeta?.headers, 'accept-language').split(',')[0]?.trim() ||
+      this.readHeaderValue(reqMeta?.headers, 'accept-language')
+        .split(',')[0]
+        ?.trim() ||
       null;
     const geo = await this.resolveGeoLocation(
       ipAddress,
@@ -2059,10 +2278,16 @@ export class CatalogService {
     const visit = await this.prisma.webVisitLog.create({
       data: {
         path: cleanPath,
-        page_title: payload?.pageTitle ? String(payload.pageTitle).slice(0, 255) : null,
+        page_title: payload?.pageTitle
+          ? String(payload.pageTitle).slice(0, 255)
+          : null,
         user_id: validUuid,
-        user_role: String(payload?.userRole || (validUuid ? 'STUDENT' : 'GUEST')).slice(0, 32),
-        session_id: payload?.sessionId ? String(payload.sessionId).slice(0, 128) : `ses-${Date.now()}`,
+        user_role: String(
+          payload?.userRole || (validUuid ? 'STUDENT' : 'GUEST'),
+        ).slice(0, 32),
+        session_id: payload?.sessionId
+          ? String(payload.sessionId).slice(0, 128)
+          : `ses-${Date.now()}`,
         device_type: parsedDevice.deviceType,
         os_name: parsedDevice.osName.slice(0, 64),
         browser_name: parsedDevice.browserName.slice(0, 64),
@@ -2078,7 +2303,9 @@ export class CatalogService {
         isp_name: geo.ispName ? geo.ispName.slice(0, 128) : null,
         timezone: geo.timezone ? geo.timezone.slice(0, 64) : null,
         language: clientLanguage ? String(clientLanguage).slice(0, 32) : null,
-        referrer: payload?.referrer ? String(payload.referrer).slice(0, 512) : null,
+        referrer: payload?.referrer
+          ? String(payload.referrer).slice(0, 512)
+          : null,
         user_agent: rawUa ? String(rawUa) : null,
       },
     });
@@ -2103,7 +2330,10 @@ export class CatalogService {
     // Mốc thời gian bắt đầu tính số liệu thực tế theo yêu cầu của Admin (15:00:48 09/11/2026 giờ VN)
     const trackingSince = new Date('2026-11-09T08:00:48.000Z');
 
-    const SUBJECT_LABELS: Record<string, { name: string; color: string; group: string }> = {
+    const SUBJECT_LABELS: Record<
+      string,
+      { name: string; color: string; group: string }
+    > = {
       'toan-hoc': { name: 'Toán học', color: '#00B8DD', group: 'Tự nhiên' },
       'vat-ly': { name: 'Vật lý', color: '#6366F1', group: 'Tự nhiên' },
       'hoa-hoc': { name: 'Hóa học', color: '#10B981', group: 'Tự nhiên' },
@@ -2113,9 +2343,13 @@ export class CatalogService {
       'lich-su': { name: 'Lịch sử', color: '#EF4444', group: 'Xã hội' },
       'dia-ly': { name: 'Địa lý', color: '#14B8A6', group: 'Xã hội' },
       'tin-hoc': { name: 'Tin học', color: '#3B82F6', group: 'Công nghệ' },
-      'gdcd': { name: 'GDCD / KT&PL', color: '#8B5CF6', group: 'Xã hội' },
+      gdcd: { name: 'GDCD / KT&PL', color: '#8B5CF6', group: 'Xã hội' },
       'cong-nghe': { name: 'Công nghệ', color: '#F97316', group: 'Công nghệ' },
-      'khoa-hoc-tu-nhien': { name: 'Khoa học tự nhiên', color: '#06B6D4', group: 'Tự nhiên' },
+      'khoa-hoc-tu-nhien': {
+        name: 'Khoa học tự nhiên',
+        color: '#06B6D4',
+        group: 'Tự nhiên',
+      },
     };
 
     const [
@@ -2225,7 +2459,14 @@ export class CatalogService {
       }),
       this.listPackages(),
       this.prisma.user.findMany({
-        select: { id: true, fullname: true, email: true, role: true, status: true, created_at: true },
+        select: {
+          id: true,
+          fullname: true,
+          email: true,
+          role: true,
+          status: true,
+          created_at: true,
+        },
       }),
       this.prisma.studentProfile.findMany({
         include: {
@@ -2266,12 +2507,20 @@ export class CatalogService {
     // 1. THỐNG KÊ LƯỢT TRUY CẬP WEB (WEB TRAFFIC & VISITS)
     // =========================================================================
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
 
     const totalVisits = allVisits.length;
-    const todayVisits = allVisits.filter((v) => new Date(v.created_at) >= todayStart).length;
-    const last7DaysVisits = allVisits.filter((v) => new Date(v.created_at) >= sevenDaysAgo).length;
+    const todayVisits = allVisits.filter(
+      (v) => new Date(v.created_at) >= todayStart,
+    ).length;
+    const last7DaysVisits = allVisits.filter(
+      (v) => new Date(v.created_at) >= sevenDaysAgo,
+    ).length;
 
     const uniqueSessionSet = new Set(
       allVisits.map((v) => v.session_id || v.user_id || v.id),
@@ -2294,9 +2543,18 @@ export class CatalogService {
       BOT: 'Trình thu thập (Bot)',
     };
 
-    const deviceTypeMap = new Map<string, { type: string; label: string; visits: number; sessions: Set<string> }>();
-    const osMap = new Map<string, { name: string; visits: number; sessions: Set<string> }>();
-    const browserMap = new Map<string, { name: string; visits: number; sessions: Set<string> }>();
+    const deviceTypeMap = new Map<
+      string,
+      { type: string; label: string; visits: number; sessions: Set<string> }
+    >();
+    const osMap = new Map<
+      string,
+      { name: string; visits: number; sessions: Set<string> }
+    >();
+    const browserMap = new Map<
+      string,
+      { name: string; visits: number; sessions: Set<string> }
+    >();
     const locationMap = new Map<
       string,
       {
@@ -2311,7 +2569,12 @@ export class CatalogService {
     >();
     const countryMap = new Map<
       string,
-      { country: string; countryCode: string; visits: number; sessions: Set<string> }
+      {
+        country: string;
+        countryCode: string;
+        visits: number;
+        sessions: Set<string>;
+      }
     >();
 
     const pageMap = new Map<
@@ -2343,16 +2606,21 @@ export class CatalogService {
       const effectiveDeviceType =
         parsed.deviceType === 'BOT'
           ? 'BOT'
-          : (v.device_type === 'MOBILE' || v.device_type === 'TABLET' || v.device_type === 'BOT'
+          : (v.device_type === 'MOBILE' ||
+            v.device_type === 'TABLET' ||
+            v.device_type === 'BOT'
               ? v.device_type
               : parsed.deviceType) || 'DESKTOP';
       const osName = v.os_name || parsed.osName || 'Khác';
-      const browserName = v.browser_name || parsed.browserName || 'Trình duyệt khác';
-      const deviceModel = v.device_model || parsed.deviceModel || 'Thiết bị Web';
+      const browserName =
+        v.browser_name || parsed.browserName || 'Trình duyệt khác';
+      const deviceModel =
+        v.device_model || parsed.deviceModel || 'Thiết bị Web';
 
       let city = v.city_name || v.region_name || '';
       let country =
-        v.country_name || (v.country_code ? this.countryCodeToViName(v.country_code) || '' : '');
+        v.country_name ||
+        (v.country_code ? this.countryCodeToViName(v.country_code) || '' : '');
       let countryCode = (v.country_code || '').toUpperCase();
 
       if (!city && !country) {
@@ -2479,7 +2747,8 @@ export class CatalogService {
       const normalizedPath = (v.path || '/').split('?')[0] || '/';
       const existing = pageMap.get(normalizedPath) || {
         path: normalizedPath,
-        pageTitle: v.page_title || defaultPageTitles[normalizedPath] || normalizedPath,
+        pageTitle:
+          v.page_title || defaultPageTitles[normalizedPath] || normalizedPath,
         visits: 0,
         sessions: new Set<string>(),
       };
@@ -2502,7 +2771,10 @@ export class CatalogService {
         label: d.label,
         visits: d.visits,
         uniqueVisitors: d.sessions.size,
-        percentage: totalVisits > 0 ? Number(((d.visits / totalVisits) * 100).toFixed(1)) : 0,
+        percentage:
+          totalVisits > 0
+            ? Number(((d.visits / totalVisits) * 100).toFixed(1))
+            : 0,
       }));
 
     const byOs = Array.from(osMap.values())
@@ -2511,7 +2783,10 @@ export class CatalogService {
         name: o.name,
         visits: o.visits,
         uniqueVisitors: o.sessions.size,
-        percentage: totalVisits > 0 ? Number(((o.visits / totalVisits) * 100).toFixed(1)) : 0,
+        percentage:
+          totalVisits > 0
+            ? Number(((o.visits / totalVisits) * 100).toFixed(1))
+            : 0,
       }));
 
     const byBrowser = Array.from(browserMap.values())
@@ -2520,7 +2795,10 @@ export class CatalogService {
         name: b.name,
         visits: b.visits,
         uniqueVisitors: b.sessions.size,
-        percentage: totalVisits > 0 ? Number(((b.visits / totalVisits) * 100).toFixed(1)) : 0,
+        percentage:
+          totalVisits > 0
+            ? Number(((b.visits / totalVisits) * 100).toFixed(1))
+            : 0,
       }));
 
     const rankLocationBucket = (code: string) => {
@@ -2545,7 +2823,10 @@ export class CatalogService {
         countryCode: l.countryCode,
         visits: l.visits,
         uniqueVisitors: l.sessions.size,
-        percentage: totalVisits > 0 ? Number(((l.visits / totalVisits) * 100).toFixed(1)) : 0,
+        percentage:
+          totalVisits > 0
+            ? Number(((l.visits / totalVisits) * 100).toFixed(1))
+            : 0,
       }));
 
     const byCountry = Array.from(countryMap.values())
@@ -2560,7 +2841,10 @@ export class CatalogService {
         countryCode: c.countryCode,
         visits: c.visits,
         uniqueVisitors: c.sessions.size,
-        percentage: totalVisits > 0 ? Number(((c.visits / totalVisits) * 100).toFixed(1)) : 0,
+        percentage:
+          totalVisits > 0
+            ? Number(((c.visits / totalVisits) * 100).toFixed(1))
+            : 0,
       }));
 
     const recentVisits = enrichedVisits.slice(0, 30).map((item) => {
@@ -2569,7 +2853,8 @@ export class CatalogService {
       return {
         id: v.id,
         path: v.path || '/',
-        pageTitle: v.page_title || defaultPageTitles[normalizedPath] || normalizedPath,
+        pageTitle:
+          v.page_title || defaultPageTitles[normalizedPath] || normalizedPath,
         sessionId: v.session_id || v.id.slice(0, 8),
         userRole: v.user_role || 'GUEST',
         userName: (v.user_id && userNameById.get(v.user_id)) || null,
@@ -2597,7 +2882,10 @@ export class CatalogService {
         pageTitle: p.pageTitle,
         visits: p.visits,
         uniqueVisitors: p.sessions.size,
-        percentage: totalVisits > 0 ? Number(((p.visits / totalVisits) * 100).toFixed(1)) : 0,
+        percentage:
+          totalVisits > 0
+            ? Number(((p.visits / totalVisits) * 100).toFixed(1))
+            : 0,
       }));
 
     // Xu hướng 14 ngày gần nhất
@@ -2609,13 +2897,17 @@ export class CatalogService {
         (v) => new Date(v.created_at).toISOString().slice(0, 10) === dayKey,
       );
       const daySubs = allSubmissions.filter(
-        (s) => s.started_at && new Date(s.started_at).toISOString().slice(0, 10) === dayKey,
+        (s) =>
+          s.started_at &&
+          new Date(s.started_at).toISOString().slice(0, 10) === dayKey,
       );
       return {
         date: dayKey,
         label,
         visits: dayVisits.length,
-        uniqueVisitors: new Set(dayVisits.map((v) => v.session_id || v.user_id || v.id)).size,
+        uniqueVisitors: new Set(
+          dayVisits.map((v) => v.session_id || v.user_id || v.id),
+        ).size,
         examsCreated: daySubs.length,
       };
     });
@@ -2660,8 +2952,12 @@ export class CatalogService {
       const ans2 = snap.originalExam?.studentAnswers || {};
 
       const mcCount = Math.max(
-        Object.keys(ans1.multipleChoices || {}).filter((k) => Boolean(ans1.multipleChoices[k])).length,
-        Object.keys(ans2.multipleChoices || {}).filter((k) => Boolean(ans2.multipleChoices[k])).length,
+        Object.keys(ans1.multipleChoices || {}).filter((k) =>
+          Boolean(ans1.multipleChoices[k]),
+        ).length,
+        Object.keys(ans2.multipleChoices || {}).filter((k) =>
+          Boolean(ans2.multipleChoices[k]),
+        ).length,
       );
       const tfCount = Math.max(
         Object.keys(ans1.trueFalseAnswers || {}).filter(
@@ -2672,18 +2968,30 @@ export class CatalogService {
         ).length,
       );
       const saCount = Math.max(
-        Object.values(ans1.shortAnswers || {}).filter((v) => String(v || '').trim().length > 0).length,
-        Object.values(ans2.shortAnswers || {}).filter((v) => String(v || '').trim().length > 0).length,
+        Object.values(ans1.shortAnswers || {}).filter(
+          (v) => String(v || '').trim().length > 0,
+        ).length,
+        Object.values(ans2.shortAnswers || {}).filter(
+          (v) => String(v || '').trim().length > 0,
+        ).length,
       );
       const esCount = Math.max(
-        Object.values(ans1.essayAnswers || {}).filter((v) => String(v || '').trim().length > 0).length,
-        Object.values(ans2.essayAnswers || {}).filter((v) => String(v || '').trim().length > 0).length,
+        Object.values(ans1.essayAnswers || {}).filter(
+          (v) => String(v || '').trim().length > 0,
+        ).length,
+        Object.values(ans2.essayAnswers || {}).filter(
+          (v) => String(v || '').trim().length > 0,
+        ).length,
       );
       const relAnswersCount = (sub.answers || []).filter(
-        (a) => a.selected_answer_id || a.student_text_answer || a.sub_answers_json,
+        (a) =>
+          a.selected_answer_id || a.student_text_answer || a.sub_answers_json,
       ).length;
 
-      const answeredCount = Math.max(mcCount + tfCount + saCount, relAnswersCount);
+      const answeredCount = Math.max(
+        mcCount + tfCount + saCount,
+        relAnswersCount,
+      );
       const numScore = Number(Number(sub.score ?? 0).toFixed(2));
       const totalQ = Math.max(
         1,
@@ -2740,7 +3048,9 @@ export class CatalogService {
         id: sub.id,
         attemptToken: sub.attempt_token,
         studentName:
-          sub.student?.user?.fullname || snap.userFullName || 'Học sinh Schoolify',
+          sub.student?.user?.fullname ||
+          snap.userFullName ||
+          'Học sinh Schoolify',
         studentEmail: sub.student?.user?.email || '',
         grade: gradeNum,
         examTitle: sub.exam_title || snap.examTitle || 'Đề luyện thi Schoolify',
@@ -2759,7 +3069,10 @@ export class CatalogService {
     }
 
     // Nếu học sinh đã bấm Tạo đề (START_EXAM bị trừ Tia Sáng) nhưng thoát phòng thi chưa nộp bài
-    const unsubmittedStartCount = Math.max(0, allStartExamLogs.length - allSubmissions.length);
+    const unsubmittedStartCount = Math.max(
+      0,
+      allStartExamLogs.length - allSubmissions.length,
+    );
     if (unsubmittedStartCount > 0) {
       abandonedZeroCount += unsubmittedStartCount;
       for (const sLog of allStartExamLogs.slice(0, unsubmittedStartCount)) {
@@ -2769,7 +3082,8 @@ export class CatalogService {
           studentName: sLog.student?.user?.fullname || 'Học sinh Schoolify',
           studentEmail: sLog.student?.user?.email || '',
           grade: Number(sLog.student?.grade_level || 12),
-          examTitle: sLog.exam_title || 'Đề thi đã tạo (Thoát phòng thi chưa nộp)',
+          examTitle:
+            sLog.exam_title || 'Đề thi đã tạo (Thoát phòng thi chưa nộp)',
           subjectSlug: 'toan-hoc',
           subjectName: 'Đề luyện thi',
           level: String(sLog.exam_level || 'BASIC'),
@@ -2784,7 +3098,8 @@ export class CatalogService {
         });
       }
       examAttemptRecords.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
     }
 
@@ -2804,7 +3119,10 @@ export class CatalogService {
     // =========================================================================
     // 3. TỔNG SỐ CÂU HỎI TRONG NGÂN HÀNG ĐỀ & CHI TIẾT TỪNG MÔN (HOVER)
     // =========================================================================
-    const totalQuestions = questionsBySubject.reduce((sum, item) => sum + item._count.id, 0);
+    const totalQuestions = questionsBySubject.reduce(
+      (sum, item) => sum + item._count.id,
+      0,
+    );
 
     const bloomMapBySubject = new Map<string, Record<string, number>>();
     for (const item of questionsBySubjectBloom) {
@@ -2844,7 +3162,9 @@ export class CatalogService {
           group: 'Khác',
         };
         const percentage =
-          totalQuestions > 0 ? Number(((count / totalQuestions) * 100).toFixed(1)) : 0;
+          totalQuestions > 0
+            ? Number(((count / totalQuestions) * 100).toFixed(1))
+            : 0;
 
         return {
           slug,
@@ -2871,7 +3191,9 @@ export class CatalogService {
     // =========================================================================
     // 4. SỐ GÓI ĐĂNG KÝ ĐÃ BÁN TÍNH TỪ BÂY GIỜ (TÁCH RÕ GÓI 1 & GÓI 2)
     // =========================================================================
-    const subscriptionOrders = allOrders.filter((o) => o.reference_type === 'SUBSCRIPTION');
+    const subscriptionOrders = allOrders.filter(
+      (o) => o.reference_type === 'SUBSCRIPTION',
+    );
 
     const isPackage2Order = (o: any) => {
       const snap = o.item_name_snapshot;
@@ -2892,10 +3214,16 @@ export class CatalogService {
     };
 
     const pkg1PaidOrders = subscriptionOrders.filter(
-      (o) => o.status === 'PAID' && !isPackage2Order(o) && Number(o.item_price_snapshot || 0) > 0,
+      (o) =>
+        o.status === 'PAID' &&
+        !isPackage2Order(o) &&
+        Number(o.item_price_snapshot || 0) > 0,
     );
     const pkg1PendingOrders = subscriptionOrders.filter(
-      (o) => o.status === 'PENDING' && !isPackage2Order(o) && Number(o.item_price_snapshot || 0) > 0,
+      (o) =>
+        o.status === 'PENDING' &&
+        !isPackage2Order(o) &&
+        Number(o.item_price_snapshot || 0) > 0,
     );
     const pkg2PaidOrders = subscriptionOrders.filter(
       (o) => o.status === 'PAID' && isPackage2Order(o),
@@ -2937,7 +3265,9 @@ export class CatalogService {
         .toFixed(2),
     );
 
-    const totalCheckins = allPointLogs.filter((l) => l.action_type === 'DAILY_CHECKIN').length;
+    const totalCheckins = allPointLogs.filter(
+      (l) => l.action_type === 'DAILY_CHECKIN',
+    ).length;
     const totalRewardsGranted = allPointLogs.filter((l) =>
       String(l.action_type || '').startsWith('SCORE_REWARD'),
     ).length;
@@ -2957,7 +3287,9 @@ export class CatalogService {
     const avoidanceCount = behaviorHistories.filter(
       (b) => b.learning_spirit_tag === 'AVOIDANCE_SKIPPED',
     ).length;
-    const usedAiExampleCount = behaviorHistories.filter((b) => b.used_ai_example).length;
+    const usedAiExampleCount = behaviorHistories.filter(
+      (b) => b.used_ai_example,
+    ).length;
 
     return {
       generatedAt: new Date().toISOString(),
@@ -2995,7 +3327,9 @@ export class CatalogService {
             : 0,
         abandonRate:
           totalExamsCreated > 0
-            ? Number(((totalAbandonedOrBlank / totalExamsCreated) * 100).toFixed(1))
+            ? Number(
+                ((totalAbandonedOrBlank / totalExamsCreated) * 100).toFixed(1),
+              )
             : 0,
         avgCompletedScore,
         completedOverview: {
@@ -3093,7 +3427,9 @@ export class CatalogService {
             buyerName: o.user?.fullname || 'Học sinh Schoolify',
             buyerEmail: o.user?.email || '',
             packageCode: isPkg2 ? 'GOI_2' : 'GOI_1',
-            packageLabel: isPkg2 ? 'Gói 2: Thủ Khoa VIP (100k)' : 'Gói 1: Bứt Phá (50k)',
+            packageLabel: isPkg2
+              ? 'Gói 2: Thủ Khoa VIP (100k)'
+              : 'Gói 1: Bứt Phá (50k)',
             amount: Number(o.item_price_snapshot || (isPkg2 ? 100000 : 50000)),
             status: o.status,
             createdAt: o.created_at,
@@ -3117,11 +3453,20 @@ export class CatalogService {
               rawGrade.toLowerCase().includes('chưa')
             ) {
               incompleteProfileCount += 1;
-            } else if (/\b12\b|^12/i.test(rawGrade) || rawGrade.includes('12')) {
+            } else if (
+              /\b12\b|^12/i.test(rawGrade) ||
+              rawGrade.includes('12')
+            ) {
               grade12Count += 1;
-            } else if (/\b11\b|^11/i.test(rawGrade) || rawGrade.includes('11')) {
+            } else if (
+              /\b11\b|^11/i.test(rawGrade) ||
+              rawGrade.includes('11')
+            ) {
               grade11Count += 1;
-            } else if (/\b10\b|^10/i.test(rawGrade) || rawGrade.includes('10')) {
+            } else if (
+              /\b10\b|^10/i.test(rawGrade) ||
+              rawGrade.includes('10')
+            ) {
               grade10Count += 1;
             } else {
               otherGradesCount += 1;
@@ -3138,7 +3483,8 @@ export class CatalogService {
             incompleteProfileCount,
             teachersCount: totalTeachers,
             parentsCount: totalParents,
-            adminsCount: allUsers.filter((u) => u.role === 'SUPER_ADMIN').length,
+            adminsCount: allUsers.filter((u) => u.role === 'SUPER_ADMIN')
+              .length,
           };
         })(),
         contentAndCourses: {
@@ -3190,4 +3536,3 @@ export class CatalogService {
     };
   }
 }
-

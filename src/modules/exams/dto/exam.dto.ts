@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, IsNumber, IsArray, IsObject, ValidateNested, IsIn } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsArray,
+  IsObject,
+  ValidateNested,
+  IsIn,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ChapterRatioDto {
@@ -84,29 +93,44 @@ export class GenerateMatrixExamDto {
   @IsNumber()
   chapterId?: number;
 
-  @ApiPropertyOptional({ example: 'BASIC', description: 'Cấp độ đề thi: BASIC (3đ) | MEDIUM (4đ) | ADVANCED (9đ)' })
+  @ApiPropertyOptional({
+    example: 'BASIC',
+    description: 'Cấp độ đề thi: BASIC (3đ) | MEDIUM (4đ) | ADVANCED (9đ)',
+  })
   @IsOptional()
   @IsString()
   level?: string;
 
-  @ApiPropertyOptional({ description: 'ID người dùng (nếu không truyền qua JWT)' })
+  @ApiPropertyOptional({
+    description: 'ID người dùng (nếu không truyền qua JWT)',
+  })
   @IsOptional()
   @IsString()
   userId?: string;
 
-  @ApiPropertyOptional({ description: 'Bỏ qua kiểm tra điểm (chỉ dành cho giáo viên, admin)' })
+  @ApiPropertyOptional({
+    description: 'Bỏ qua kiểm tra điểm (chỉ dành cho giáo viên, admin)',
+  })
   @IsOptional()
   skipPointCheck?: boolean;
 
-  @ApiPropertyOptional({ description: 'Có trừ điểm luôn khi sinh đề hay không (mặc định false - chỉ validate số dư)' })
+  @ApiPropertyOptional({
+    description:
+      'Có trừ điểm luôn khi sinh đề hay không (mặc định false - chỉ validate số dư)',
+  })
   @IsOptional()
   deductPoints?: boolean;
 
-  @ApiPropertyOptional({ description: 'Cho phép dùng Ngọc Tri Thức (💎) tỷ lệ 1:1 khi không đủ Tia Sáng (⚡)' })
+  @ApiPropertyOptional({
+    description:
+      'Cho phép dùng Ngọc Tri Thức (💎) tỷ lệ 1:1 khi không đủ Tia Sáng (⚡)',
+  })
   @IsOptional()
   useDiamonds?: boolean;
 
-  @ApiPropertyOptional({ description: 'Đánh dấu làm lại đề (tự động đảo vị trí đáp án A/B/C/D)' })
+  @ApiPropertyOptional({
+    description: 'Đánh dấu làm lại đề (tự động đảo vị trí đáp án A/B/C/D)',
+  })
   @IsOptional()
   isRetake?: boolean;
 
@@ -114,7 +138,9 @@ export class GenerateMatrixExamDto {
   @IsOptional()
   shuffleAnswers?: boolean;
 
-  @ApiPropertyOptional({ description: 'Seed định danh phiên khách (dành cho user chưa đăng nhập)' })
+  @ApiPropertyOptional({
+    description: 'Seed định danh phiên khách (dành cho user chưa đăng nhập)',
+  })
   @IsOptional()
   @IsString()
   clientSeed?: string;
@@ -128,7 +154,8 @@ export class SubmitExamDto {
 
   @ApiPropertyOptional({
     example: 'att_8f7b3c2e1a4d90e2b4f5a6c7d8e9f012',
-    description: 'Mã phiên nộp bài bảo mật CSPRNG dạng att_[a-f0-9]{32} (nếu không gửi, Backend sẽ tự sinh CSPRNG)',
+    description:
+      'Mã phiên nộp bài bảo mật CSPRNG dạng att_[a-f0-9]{32} (nếu không gửi, Backend sẽ tự sinh CSPRNG)',
   })
   @IsOptional()
   @IsString()
@@ -175,49 +202,68 @@ export class SubmitExamDto {
 
   @ApiProperty({
     example: {
-      multipleChoices: { "q-101": "ans-1" },
-      trueFalseAnswers: { "q-102": { "a": true, "b": false, "c": true, "d": false } },
-      shortAnswers: { "q-103": "62" }
-    }
+      multipleChoices: { 'q-101': 'ans-1' },
+      trueFalseAnswers: { 'q-102': { a: true, b: false, c: true, d: false } },
+      shortAnswers: { 'q-103': '62' },
+    },
   })
   @IsOptional()
-  answers?: {
-    multipleChoices?: Record<string, string>;
-    trueFalseAnswers?: Record<string, Record<string, boolean>>;
-    shortAnswers?: Record<string, string>;
-    flaggedIds?: Record<string, boolean>;
-  } | Array<{
-    questionId: string;
-    selectedAnswerId?: string;
-    textAnswer?: string;
-    studentTextAnswer?: string;
-    subAnswers?: Record<string, boolean>;
-  }>;
+  answers?:
+    | {
+        multipleChoices?: Record<string, string>;
+        trueFalseAnswers?: Record<string, Record<string, boolean>>;
+        shortAnswers?: Record<string, string>;
+        flaggedIds?: Record<string, boolean>;
+      }
+    | Array<{
+        questionId: string;
+        selectedAnswerId?: string;
+        textAnswer?: string;
+        studentTextAnswer?: string;
+        subAnswers?: Record<string, boolean>;
+      }>;
 
-  @ApiPropertyOptional({ description: 'Toàn bộ snapshot dữ liệu đề để lưu snapshot_data' })
+  @ApiPropertyOptional({
+    description: 'Toàn bộ snapshot dữ liệu đề để lưu snapshot_data',
+  })
   @IsOptional()
   snapshotData?: any;
 
-  @ApiPropertyOptional({ example: 'BASIC', description: 'Cấp độ đề thi: BASIC (3đ) | MEDIUM (4đ) | ADVANCED (9đ)' })
+  @ApiPropertyOptional({
+    example: 'BASIC',
+    description: 'Cấp độ đề thi: BASIC (3đ) | MEDIUM (4đ) | ADVANCED (9đ)',
+  })
   @IsOptional()
   @IsString()
   level?: string;
 
-  @ApiPropertyOptional({ example: 'TOPIC', description: 'Chế độ luyện tập: TOPIC (Theo chương) | MOCK_EXAM (Thi thử)' })
+  @ApiPropertyOptional({
+    example: 'TOPIC',
+    description: 'Chế độ luyện tập: TOPIC (Theo chương) | MOCK_EXAM (Thi thử)',
+  })
   @IsOptional()
   @IsString()
   practiceMode?: string;
 
-  @ApiPropertyOptional({ example: 8.8, description: 'Điểm số đã chấm từ đề thi (thang điểm 10)' })
+  @ApiPropertyOptional({
+    example: 8.8,
+    description: 'Điểm số đã chấm từ đề thi (thang điểm 10)',
+  })
   @IsOptional()
   @IsNumber()
   scoreOverride?: number;
 
-  @ApiPropertyOptional({ example: false, description: 'Có trừ luôn phí vào phòng thi khi nộp bài hay không (nếu chưa trừ lúc bắt đầu)' })
+  @ApiPropertyOptional({
+    example: false,
+    description:
+      'Có trừ luôn phí vào phòng thi khi nộp bài hay không (nếu chưa trừ lúc bắt đầu)',
+  })
   @IsOptional()
   deductEntryCost?: boolean;
 
-  @ApiPropertyOptional({ description: 'ID người dùng (nếu không truyền qua JWT)' })
+  @ApiPropertyOptional({
+    description: 'ID người dùng (nếu không truyền qua JWT)',
+  })
   @IsOptional()
   @IsString()
   userId?: string;
@@ -227,21 +273,23 @@ export class SyncOfflineSubmissionsDto {
   @ApiProperty({
     example: [
       {
-        id: "sub-offline-1791982571254",
-        sessionId: "SES-1791982545377",
-        examId: "exam-toan-hoc-01",
+        id: 'sub-offline-1791982571254',
+        sessionId: 'SES-1791982545377',
+        examId: 'exam-toan-hoc-01',
         answers: {},
         timeSpentSeconds: 1200,
-        submittedAt: "2026-10-14T12:00:00Z"
-      }
-    ]
+        submittedAt: '2026-10-14T12:00:00Z',
+      },
+    ],
   })
   @IsArray()
   submissions: any[];
 }
 
 export class DailyClaimPointsDto {
-  @ApiPropertyOptional({ description: 'ID người dùng (tùy chọn nếu đã có JWT)' })
+  @ApiPropertyOptional({
+    description: 'ID người dùng (tùy chọn nếu đã có JWT)',
+  })
   @IsOptional()
   @IsString()
   userId?: string;
@@ -254,7 +302,8 @@ export class DailyClaimPointsDto {
 export class StartExamWithPointsDto {
   @ApiProperty({
     example: 'BASIC',
-    description: 'Cấp độ bài thi: BASIC / CO_BAN (3đ - làm được 3 bài/ngày), MEDIUM / TRUNG_BINH (4đ - làm được 2 bài/ngày), ADVANCED / GIOI (9đ - làm được 1 bài/ngày)',
+    description:
+      'Cấp độ bài thi: BASIC / CO_BAN (3đ - làm được 3 bài/ngày), MEDIUM / TRUNG_BINH (4đ - làm được 2 bài/ngày), ADVANCED / GIOI (9đ - làm được 1 bài/ngày)',
   })
   @IsString()
   @IsNotEmpty()
@@ -280,12 +329,17 @@ export class StartExamWithPointsDto {
   @IsNumber()
   grade?: number;
 
-  @ApiPropertyOptional({ description: 'ID người dùng (tùy chọn nếu đã có JWT)' })
+  @ApiPropertyOptional({
+    description: 'ID người dùng (tùy chọn nếu đã có JWT)',
+  })
   @IsOptional()
   @IsString()
   userId?: string;
 
-  @ApiPropertyOptional({ description: 'Cho phép dùng Ngọc Tri Thức (💎) tỷ lệ 1:1 khi không đủ Tia Sáng (⚡)' })
+  @ApiPropertyOptional({
+    description:
+      'Cho phép dùng Ngọc Tri Thức (💎) tỷ lệ 1:1 khi không đủ Tia Sáng (⚡)',
+  })
   @IsOptional()
   useDiamonds?: boolean;
 }
@@ -293,12 +347,16 @@ export class StartExamWithPointsDto {
 export class SettleExamPointsDto {
   @ApiProperty({
     example: 9.2,
-    description: 'Điểm bài thi trên thang điểm 10 (< 5đ: -1đ | 5 - 8.5đ: 0đ | 8.5 - 9.9đ: +1đ | 10đ: +2đ)',
+    description:
+      'Điểm bài thi trên thang điểm 10 (< 5đ: -1đ | 5 - 8.5đ: 0đ | 8.5 - 9.9đ: +1đ | 10đ: +2đ)',
   })
   @IsNumber()
   score: number;
 
-  @ApiPropertyOptional({ example: 'BASIC', description: 'Cấp độ đề thi: BASIC (3đ) | MEDIUM (4đ) | ADVANCED (9đ)' })
+  @ApiPropertyOptional({
+    example: 'BASIC',
+    description: 'Cấp độ đề thi: BASIC (3đ) | MEDIUM (4đ) | ADVANCED (9đ)',
+  })
   @IsOptional()
   @IsString()
   level?: string;
@@ -320,29 +378,40 @@ export class SettleExamPointsDto {
 
   @ApiPropertyOptional({
     example: false,
-    description: 'Nếu true thì trừ cả phí mở đề (3đ/4đ/9đ) trước rồi mới cộng/trừ điểm kết quả bài thi',
+    description:
+      'Nếu true thì trừ cả phí mở đề (3đ/4đ/9đ) trước rồi mới cộng/trừ điểm kết quả bài thi',
   })
   @IsOptional()
   deductEntryCost?: boolean;
 
-  @ApiPropertyOptional({ description: 'ID người dùng (tùy chọn nếu đã có JWT)' })
+  @ApiPropertyOptional({
+    description: 'ID người dùng (tùy chọn nếu đã có JWT)',
+  })
   @IsOptional()
   @IsString()
   userId?: string;
 }
 
 export class AdminAdjustPointsDto {
-  @ApiPropertyOptional({ example: 9, description: 'Số điểm Tia Sáng làm đề (exam_points)' })
+  @ApiPropertyOptional({
+    example: 9,
+    description: 'Số điểm Tia Sáng làm đề (exam_points)',
+  })
   @IsOptional()
   @IsNumber()
   examPoints?: number;
 
-  @ApiPropertyOptional({ example: 100, description: 'Số điểm Ngọc Tri Thức / Kim Cương (points)' })
+  @ApiPropertyOptional({
+    example: 100,
+    description: 'Số điểm Ngọc Tri Thức / Kim Cương (points)',
+  })
   @IsOptional()
   @IsNumber()
   diamonds?: number;
 
-  @ApiPropertyOptional({ description: 'ID người dùng (mặc định là chính admin đang đăng nhập)' })
+  @ApiPropertyOptional({
+    description: 'ID người dùng (mặc định là chính admin đang đăng nhập)',
+  })
   @IsOptional()
   @IsString()
   userId?: string;
@@ -472,7 +541,9 @@ export class RecordQuickDrillBehaviorDto {
   @IsString()
   bloomLevel?: string;
 
-  @ApiPropertyOptional({ example: 'Quên điều kiện đổi dấu của đạo hàm qua nghiệm bội chẵn' })
+  @ApiPropertyOptional({
+    example: 'Quên điều kiện đổi dấu của đạo hàm qua nghiệm bội chẵn',
+  })
   @IsOptional()
   @IsString()
   trapTag?: string;
@@ -551,7 +622,10 @@ export class UnlockChapterJumpDto {
   @IsNumber()
   chapterId: number;
 
-  @ApiPropertyOptional({ example: 'BASIC', enum: ['BASIC', 'MEDIUM', 'ADVANCED'] })
+  @ApiPropertyOptional({
+    example: 'BASIC',
+    enum: ['BASIC', 'MEDIUM', 'ADVANCED'],
+  })
   @IsOptional()
   @IsString()
   level?: 'BASIC' | 'MEDIUM' | 'ADVANCED';
@@ -647,19 +721,27 @@ export class SyncGuestOnboardingDto {
   @Type(() => GuestCompletedDiagnosticDto)
   completedDiagnostics?: GuestCompletedDiagnosticDto[];
 
-  @ApiPropertyOptional({ description: 'Bài làm thử của khách (nếu vừa làm xong trước khi đăng nhập)' })
+  @ApiPropertyOptional({
+    description: 'Bài làm thử của khách (nếu vừa làm xong trước khi đăng nhập)',
+  })
   @IsOptional()
   @IsObject()
   pendingTrialSubmission?: any;
 }
 
 export class CreateQuestionBugReportDto {
-  @ApiProperty({ example: 'q-toan-12-001', description: 'ID câu hỏi bị báo cáo' })
+  @ApiProperty({
+    example: 'q-toan-12-001',
+    description: 'ID câu hỏi bị báo cáo',
+  })
   @IsString()
   @IsNotEmpty()
   questionId: string;
 
-  @ApiProperty({ example: 'Câu 12: Cực trị hàm số bậc ba', description: 'Tiêu đề hoặc mã hiển thị của câu hỏi' })
+  @ApiProperty({
+    example: 'Câu 12: Cực trị hàm số bậc ba',
+    description: 'Tiêu đề hoặc mã hiển thị của câu hỏi',
+  })
   @IsString()
   @IsNotEmpty()
   questionTitle: string;
@@ -676,11 +758,28 @@ export class CreateQuestionBugReportDto {
 
   @ApiProperty({
     example: 'WRONG_ANSWER',
-    enum: ['WRONG_ANSWER', 'KATEX_ERROR', 'TYPO_CONTENT', 'MATRIX_MISMATCH', 'OTHER'],
+    enum: [
+      'WRONG_ANSWER',
+      'KATEX_ERROR',
+      'TYPO_CONTENT',
+      'MATRIX_MISMATCH',
+      'OTHER',
+    ],
   })
   @IsString()
-  @IsIn(['WRONG_ANSWER', 'KATEX_ERROR', 'TYPO_CONTENT', 'MATRIX_MISMATCH', 'OTHER'])
-  issueType: 'WRONG_ANSWER' | 'KATEX_ERROR' | 'TYPO_CONTENT' | 'MATRIX_MISMATCH' | 'OTHER';
+  @IsIn([
+    'WRONG_ANSWER',
+    'KATEX_ERROR',
+    'TYPO_CONTENT',
+    'MATRIX_MISMATCH',
+    'OTHER',
+  ])
+  issueType:
+    | 'WRONG_ANSWER'
+    | 'KATEX_ERROR'
+    | 'TYPO_CONTENT'
+    | 'MATRIX_MISMATCH'
+    | 'OTHER';
 
   @ApiPropertyOptional({ example: 'Sai đáp án chuẩn' })
   @IsOptional()
@@ -709,5 +808,3 @@ export class UpdateQuestionBugReportStatusDto {
   @IsString()
   adminNote?: string;
 }
-
-

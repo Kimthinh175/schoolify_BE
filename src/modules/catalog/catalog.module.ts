@@ -10,4 +10,3 @@ import { PrismaService } from '../../database/prisma.service';
   exports: [CatalogService, PayOSService],
 })
 export class CatalogModule {}
-

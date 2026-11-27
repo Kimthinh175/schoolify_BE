@@ -3,7 +3,10 @@ import * as mammoth from 'mammoth';
 import { PrismaService } from '../../../database/prisma.service';
 import { SemanticCacheService } from './semantic-cache.service';
 import { AntigravityIpcBridgeService } from './antigravity-ipc-bridge.service';
-import { DocxScanGenerateDto, SaveGeneratedQuestionsDto } from '../dto/agent.dto';
+import {
+  DocxScanGenerateDto,
+  SaveGeneratedQuestionsDto,
+} from '../dto/agent.dto';
 import { BloomLevel, QuestionFormat, QuestionType } from '@prisma/client';
 import {
   extractDocxWithMtefAndOmml,
@@ -13,7 +16,8 @@ import {
 export interface ParsedSeedQuestion {
   title: string;
   content: string;
-  questionFormat: 'SINGLE_CHOICE' | 'MULTI_CHOICE' | 'TRUE_FALSE' | 'SHORT_ANSWER';
+  questionFormat:
+    'SINGLE_CHOICE' | 'MULTI_CHOICE' | 'TRUE_FALSE' | 'SHORT_ANSWER';
   bloomLevel: 'NHAN_BIET' | 'THONG_HIEU' | 'VAN_DUNG' | 'VAN_DUNG_CAO';
   chapter?: string;
   chapterId?: number;
@@ -52,78 +56,417 @@ export class DocxExamGeneratorService {
       slug: 'toan-hoc',
       name: 'Toán Học',
       keywords: [
-        'hàm số', 'đạo hàm', 'cực trị', 'đơn điệu', 'tiệm cận', 'đồ thị',
-        'nguyên hàm', 'tích phân', 'logarit', 'mũ', 'tọa độ', 'vectơ',
-        'mặt phẳng', 'mặt cầu', 'xác suất', 'cấp số', 'phương trình', 'bất phương trình',
-        'hệ phương trình', 'tam giác vuông', 'đường tròn', 'dây cung', 'hình quạt',
+        'hàm số',
+        'đạo hàm',
+        'cực trị',
+        'đơn điệu',
+        'tiệm cận',
+        'đồ thị',
+        'nguyên hàm',
+        'tích phân',
+        'logarit',
+        'mũ',
+        'tọa độ',
+        'vectơ',
+        'mặt phẳng',
+        'mặt cầu',
+        'xác suất',
+        'cấp số',
+        'phương trình',
+        'bất phương trình',
+        'hệ phương trình',
+        'tam giác vuông',
+        'đường tròn',
+        'dây cung',
+        'hình quạt',
       ],
       topics: [
-        { chapterId: 1, name: 'Ứng dụng đạo hàm để khảo sát và vẽ đồ thị hàm số', keywords: ['đạo hàm', 'cực trị', 'đơn điệu', 'đồng biến', 'nghịch biến', 'tiệm cận', 'giá trị lớn nhất', 'đồ thị hàm số'] },
-        { chapterId: 2, name: 'Vectơ và hệ trục tọa độ trong không gian Oxyz', keywords: ['vectơ', 'oxyz', 'mặt cầu', 'tích có hướng', 'phương trình mặt phẳng', 'cao độ'] },
-        { chapterId: 3, name: 'Các số đặc trưng đo mức độ phân tán của mẫu số liệu ghép nhóm', keywords: ['mẫu số liệu', 'phương sai', 'độ lệch chuẩn', 'khoảng biến thiên', 'tứ phân vị'] },
-        { chapterId: 4, name: 'Nguyên hàm và Tích phân ứng dụng', keywords: ['nguyên hàm', 'tích phân', 'diện tích hình phẳng', 'thể tích khối tròn xoay', 'dx'] },
-        { chapterId: 5, name: 'Xác suất có điều kiện và Công thức Bayes', keywords: ['xác suất', 'biến cố', 'xác suất có điều kiện', 'bayes'] },
-        { chapterId: 6, name: 'Phương trình và Hệ hai phương trình bậc nhất hai ẩn', keywords: ['bậc nhất hai ẩn', 'hệ phương trình', 'phương pháp thế', 'cộng đại số', 'cặp số', 'nghiệm của hệ'] },
-        { chapterId: 7, name: 'Phương trình tích và Phương trình chứa ẩn ở mẫu', keywords: ['phương trình tích', 'ẩn ở mẫu', 'điều kiện xác định', 'tập nghiệm', 'tổng các nghiệm', 'mẫu thức'] },
-        { chapterId: 8, name: 'Hệ thức lượng trong tam giác vuông (sin, cos, tan, cot)', keywords: ['tam giác vuông', 'tỉ số lượng giác', 'cạnh huyền', 'cạnh góc vuông', 'góc nâng', 'góc hạ', 'tia nắng', 'sin', 'cos', 'tan'] },
-        { chapterId: 9, name: 'Đường tròn, Dây cung, Độ dài cung và Diện tích hình quạt tròn', keywords: ['đường tròn', 'dây cung', 'đường kính', 'bán kính', 'cung tròn', 'hình quạt tròn', 'vành khuyên'] },
+        {
+          chapterId: 1,
+          name: 'Ứng dụng đạo hàm để khảo sát và vẽ đồ thị hàm số',
+          keywords: [
+            'đạo hàm',
+            'cực trị',
+            'đơn điệu',
+            'đồng biến',
+            'nghịch biến',
+            'tiệm cận',
+            'giá trị lớn nhất',
+            'đồ thị hàm số',
+          ],
+        },
+        {
+          chapterId: 2,
+          name: 'Vectơ và hệ trục tọa độ trong không gian Oxyz',
+          keywords: [
+            'vectơ',
+            'oxyz',
+            'mặt cầu',
+            'tích có hướng',
+            'phương trình mặt phẳng',
+            'cao độ',
+          ],
+        },
+        {
+          chapterId: 3,
+          name: 'Các số đặc trưng đo mức độ phân tán của mẫu số liệu ghép nhóm',
+          keywords: [
+            'mẫu số liệu',
+            'phương sai',
+            'độ lệch chuẩn',
+            'khoảng biến thiên',
+            'tứ phân vị',
+          ],
+        },
+        {
+          chapterId: 4,
+          name: 'Nguyên hàm và Tích phân ứng dụng',
+          keywords: [
+            'nguyên hàm',
+            'tích phân',
+            'diện tích hình phẳng',
+            'thể tích khối tròn xoay',
+            'dx',
+          ],
+        },
+        {
+          chapterId: 5,
+          name: 'Xác suất có điều kiện và Công thức Bayes',
+          keywords: ['xác suất', 'biến cố', 'xác suất có điều kiện', 'bayes'],
+        },
+        {
+          chapterId: 6,
+          name: 'Phương trình và Hệ hai phương trình bậc nhất hai ẩn',
+          keywords: [
+            'bậc nhất hai ẩn',
+            'hệ phương trình',
+            'phương pháp thế',
+            'cộng đại số',
+            'cặp số',
+            'nghiệm của hệ',
+          ],
+        },
+        {
+          chapterId: 7,
+          name: 'Phương trình tích và Phương trình chứa ẩn ở mẫu',
+          keywords: [
+            'phương trình tích',
+            'ẩn ở mẫu',
+            'điều kiện xác định',
+            'tập nghiệm',
+            'tổng các nghiệm',
+            'mẫu thức',
+          ],
+        },
+        {
+          chapterId: 8,
+          name: 'Hệ thức lượng trong tam giác vuông (sin, cos, tan, cot)',
+          keywords: [
+            'tam giác vuông',
+            'tỉ số lượng giác',
+            'cạnh huyền',
+            'cạnh góc vuông',
+            'góc nâng',
+            'góc hạ',
+            'tia nắng',
+            'sin',
+            'cos',
+            'tan',
+          ],
+        },
+        {
+          chapterId: 9,
+          name: 'Đường tròn, Dây cung, Độ dài cung và Diện tích hình quạt tròn',
+          keywords: [
+            'đường tròn',
+            'dây cung',
+            'đường kính',
+            'bán kính',
+            'cung tròn',
+            'hình quạt tròn',
+            'vành khuyên',
+          ],
+        },
       ],
     },
     {
       slug: 'vat-ly',
       name: 'Vật Lý',
       keywords: [
-        'dao động', 'con lắc', 'tần số', 'biên độ', 'sóng cơ', 'giao thoa',
-        'dòng điện xoay chiều', 'cảm kháng', 'dung kháng', 'nhiệt học', 'khí lý tưởng',
-        'từ trường', 'cảm ứng từ', 'hạt nhân', 'phóng xạ', 'photon',
+        'dao động',
+        'con lắc',
+        'tần số',
+        'biên độ',
+        'sóng cơ',
+        'giao thoa',
+        'dòng điện xoay chiều',
+        'cảm kháng',
+        'dung kháng',
+        'nhiệt học',
+        'khí lý tưởng',
+        'từ trường',
+        'cảm ứng từ',
+        'hạt nhân',
+        'phóng xạ',
+        'photon',
       ],
       topics: [
-        { chapterId: 1, name: 'Vật lý nhiệt & Sự chuyển thể', keywords: ['nhiệt', 'nội năng', 'nhiệt dung', 'nóng chảy', 'hóa hơi', 'nhiệt độ'] },
-        { chapterId: 2, name: 'Khí lý tưởng & Phương trình trạng thái', keywords: ['khí lý tưởng', 'áp suất', 'thể tích', 'đẳng nhiệt', 'đẳng tích', 'đẳng áp', 'động năng phân tử'] },
-        { chapterId: 3, name: 'Từ trường & Cảm ứng điện từ', keywords: ['từ trường', 'cảm ứng từ', 'từ thông', 'suất điện động', 'dòng điện xoay chiều', 'lực từ'] },
-        { chapterId: 4, name: 'Vật lý hạt nhân & Phóng xạ', keywords: ['hạt nhân', 'độ hụt khối', 'năng lượng liên kết', 'phóng xạ', 'chu kỳ bán rã', 'phân hạch'] },
+        {
+          chapterId: 1,
+          name: 'Vật lý nhiệt & Sự chuyển thể',
+          keywords: [
+            'nhiệt',
+            'nội năng',
+            'nhiệt dung',
+            'nóng chảy',
+            'hóa hơi',
+            'nhiệt độ',
+          ],
+        },
+        {
+          chapterId: 2,
+          name: 'Khí lý tưởng & Phương trình trạng thái',
+          keywords: [
+            'khí lý tưởng',
+            'áp suất',
+            'thể tích',
+            'đẳng nhiệt',
+            'đẳng tích',
+            'đẳng áp',
+            'động năng phân tử',
+          ],
+        },
+        {
+          chapterId: 3,
+          name: 'Từ trường & Cảm ứng điện từ',
+          keywords: [
+            'từ trường',
+            'cảm ứng từ',
+            'từ thông',
+            'suất điện động',
+            'dòng điện xoay chiều',
+            'lực từ',
+          ],
+        },
+        {
+          chapterId: 4,
+          name: 'Vật lý hạt nhân & Phóng xạ',
+          keywords: [
+            'hạt nhân',
+            'độ hụt khối',
+            'năng lượng liên kết',
+            'phóng xạ',
+            'chu kỳ bán rã',
+            'phân hạch',
+          ],
+        },
       ],
     },
     {
       slug: 'hoa-hoc',
       name: 'Hóa Học',
       keywords: [
-        'este', 'lipit', 'xà phòng', 'cacbohidrat', 'glucozơ', 'fructozơ',
-        'amin', 'amino axit', 'peptit', 'protein', 'polime', 'kim loại',
-        'ăn mòn', 'điện phân', 'kiềm', 'sắt', 'nhôm', 'mol', 'dung dịch',
+        'este',
+        'lipit',
+        'xà phòng',
+        'cacbohidrat',
+        'glucozơ',
+        'fructozơ',
+        'amin',
+        'amino axit',
+        'peptit',
+        'protein',
+        'polime',
+        'kim loại',
+        'ăn mòn',
+        'điện phân',
+        'kiềm',
+        'sắt',
+        'nhôm',
+        'mol',
+        'dung dịch',
       ],
       topics: [
-        { chapterId: 1, name: 'Ester - Lipid và Chất giặt rửa', keywords: ['este', 'ester', 'lipit', 'lipid', 'xà phòng', 'thủy phân', 'chất béo'] },
-        { chapterId: 2, name: 'Carbohydrate (Glucozơ, Saccharose, Tinh bột)', keywords: ['cacbohidrat', 'carbohydrate', 'glucozơ', 'glucose', 'fructozơ', 'tinh bột', 'xenlulozơ', 'tráng bạc'] },
-        { chapterId: 3, name: 'Hợp chất chứa Nitrogen (Amine, Amino acid, Peptide)', keywords: ['amin', 'amine', 'amino axit', 'amino acid', 'peptit', 'peptide', 'protein'] },
-        { chapterId: 4, name: 'Polymer & Đại cương Kim loại, Điện hóa', keywords: ['polime', 'polymer', 'kim loại', 'điện phân', 'ăn mòn', 'thế điện cực'] },
+        {
+          chapterId: 1,
+          name: 'Ester - Lipid và Chất giặt rửa',
+          keywords: [
+            'este',
+            'ester',
+            'lipit',
+            'lipid',
+            'xà phòng',
+            'thủy phân',
+            'chất béo',
+          ],
+        },
+        {
+          chapterId: 2,
+          name: 'Carbohydrate (Glucozơ, Saccharose, Tinh bột)',
+          keywords: [
+            'cacbohidrat',
+            'carbohydrate',
+            'glucozơ',
+            'glucose',
+            'fructozơ',
+            'tinh bột',
+            'xenlulozơ',
+            'tráng bạc',
+          ],
+        },
+        {
+          chapterId: 3,
+          name: 'Hợp chất chứa Nitrogen (Amine, Amino acid, Peptide)',
+          keywords: [
+            'amin',
+            'amine',
+            'amino axit',
+            'amino acid',
+            'peptit',
+            'peptide',
+            'protein',
+          ],
+        },
+        {
+          chapterId: 4,
+          name: 'Polymer & Đại cương Kim loại, Điện hóa',
+          keywords: [
+            'polime',
+            'polymer',
+            'kim loại',
+            'điện phân',
+            'ăn mòn',
+            'thế điện cực',
+          ],
+        },
       ],
     },
     {
       slug: 'sinh-hoc',
       name: 'Sinh Học',
       keywords: [
-        'gen', 'adn', 'dna', 'arn', 'rna', 'phiên mã', 'dịch mã', 'nhiễm sắc thể',
-        'đột biến', 'di truyền', 'menden', 'quần thể', 'tiến hóa', 'sinh thái', 'quang hợp', 'lục lạp',
+        'gen',
+        'adn',
+        'dna',
+        'arn',
+        'rna',
+        'phiên mã',
+        'dịch mã',
+        'nhiễm sắc thể',
+        'đột biến',
+        'di truyền',
+        'menden',
+        'quần thể',
+        'tiến hóa',
+        'sinh thái',
+        'quang hợp',
+        'lục lạp',
       ],
       topics: [
-        { chapterId: 1, name: 'Cơ chế di truyền và biến dị ở cấp độ phân tử & tế bào', keywords: ['gen', 'dna', 'adn', 'phiên mã', 'dịch mã', 'đột biến', 'nhiễm sắc thể', 'operon'] },
-        { chapterId: 2, name: 'Tính quy luật của hiện tượng di truyền', keywords: ['di truyền', 'menden', 'liên kết gen', 'hoán vị gen', 'tương tác gen', 'nhiệt độ', 'quang hợp'] },
-        { chapterId: 3, name: 'Di truyền học quần thể & Tiến hóa', keywords: ['quần thể', 'hardy-weinberg', 'tiến hóa', 'chọn lọc tự nhiên', 'loài mới'] },
-        { chapterId: 4, name: 'Sinh thái học và Môi trường', keywords: ['sinh thái', 'quần xã', 'hệ sinh thái', 'chuỗi thức ăn', 'ổ sinh thái'] },
+        {
+          chapterId: 1,
+          name: 'Cơ chế di truyền và biến dị ở cấp độ phân tử & tế bào',
+          keywords: [
+            'gen',
+            'dna',
+            'adn',
+            'phiên mã',
+            'dịch mã',
+            'đột biến',
+            'nhiễm sắc thể',
+            'operon',
+          ],
+        },
+        {
+          chapterId: 2,
+          name: 'Tính quy luật của hiện tượng di truyền',
+          keywords: [
+            'di truyền',
+            'menden',
+            'liên kết gen',
+            'hoán vị gen',
+            'tương tác gen',
+            'nhiệt độ',
+            'quang hợp',
+          ],
+        },
+        {
+          chapterId: 3,
+          name: 'Di truyền học quần thể & Tiến hóa',
+          keywords: [
+            'quần thể',
+            'hardy-weinberg',
+            'tiến hóa',
+            'chọn lọc tự nhiên',
+            'loài mới',
+          ],
+        },
+        {
+          chapterId: 4,
+          name: 'Sinh thái học và Môi trường',
+          keywords: [
+            'sinh thái',
+            'quần xã',
+            'hệ sinh thái',
+            'chuỗi thức ăn',
+            'ổ sinh thái',
+          ],
+        },
       ],
     },
     {
       slug: 'tieng-anh',
       name: 'Tiếng Anh',
       keywords: [
-        'mark the letter', 'closest in meaning', 'opposite in meaning', 'reading comprehension',
-        'grammar', 'vocabulary', 'tense', 'conditional', 'passive voice', 'relative clause',
+        'mark the letter',
+        'closest in meaning',
+        'opposite in meaning',
+        'reading comprehension',
+        'grammar',
+        'vocabulary',
+        'tense',
+        'conditional',
+        'passive voice',
+        'relative clause',
       ],
       topics: [
-        { chapterId: 1, name: 'Ngữ pháp trọng tâm & Cấu trúc câu (Grammar & Tenses)', keywords: ['tense', 'passive', 'conditional', 'relative', 'clause', 'verb', 'preposition'] },
-        { chapterId: 2, name: 'Từ vựng, Cụm động từ & Thành ngữ (Vocabulary & Phrasal Verbs)', keywords: ['meaning', 'closest', 'opposite', 'phrasal', 'idiom', 'collocation', 'word'] },
-        { chapterId: 3, name: 'Đọc hiểu & Sắp xếp hội thoại/đoạn văn (Reading & Discourse)', keywords: ['passage', 'read', 'paragraph', 'arrangement', 'conversation'] },
+        {
+          chapterId: 1,
+          name: 'Ngữ pháp trọng tâm & Cấu trúc câu (Grammar & Tenses)',
+          keywords: [
+            'tense',
+            'passive',
+            'conditional',
+            'relative',
+            'clause',
+            'verb',
+            'preposition',
+          ],
+        },
+        {
+          chapterId: 2,
+          name: 'Từ vựng, Cụm động từ & Thành ngữ (Vocabulary & Phrasal Verbs)',
+          keywords: [
+            'meaning',
+            'closest',
+            'opposite',
+            'phrasal',
+            'idiom',
+            'collocation',
+            'word',
+          ],
+        },
+        {
+          chapterId: 3,
+          name: 'Đọc hiểu & Sắp xếp hội thoại/đoạn văn (Reading & Discourse)',
+          keywords: [
+            'passage',
+            'read',
+            'paragraph',
+            'arrangement',
+            'conversation',
+          ],
+        },
       ],
     },
   ];
@@ -146,10 +489,15 @@ export class DocxExamGeneratorService {
     fileBuffer?: Buffer,
     uploadedFileName?: string,
   ) {
-    const targetCount = Math.min(100, Math.max(1, Number(dto.targetCount) || 15));
+    const targetCount = Math.min(
+      100,
+      Math.max(1, Number(dto.targetCount) || 15),
+    );
     const fileName = uploadedFileName || dto.fileName || 'De_Thi_Goc.docx';
 
-    this.logger.log(`📄 [AI Docx Scan] Đang phân tích đề "${fileName}" -> Mục tiêu sinh: ${targetCount} câu hỏi`);
+    this.logger.log(
+      `📄 [AI Docx Scan] Đang phân tích đề "${fileName}" -> Mục tiêu sinh: ${targetCount} câu hỏi`,
+    );
 
     // 1. Trích xuất văn bản + Công thức MathType OLE (oleObject*.bin) + Word OMML (<m:oMath>) + Bảng đáp án từ Buffer .docx
     let rawHtml = '';
@@ -159,7 +507,9 @@ export class DocxExamGeneratorService {
       try {
         rawText = await extractDocxWithMtefAndOmml(fileBuffer);
       } catch (err: any) {
-        this.logger.warn(`Không giải mã trực tiếp được MTEF/XML, chuyển sang mammoth: ${err.message}`);
+        this.logger.warn(
+          `Không giải mã trực tiếp được MTEF/XML, chuyển sang mammoth: ${err.message}`,
+        );
       }
 
       if (!rawText.trim()) {
@@ -176,10 +526,14 @@ export class DocxExamGeneratorService {
             },
           );
           rawHtml = htmlResult.value || '';
-          const textResult = await mammoth.extractRawText({ buffer: fileBuffer });
+          const textResult = await mammoth.extractRawText({
+            buffer: fileBuffer,
+          });
           rawText = textResult.value || rawHtml.replace(/<[^>]+>/g, ' ');
         } catch (err: any) {
-          this.logger.warn(`Không đọc được binary docx bằng mammoth, chuyển sang đọc text trực tiếp: ${err.message}`);
+          this.logger.warn(
+            `Không đọc được binary docx bằng mammoth, chuyển sang đọc text trực tiếp: ${err.message}`,
+          );
           rawText = fileBuffer.toString('utf-8');
         }
       }
@@ -197,7 +551,10 @@ export class DocxExamGeneratorService {
     const fullExamCorpus = [
       fileName,
       rawText,
-      ...seedQuestions.map((q) => `${q.title} ${q.content} ${q.answers.map((a) => a.content).join(' ')}`),
+      ...seedQuestions.map(
+        (q) =>
+          `${q.title} ${q.content} ${q.answers.map((a) => a.content).join(' ')}`,
+      ),
     ]
       .join(' ')
       .trim();
@@ -211,7 +568,10 @@ export class DocxExamGeneratorService {
     );
 
     // 4. Tính toán tỉ lệ phân bổ mức độ nhận thức Bloom cho đề sinh mới
-    const targetBloomRatio = this.resolveTargetBloomRatio(dto.bloomRatio, seedQuestions);
+    const targetBloomRatio = this.resolveTargetBloomRatio(
+      dto.bloomRatio,
+      seedQuestions,
+    );
 
     // 5. Truy vấn các câu hỏi cùng phạm vi kiến thức trong PostgreSQL bằng Vector Similarity
     const inScopeDbQuestions = await this.findInScopeQuestionsByVector(
@@ -296,7 +656,9 @@ export class DocxExamGeneratorService {
       savedToBank: Boolean(dto.saveToBank),
       savedCount,
       engineMode:
-        liveIpcResult && Array.isArray(liveIpcResult.questions) && liveIpcResult.questions.length > 0
+        liveIpcResult &&
+        Array.isArray(liveIpcResult.questions) &&
+        liveIpcResult.questions.length > 0
           ? 'ANTIGRAVITY_LIVE_IPC_BRIDGE'
           : 'PARAMETRIC_SCOPE_SYNTHESIS_ENGINE',
       knowledgeScope: {
@@ -324,12 +686,15 @@ export class DocxExamGeneratorService {
 
     for (let i = 0; i < dto.questions.length; i++) {
       const q = dto.questions[i];
-      const qId = q.id && !String(q.id).startsWith('word_q_')
-        ? String(q.id)
-        : `ai-docx-${subjectSlug}-${Date.now()}-${i + 1}`;
+      const qId =
+        q.id && !String(q.id).startsWith('word_q_')
+          ? String(q.id)
+          : `ai-docx-${subjectSlug}-${Date.now()}-${i + 1}`;
 
       const bloomLevel = this.mapToPrismaBloom(q.bloomLevel || q.difficulty);
-      const { qFormat, qType } = this.mapToPrismaFormat(q.questionFormat || q.type);
+      const { qFormat, qType } = this.mapToPrismaFormat(
+        q.questionFormat || q.type,
+      );
 
       const rawAnswers: any[] = Array.isArray(q.answers)
         ? q.answers
@@ -382,7 +747,8 @@ export class DocxExamGeneratorService {
           data: {
             question_id: createdQuestion.id,
             content: ans.content || '',
-            sub_label: ans.label || ans.sub_label || String.fromCharCode(65 + aIdx),
+            sub_label:
+              ans.label || ans.sub_label || String.fromCharCode(65 + aIdx),
             is_answer: Boolean(ans.isAnswer ?? ans.is_answer),
             explain: ans.explain || null,
           },
@@ -392,7 +758,9 @@ export class DocxExamGeneratorService {
       savedIds.push(createdQuestion.id);
     }
 
-    this.logger.log(`💾 Đã lưu ${savedIds.length} câu hỏi AI sinh từ .docx vào PostgreSQL!`);
+    this.logger.log(
+      `💾 Đã lưu ${savedIds.length} câu hỏi AI sinh từ .docx vào PostgreSQL!`,
+    );
 
     return {
       savedCount: savedIds.length,
@@ -441,8 +809,10 @@ export class DocxExamGeneratorService {
       return {
         title: item.title || `Câu ${idx + 1}`,
         content: item.content || '',
-        questionFormat: formatMap[item.type || item.questionFormat] || 'SINGLE_CHOICE',
-        bloomLevel: bloomMap[item.difficulty || item.bloomLevel] || 'THONG_HIEU',
+        questionFormat:
+          formatMap[item.type || item.questionFormat] || 'SINGLE_CHOICE',
+        bloomLevel:
+          bloomMap[item.difficulty || item.bloomLevel] || 'THONG_HIEU',
         chapter: item.chapter || 'Chuyên đề trong đề gốc',
         points: Number(item.points || 0.25),
         explanation: item.explain || item.explanation,
@@ -494,7 +864,9 @@ export class DocxExamGeneratorService {
       .replace(/<br\s*[\/]?>/gi, '\n')
       .replace(/<\/div>/gi, '\n');
 
-    const rawBlocks = textWithBreaks.split(/(?=(?:<[^>]+>)*\s*(?:Câu|Bài|Question)\s+\d+[\.:\]])/gi);
+    const rawBlocks = textWithBreaks.split(
+      /(?=(?:<[^>]+>)*\s*(?:Câu|Bài|Question)\s+\d+[\.:\]])/gi,
+    );
     const parsed: ParsedSeedQuestion[] = [];
     let qIndex = 0;
 
@@ -508,25 +880,35 @@ export class DocxExamGeneratorService {
       let questionBody = trimmed;
       let explanation = '';
 
-      const explainMatch = trimmed.match(/(?:Lời giải|Hướng dẫn giải|Giải chi tiết)[:\s]+([\s\S]*)$/i);
+      const explainMatch = trimmed.match(
+        /(?:Lời giải|Hướng dẫn giải|Giải chi tiết)[:\s]+([\s\S]*)$/i,
+      );
       if (explainMatch) {
         explanation = explainMatch[1].replace(/<[^>]+>/g, '').trim();
         questionBody = trimmed.substring(0, explainMatch.index).trim();
       }
 
-      const lines = questionBody.split('\n').map((l) => l.trim()).filter(Boolean);
+      const lines = questionBody
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
       const firstLine = lines[0] || '';
 
       // Độ khó Bloom
       let bloomLevel: ParsedSeedQuestion['bloomLevel'] = 'THONG_HIEU';
-      if (/\[(VDC|VẬN DỤNG CAO)\]/i.test(firstLine)) bloomLevel = 'VAN_DUNG_CAO';
+      if (/\[(VDC|VẬN DỤNG CAO)\]/i.test(firstLine))
+        bloomLevel = 'VAN_DUNG_CAO';
       else if (/\[(VD|VẬN DỤNG)\]/i.test(firstLine)) bloomLevel = 'VAN_DUNG';
       else if (/\[(NB|NHẬN BIẾT)\]/i.test(firstLine)) bloomLevel = 'NHAN_BIET';
-      else if (/\[(TH|THÔNG HIỂU)\]/i.test(firstLine)) bloomLevel = 'THONG_HIEU';
+      else if (/\[(TH|THÔNG HIỂU)\]/i.test(firstLine))
+        bloomLevel = 'THONG_HIEU';
 
       const cleanHeader = firstLine
         .replace(/^(?:<[^>]+>)*\s*(?:Câu|Bài|Question)\s+\d+[\.:\]]\s*/i, '')
-        .replace(/\[(VDC|VẬN DỤNG CAO|VD|VẬN DỤNG|NB|NHẬN BIẾT|TH|THÔNG HIỂU)\]/gi, '')
+        .replace(
+          /\[(VDC|VẬN DỤNG CAO|VD|VẬN DỤNG|NB|NHẬN BIẾT|TH|THÔNG HIỂU)\]/gi,
+          '',
+        )
         .trim();
 
       const stemLines: string[] = [cleanHeader];
@@ -547,13 +929,19 @@ export class DocxExamGeneratorService {
         }
       }
 
-      const cleanStem = stemLines.join(' ').replace(/<[^>]+>/g, '').trim();
+      const cleanStem = stemLines
+        .join(' ')
+        .replace(/<[^>]+>/g, '')
+        .trim();
       if (!cleanStem) continue;
 
       const isTrueFalse = answerLines.some((l) => /\[[ĐSTF]\]/i.test(l));
-      const isShortAnswer = answerLines.some((l) => /^Đáp án[:\s]/i.test(l.replace(/<[^>]+>/g, '').trim()));
+      const isShortAnswer = answerLines.some((l) =>
+        /^Đáp án[:\s]/i.test(l.replace(/<[^>]+>/g, '').trim()),
+      );
 
-      let questionFormat: ParsedSeedQuestion['questionFormat'] = 'SINGLE_CHOICE';
+      let questionFormat: ParsedSeedQuestion['questionFormat'] =
+        'SINGLE_CHOICE';
       const answers: ParsedSeedQuestion['answers'] = [];
       let shortAnswer: string | undefined;
 
@@ -571,14 +959,19 @@ export class DocxExamGeneratorService {
         });
       } else if (isShortAnswer) {
         questionFormat = 'SHORT_ANSWER';
-        const rawAns = answerLines[0].replace(/<[^>]+>/g, '').replace(/^Đáp án[:\s]*/i, '').trim();
+        const rawAns = answerLines[0]
+          .replace(/<[^>]+>/g, '')
+          .replace(/^Đáp án[:\s]*/i, '')
+          .trim();
         shortAnswer = rawAns;
         answers.push({ label: 'Đáp số', content: rawAns, isAnswer: true });
       } else {
         const splitted: string[] = [];
         answerLines.forEach((al) => {
           const parts = al
-            .split(/(?=(?:^|\s)(?:<[^>]+>)*\s*(?:[*]\s*)?(?:<u>\s*)?[A-D][\.\)])/g)
+            .split(
+              /(?=(?:^|\s)(?:<[^>]+>)*\s*(?:[*]\s*)?(?:<u>\s*)?[A-D][\.\)])/g,
+            )
             .map((p) => p.trim())
             .filter(Boolean);
           parts.forEach((p) => splitted.push(p));
@@ -586,7 +979,9 @@ export class DocxExamGeneratorService {
 
         splitted.forEach((ansHtml) => {
           const labelMatch = ansHtml.match(/([A-D])[\.\)]/i);
-          const isUnderlined = /<u>/i.test(ansHtml) || /text-decoration:\s*underline/i.test(ansHtml);
+          const isUnderlined =
+            /<u>/i.test(ansHtml) ||
+            /text-decoration:\s*underline/i.test(ansHtml);
           const isRed = /color:\s*(red|#ff0000|#f00)/i.test(ansHtml);
           const hasAsterisk = /^\s*[*]/i.test(ansHtml.replace(/<[^>]+>/g, ''));
           const isAnswer = isUnderlined || isRed || hasAsterisk;
@@ -598,7 +993,9 @@ export class DocxExamGeneratorService {
             .trim();
 
           if (!cleanAns) return;
-          const label = labelMatch ? labelMatch[1].toUpperCase() : String.fromCharCode(65 + answers.length);
+          const label = labelMatch
+            ? labelMatch[1].toUpperCase()
+            : String.fromCharCode(65 + answers.length);
           answers.push({ label, content: cleanAns, isAnswer });
         });
 
@@ -613,7 +1010,12 @@ export class DocxExamGeneratorService {
         content: cleanStem,
         questionFormat,
         bloomLevel,
-        points: questionFormat === 'TRUE_FALSE' ? 1.0 : questionFormat === 'SHORT_ANSWER' ? 0.5 : 0.25,
+        points:
+          questionFormat === 'TRUE_FALSE'
+            ? 1.0
+            : questionFormat === 'SHORT_ANSWER'
+              ? 0.5
+              : 0.25,
         explanation,
         shortAnswer,
         answers,
@@ -637,7 +1039,9 @@ export class DocxExamGeneratorService {
     // 1. Nhận diện môn học
     let bestSubject = this.SUBJECT_CATALOG[0];
     if (explicitSubject) {
-      const found = this.SUBJECT_CATALOG.find((s) => s.slug === explicitSubject);
+      const found = this.SUBJECT_CATALOG.find(
+        (s) => s.slug === explicitSubject,
+      );
       if (found) bestSubject = found;
     } else {
       let maxScore = -1;
@@ -646,7 +1050,10 @@ export class DocxExamGeneratorService {
         for (const kw of sub.keywords) {
           if (lowerCorpus.includes(kw)) score += 2;
         }
-        if (lowerCorpus.includes(sub.name.toLowerCase()) || lowerCorpus.includes(sub.slug)) {
+        if (
+          lowerCorpus.includes(sub.name.toLowerCase()) ||
+          lowerCorpus.includes(sub.slug)
+        ) {
           score += 5;
         }
         if (score > maxScore) {
@@ -686,13 +1093,16 @@ export class DocxExamGeneratorService {
         topicName: topic.name,
         chapterId: topic.chapterId,
         rawScore: matchedKw.length * 3 + 1, // Base weight để luôn có phạm vi hợp lệ
-        matchedKeywords: matchedKw.length > 0 ? matchedKw : topic.keywords.slice(0, 2),
+        matchedKeywords:
+          matchedKw.length > 0 ? matchedKw : topic.keywords.slice(0, 2),
       });
     }
 
     // Sắp xếp chuyên đề theo mức độ xuất hiện giảm dần, chọn các chuyên đề chính
     topicScores.sort((a, b) => b.rawScore - a.rawScore);
-    const activeTopics = topicScores.filter((t, idx) => t.rawScore > 1 || idx < 2).slice(0, 4);
+    const activeTopics = topicScores
+      .filter((t, idx) => t.rawScore > 1 || idx < 2)
+      .slice(0, 4);
     const totalRaw = activeTopics.reduce((sum, t) => sum + t.rawScore, 0) || 1;
 
     const detectedTopics: KnowledgeTopicItem[] = activeTopics.map((t, idx) => ({
@@ -704,19 +1114,27 @@ export class DocxExamGeneratorService {
     }));
 
     // 4. Phân bố Bloom của đề gốc
-    const bloomCounts = { NHAN_BIET: 0, THONG_HIEU: 0, VAN_DUNG: 0, VAN_DUNG_CAO: 0 };
+    const bloomCounts = {
+      NHAN_BIET: 0,
+      THONG_HIEU: 0,
+      VAN_DUNG: 0,
+      VAN_DUNG_CAO: 0,
+    };
     for (const q of seedQuestions) {
       bloomCounts[q.bloomLevel] = (bloomCounts[q.bloomLevel] || 0) + 1;
     }
     const totalSeeds = seedQuestions.length || 1;
-    const sourceBloomDistribution = seedQuestions.length > 0
-      ? {
-          NHAN_BIET: Math.round((bloomCounts.NHAN_BIET / totalSeeds) * 100),
-          THONG_HIEU: Math.round((bloomCounts.THONG_HIEU / totalSeeds) * 100),
-          VAN_DUNG: Math.round((bloomCounts.VAN_DUNG / totalSeeds) * 100),
-          VAN_DUNG_CAO: Math.round((bloomCounts.VAN_DUNG_CAO / totalSeeds) * 100),
-        }
-      : { NHAN_BIET: 30, THONG_HIEU: 40, VAN_DUNG: 20, VAN_DUNG_CAO: 10 };
+    const sourceBloomDistribution =
+      seedQuestions.length > 0
+        ? {
+            NHAN_BIET: Math.round((bloomCounts.NHAN_BIET / totalSeeds) * 100),
+            THONG_HIEU: Math.round((bloomCounts.THONG_HIEU / totalSeeds) * 100),
+            VAN_DUNG: Math.round((bloomCounts.VAN_DUNG / totalSeeds) * 100),
+            VAN_DUNG_CAO: Math.round(
+              (bloomCounts.VAN_DUNG_CAO / totalSeeds) * 100,
+            ),
+          }
+        : { NHAN_BIET: 30, THONG_HIEU: 40, VAN_DUNG: 20, VAN_DUNG_CAO: 10 };
 
     const scopeSummary = `Đề thi thuộc môn ${bestSubject.name} (Khối ${detectedGrade}), tập trung vào ${detectedTopics.length} mạch kiến thức chính: ${detectedTopics.map((t) => t.topicName).join('; ')}.`;
 
@@ -733,10 +1151,16 @@ export class DocxExamGeneratorService {
   private resolveTargetBloomRatio(
     rawRatio: any,
     seedQuestions: ParsedSeedQuestion[],
-  ): { NHAN_BIET: number; THONG_HIEU: number; VAN_DUNG: number; VAN_DUNG_CAO: number } {
+  ): {
+    NHAN_BIET: number;
+    THONG_HIEU: number;
+    VAN_DUNG: number;
+    VAN_DUNG_CAO: number;
+  } {
     if (rawRatio) {
       try {
-        const parsed = typeof rawRatio === 'string' ? JSON.parse(rawRatio) : rawRatio;
+        const parsed =
+          typeof rawRatio === 'string' ? JSON.parse(rawRatio) : rawRatio;
         if (
           typeof parsed.NHAN_BIET === 'number' ||
           typeof parsed.THONG_HIEU === 'number'
@@ -754,7 +1178,12 @@ export class DocxExamGeneratorService {
     }
 
     if (seedQuestions.length >= 4) {
-      const counts = { NHAN_BIET: 0, THONG_HIEU: 0, VAN_DUNG: 0, VAN_DUNG_CAO: 0 };
+      const counts = {
+        NHAN_BIET: 0,
+        THONG_HIEU: 0,
+        VAN_DUNG: 0,
+        VAN_DUNG_CAO: 0,
+      };
       seedQuestions.forEach((q) => {
         counts[q.bloomLevel] = (counts[q.bloomLevel] || 0) + 1;
       });
@@ -807,16 +1236,26 @@ export class DocxExamGeneratorService {
 
     // Dùng Vector Embedding của đoạn văn mẫu để xếp hạng độ tương đồng với câu hỏi trong DB
     try {
-      const sampleQuery = seedQuestions.length > 0
-        ? seedQuestions.slice(0, 3).map((q) => q.content).join(' ')
-        : corpus.slice(0, 500);
+      const sampleQuery =
+        seedQuestions.length > 0
+          ? seedQuestions
+              .slice(0, 3)
+              .map((q) => q.content)
+              .join(' ')
+          : corpus.slice(0, 500);
 
       if (sampleQuery.trim().length > 10) {
-        const queryVec = await this.semanticCacheService.getEmbedding(sampleQuery);
+        const queryVec =
+          await this.semanticCacheService.getEmbedding(sampleQuery);
         const scored = await Promise.all(
           dbQuestions.map(async (q) => {
-            const qVec = await this.semanticCacheService.getEmbedding(`${q.title || ''} ${q.question}`);
-            const sim = this.semanticCacheService.cosineSimilarity(queryVec, qVec);
+            const qVec = await this.semanticCacheService.getEmbedding(
+              `${q.title || ''} ${q.question}`,
+            );
+            const sim = this.semanticCacheService.cosineSimilarity(
+              queryVec,
+              qVec,
+            );
             return { q, sim };
           }),
         );
@@ -824,7 +1263,9 @@ export class DocxExamGeneratorService {
         return scored.map((item) => item.q);
       }
     } catch (e: any) {
-      this.logger.debug(`Bỏ qua xếp hạng vector sâu, dùng bộ lọc chuyên đề trực tiếp: ${e.message}`);
+      this.logger.debug(
+        `Bỏ qua xếp hạng vector sâu, dùng bộ lọc chuyên đề trực tiếp: ${e.message}`,
+      );
     }
 
     return dbQuestions;
@@ -842,7 +1283,10 @@ export class DocxExamGeneratorService {
       detectedTopics: KnowledgeTopicItem[];
     },
   ): any[] {
-    const bloomToDifficultyMap: Record<ParsedSeedQuestion['bloomLevel'], string> = {
+    const bloomToDifficultyMap: Record<
+      ParsedSeedQuestion['bloomLevel'],
+      string
+    > = {
       NHAN_BIET: 'RECOGNITION',
       THONG_HIEU: 'UNDERSTANDING',
       VAN_DUNG: 'APPLICATION',
@@ -876,11 +1320,12 @@ export class DocxExamGeneratorService {
           : qFormat === 'SHORT_ANSWER'
             ? 'FILL_BLANK'
             : 'SINGLE_CHOICE';
-      const topicObj =
-        scopeAnalysis.detectedTopics[idx % scopeAnalysis.detectedTopics.length] || {
-          topicName: 'Chuyên đề trong đề gốc',
-          chapterId: 1,
-        };
+      const topicObj = scopeAnalysis.detectedTopics[
+        idx % scopeAnalysis.detectedTopics.length
+      ] || {
+        topicName: 'Chuyên đề trong đề gốc',
+        chapterId: 1,
+      };
       const rawAns: any[] = Array.isArray(q.answers) ? q.answers : [];
 
       return {
@@ -897,9 +1342,16 @@ export class DocxExamGeneratorService {
         subjectName: scopeAnalysis.detectedSubjectName,
         grade: scopeAnalysis.detectedGrade,
         chapterId: q.chapterId || topicObj.chapterId,
-        chapter: q.chapter || `Chương ${topicObj.chapterId}: ${topicObj.topicName}`,
+        chapter:
+          q.chapter || `Chương ${topicObj.chapterId}: ${topicObj.topicName}`,
         topic: q.topic || topicObj.topicName,
-        points: Number(q.points) || (qFormat === 'TRUE_FALSE' ? 1.0 : qFormat === 'SHORT_ANSWER' ? 0.5 : 0.25),
+        points:
+          Number(q.points) ||
+          (qFormat === 'TRUE_FALSE'
+            ? 1.0
+            : qFormat === 'SHORT_ANSWER'
+              ? 0.5
+              : 0.25),
         explain: q.explanation || q.explain || '',
         explanation: q.explanation || q.explain || '',
         shortAnswer: q.shortAnswer,
@@ -935,13 +1387,22 @@ export class DocxExamGeneratorService {
       detectedGrade: number;
       detectedTopics: KnowledgeTopicItem[];
     },
-    targetBloomRatio: { NHAN_BIET: number; THONG_HIEU: number; VAN_DUNG: number; VAN_DUNG_CAO: number },
+    targetBloomRatio: {
+      NHAN_BIET: number;
+      THONG_HIEU: number;
+      VAN_DUNG: number;
+      VAN_DUNG_CAO: number;
+    },
     startOffset = 0,
   ) {
     // 1. Xây dựng danh sách hạn ngạch Bloom cho đúng `targetCount` câu
     const bloomSlots: Array<ParsedSeedQuestion['bloomLevel']> = [];
-    const nbCount = Math.round((targetBloomRatio.NHAN_BIET / 100) * targetCount);
-    const thCount = Math.round((targetBloomRatio.THONG_HIEU / 100) * targetCount);
+    const nbCount = Math.round(
+      (targetBloomRatio.NHAN_BIET / 100) * targetCount,
+    );
+    const thCount = Math.round(
+      (targetBloomRatio.THONG_HIEU / 100) * targetCount,
+    );
     const vdCount = Math.round((targetBloomRatio.VAN_DUNG / 100) * targetCount);
     const vdcCount = Math.max(0, targetCount - nbCount - thCount - vdCount);
 
@@ -953,7 +1414,10 @@ export class DocxExamGeneratorService {
     while (bloomSlots.length < targetCount) bloomSlots.push('THONG_HIEU');
 
     const results: any[] = [];
-    const bloomToDifficultyMap: Record<ParsedSeedQuestion['bloomLevel'], string> = {
+    const bloomToDifficultyMap: Record<
+      ParsedSeedQuestion['bloomLevel'],
+      string
+    > = {
       NHAN_BIET: 'RECOGNITION',
       THONG_HIEU: 'UNDERSTANDING',
       VAN_DUNG: 'APPLICATION',
@@ -968,20 +1432,26 @@ export class DocxExamGeneratorService {
 
     // Tập hợp câu hỏi gốc để đảm bảo 0% câu sinh ra trùng với câu trong đề .docx
     const seedContentSet = new Set(
-      seedQuestions.map((sq) => sq.content.replace(/\s+/g, ' ').trim().toLowerCase()),
+      seedQuestions.map((sq) =>
+        sq.content.replace(/\s+/g, ' ').trim().toLowerCase(),
+      ),
     );
 
     for (let i = 0; i < targetCount; i++) {
       const globalIdx = startOffset + i;
       const desiredBloom = bloomSlots[i];
-      const topicObj = scopeAnalysis.detectedTopics[globalIdx % scopeAnalysis.detectedTopics.length] || {
+      const topicObj = scopeAnalysis.detectedTopics[
+        globalIdx % scopeAnalysis.detectedTopics.length
+      ] || {
         topicName: 'Chuyên đề trong đề gốc',
         chapterId: 1,
       };
 
       // Tham chiếu dạng câu hỏi từ seed (nếu có) để phân bổ định dạng hợp lý nhưng KHÔNG chép nội dung
       const refSeed =
-        seedQuestions.length > 0 ? seedQuestions[globalIdx % seedQuestions.length] : undefined;
+        seedQuestions.length > 0
+          ? seedQuestions[globalIdx % seedQuestions.length]
+          : undefined;
 
       const generated = this.generateBrandNewScopeQuestion(
         globalIdx + 1,
@@ -1313,7 +1783,11 @@ export class DocxExamGeneratorService {
       ) {
         if (targetBloom === 'NHAN_BIET' || targetBloom === 'THONG_HIEU') {
           // Khoảng cách từ tâm O đến dây cung AB dựa trên bộ ba Pythagore (OH, HB, R)
-          const chordSets: Array<{ R: number; halfChord: number; dist: number }> = [
+          const chordSets: Array<{
+            R: number;
+            halfChord: number;
+            dist: number;
+          }> = [
             { R: 10, halfChord: 8, dist: 6 },
             { R: 13, halfChord: 12, dist: 5 },
             { R: 15, halfChord: 12, dist: 9 },
@@ -1372,7 +1846,11 @@ export class DocxExamGeneratorService {
       }
 
       // 5. Chuyên đề Toán 12 (Khảo sát hàm số, Nguyên hàm - Tích phân, Oxyz, Xác suất)
-      if (chId === 1 || topicText.includes('đạo hàm') || topicText.includes('cực trị')) {
+      if (
+        chId === 1 ||
+        topicText.includes('đạo hàm') ||
+        topicText.includes('cực trị')
+      ) {
         const m = (k % 5) + 1;
         const sumRoots = 2 * m;
         const x1 = m - 1;
@@ -1401,7 +1879,12 @@ export class DocxExamGeneratorService {
         };
       }
 
-      if (chId === 2 || topicText.includes('oxyz') || topicText.includes('mặt cầu') || topicText.includes('mặt phẳng')) {
+      if (
+        chId === 2 ||
+        topicText.includes('oxyz') ||
+        topicText.includes('mặt cầu') ||
+        topicText.includes('mặt phẳng')
+      ) {
         const a = (k % 4) + 1;
         const b = -((k % 3) + 2);
         const c = (k % 5) + 1;
@@ -1444,7 +1927,11 @@ export class DocxExamGeneratorService {
         explanation: `Ta có $I = \\left. \\left(${coef / 2}x^2 + 3x\\right) \\right|_{0}^{${upper}} = ${coef / 2} \\cdot ${upper}^2 + 3 \\cdot ${upper} = ${integralVal}$.`,
         answers: rotateChoices(
           `$${integralVal}$`,
-          [`$${integralVal + upper}$`, `$${integralVal - 3}$`, `$${upper * coef + 3}$`],
+          [
+            `$${integralVal + upper}$`,
+            `$${integralVal - 3}$`,
+            `$${upper * coef + 3}$`,
+          ],
           questionNumber,
         ),
       };
@@ -1455,12 +1942,21 @@ export class DocxExamGeneratorService {
     // ============================================================================
     // Ưu tiên chọn câu hỏi cùng phạm vi trong DB mà KHÔNG nằm trong đề .docx gốc và biến đổi tham số
     const nonDuplicateDbPool = inScopeDbQuestions.filter(
-      (dbQ) => !seedContentSet.has(String(dbQ.question || '').replace(/\s+/g, ' ').trim().toLowerCase()),
+      (dbQ) =>
+        !seedContentSet.has(
+          String(dbQ.question || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase(),
+        ),
     );
     if (nonDuplicateDbPool.length > 0) {
-      const dbQ = nonDuplicateDbPool[questionNumber % nonDuplicateDbPool.length];
+      const dbQ =
+        nonDuplicateDbPool[questionNumber % nonDuplicateDbPool.length];
       const rawAns: any[] = Array.isArray(dbQ.answers) ? dbQ.answers : [];
-      const correctAns = rawAns.find((a) => a.is_answer)?.content || 'Đáp án chuẩn theo định luật';
+      const correctAns =
+        rawAns.find((a) => a.is_answer)?.content ||
+        'Đáp án chuẩn theo định luật';
       const wrongAns = rawAns.filter((a) => !a.is_answer).map((a) => a.content);
       while (wrongAns.length < 3) {
         wrongAns.push(`Phương án nhiễu phân tích thứ ${wrongAns.length + 1}`);
@@ -1525,16 +2021,31 @@ export class DocxExamGeneratorService {
     return map[val || ''] || BloomLevel.THONG_HIEU;
   }
 
-  private mapToPrismaFormat(val?: string): { qFormat: QuestionFormat; qType: QuestionType } {
+  private mapToPrismaFormat(val?: string): {
+    qFormat: QuestionFormat;
+    qType: QuestionType;
+  } {
     if (val === 'TRUE_FALSE') {
-      return { qFormat: QuestionFormat.TRUE_FALSE, qType: QuestionType.TRUE_FALSE };
+      return {
+        qFormat: QuestionFormat.TRUE_FALSE,
+        qType: QuestionType.TRUE_FALSE,
+      };
     }
     if (val === 'SHORT_ANSWER' || val === 'FILL_BLANK') {
-      return { qFormat: QuestionFormat.SHORT_ANSWER, qType: QuestionType.SINGLE_CHOICE };
+      return {
+        qFormat: QuestionFormat.SHORT_ANSWER,
+        qType: QuestionType.SINGLE_CHOICE,
+      };
     }
     if (val === 'MULTI_CHOICE') {
-      return { qFormat: QuestionFormat.MULTI_CHOICE, qType: QuestionType.MULTIPLE_CHOICE };
+      return {
+        qFormat: QuestionFormat.MULTI_CHOICE,
+        qType: QuestionType.MULTIPLE_CHOICE,
+      };
     }
-    return { qFormat: QuestionFormat.SINGLE_CHOICE, qType: QuestionType.MULTIPLE_CHOICE };
+    return {
+      qFormat: QuestionFormat.SINGLE_CHOICE,
+      qType: QuestionType.MULTIPLE_CHOICE,
+    };
   }
 }

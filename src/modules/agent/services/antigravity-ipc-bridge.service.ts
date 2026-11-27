@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AgentChatDto } from '../dto/agent.dto';
-import { RobotEmotion, isRobotEmotion, inferEmotion } from '../constants/robot-emotion';
+import {
+  RobotEmotion,
+  isRobotEmotion,
+  inferEmotion,
+} from '../constants/robot-emotion';
 
 export interface SemanticLogicResult {
   isCorrect: boolean;
@@ -113,10 +117,14 @@ export class AntigravityIpcBridgeService {
       ['hội tụ', 'phân kỳ'],
     ];
     for (const [termA, termB] of antonymPairs) {
-      const cpHasA = normCheckpoint.includes(termA) && !normCheckpoint.includes(termB);
-      const cpHasB = normCheckpoint.includes(termB) && !normCheckpoint.includes(termA);
-      const stHasA = normStudent.includes(termA) && !normStudent.includes(termB);
-      const stHasB = normStudent.includes(termB) && !normStudent.includes(termA);
+      const cpHasA =
+        normCheckpoint.includes(termA) && !normCheckpoint.includes(termB);
+      const cpHasB =
+        normCheckpoint.includes(termB) && !normCheckpoint.includes(termA);
+      const stHasA =
+        normStudent.includes(termA) && !normStudent.includes(termB);
+      const stHasB =
+        normStudent.includes(termB) && !normStudent.includes(termA);
       if ((cpHasA && stHasB) || (cpHasB && stHasA)) {
         return {
           isCorrect: false,
@@ -126,7 +134,25 @@ export class AntigravityIpcBridgeService {
     }
 
     // 4. Kiểm tra các từ khóa cốt lõi & phát hiện đảo vế chủ ngữ - tân ngữ / toán hạng (ví dụ: CO2 <-> O2, sin(x) <-> cos(x), Chó cắn người <-> Người cắn chó)
-    const stopWords = new Set(['là', 'và', 'của', 'ở', 'tại', 'trong', 'được', 'có', 'để', 'những', 'các', 'một', 'bằng', 'ra', 'khí', 'hàm', 'số']);
+    const stopWords = new Set([
+      'là',
+      'và',
+      'của',
+      'ở',
+      'tại',
+      'trong',
+      'được',
+      'có',
+      'để',
+      'những',
+      'các',
+      'một',
+      'bằng',
+      'ra',
+      'khí',
+      'hàm',
+      'số',
+    ]);
     const checkpointTokens = normCheckpoint
       .replace(/[.,/#!$%^&*;:{}=\-_`~]/g, ' ')
       .split(/\s+/)
@@ -160,7 +186,10 @@ export class AntigravityIpcBridgeService {
       }
     }
 
-    const matchRatio = checkpointTokens.length > 0 ? matchedTokensCount / checkpointTokens.length : 1;
+    const matchRatio =
+      checkpointTokens.length > 0
+        ? matchedTokensCount / checkpointTokens.length
+        : 1;
 
     if (matchRatio >= 0.6 || vectorSimilarity >= 0.85) {
       return {
@@ -191,7 +220,8 @@ export class AntigravityIpcBridgeService {
     const apiKey = this.getVipGeminiKey();
     if (!apiKey) return null;
 
-    const isSocraticTopicHint = dto.questionContext?.mode === 'SOCRATIC_TOPIC_HINT';
+    const isSocraticTopicHint =
+      dto.questionContext?.mode === 'SOCRATIC_TOPIC_HINT';
     const qCtx = dto.questionContext || {};
 
     const contextSummaryBlock = dto.context?.contextSummary
@@ -201,9 +231,13 @@ ${dto.context.contextSummary}
 * QUY TẮC NỐI MẠCH: Dựa vào khối tóm tắt trên để nắm chắc toàn bộ dữ kiện bài toán và các bước đã giải ở các lượt trước, kết hợp với các tin nhắn gần nhất dưới đây để đưa ra lời giải liền mạch, không hỏi lại các dữ kiện đã biết!`
       : '';
     const recalledTurns =
-      Array.isArray(dto.context?.recalledTurns) && dto.context.recalledTurns.length > 0
+      Array.isArray(dto.context?.recalledTurns) &&
+      dto.context.recalledTurns.length > 0
         ? `\n- Kiến thức liên quan từng trao đổi:\n${dto.context.recalledTurns
-            .map((t: any) => `  + Hỏi: "${t.userQuery}" -> Đáp: "${t.assistantReply}"`)
+            .map(
+              (t: any) =>
+                `  + Hỏi: "${t.userQuery}" -> Đáp: "${t.assistantReply}"`,
+            )
             .join('\n')}`
         : '';
 
@@ -232,14 +266,20 @@ Quy tắc giao tiếp & trình bày:
    - Hệ thống điểm: **Tia Sáng** (điểm lượt thi miễn phí mỗi ngày) và **Ngọc Tri Thức 💎** (điểm thưởng vĩnh viễn khi thi đạt >= 8.5 điểm hoặc từ Gói Học Sinh 50.000đ / 100.000đ).
 4. Ngữ cảnh hiện tại: Môn ${detectedSubject}, Khối ${detectedGrade}.${contextSummaryBlock}${recalledTurns}${interruptedContextBlock}`;
 
-    const historyItems = Array.isArray(dto.history) ? dto.history.slice(-4) : [];
-    const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+    const historyItems = Array.isArray(dto.history)
+      ? dto.history.slice(-4)
+      : [];
+    const contents: Array<{
+      role: 'user' | 'model';
+      parts: Array<{ text: string }>;
+    }> = [];
 
     if (isSocraticTopicHint) {
       const choicesText = Array.isArray(qCtx.choices)
         ? qCtx.choices.map((c: any) => `${c.key}. ${c.content}`).join('\n')
         : '';
-      const studentDoubt = typeof qCtx.studentDoubt === 'string' ? qCtx.studentDoubt.trim() : '';
+      const studentDoubt =
+        typeof qCtx.studentDoubt === 'string' ? qCtx.studentDoubt.trim() : '';
       const socraticPrompt = [
         `Đề bài câu hỏi đang làm (${qCtx.title || 'Câu hỏi chuyên đề'} - Chuyên đề: ${qCtx.topicTag || detectedSubject}):`,
         `${qCtx.content || dto.message}`,
@@ -262,7 +302,10 @@ Quy tắc giao tiếp & trình bày:
         const mappedRole = h.role === 'assistant' ? 'model' : 'user';
         // Đảm bảo luân phiên user/model hợp lệ
         if (contents.length === 0 && mappedRole === 'model') continue;
-        if (contents.length > 0 && contents[contents.length - 1].role === mappedRole) {
+        if (
+          contents.length > 0 &&
+          contents[contents.length - 1].role === mappedRole
+        ) {
           contents[contents.length - 1].parts[0].text += `\n${h.content}`;
         } else {
           contents.push({
@@ -272,7 +315,10 @@ Quy tắc giao tiếp & trình bày:
         }
       }
 
-      if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
+      if (
+        contents.length > 0 &&
+        contents[contents.length - 1].role === 'user'
+      ) {
         contents[contents.length - 1].parts[0].text += `\n${dto.message}`;
       } else {
         contents.push({
@@ -323,16 +369,28 @@ Quy tắc giao tiếp & trình bày:
         if (replyText) {
           const actions = isSocraticTopicHint
             ? []
-            : this.buildContextualActions(dto.message, detectedSubject, detectedGrade, dto.currentUrl);
+            : this.buildContextualActions(
+                dto.message,
+                detectedSubject,
+                detectedGrade,
+                dto.currentUrl,
+              );
           const suggestions = isSocraticTopicHint
             ? []
-            : this.buildContextualSuggestions(dto.message, detectedSubject, detectedGrade);
+            : this.buildContextualSuggestions(
+                dto.message,
+                detectedSubject,
+                detectedGrade,
+              );
           const emotion = inferEmotion(replyText, actions);
 
           const completionTokens =
             Number(data?.usageMetadata?.candidatesTokenCount) ||
             Math.max(1, Math.ceil(replyText.length / 3.5));
-          const userPromptTokens = Math.max(1, Math.ceil((dto.message || '').trim().length / 3.5));
+          const userPromptTokens = Math.max(
+            1,
+            Math.ceil((dto.message || '').trim().length / 3.5),
+          );
           const totalTokens = userPromptTokens + completionTokens;
 
           this.logger.log(
@@ -351,7 +409,9 @@ Quy tắc giao tiếp & trình bày:
           };
         }
       } catch (err: any) {
-        this.logger.warn(`[Gemini VIP API] Lỗi kết nối model ${modelName}: ${err.message}`);
+        this.logger.warn(
+          `[Gemini VIP API] Lỗi kết nối model ${modelName}: ${err.message}`,
+        );
       }
     }
 
@@ -373,12 +433,17 @@ Quy tắc giao tiếp & trình bày:
       text.includes('làm đề') ||
       text.includes('ma trận đề')
     ) {
-      const isHard = text.includes('khó') || text.includes('vận dụng cao') || text.includes('nâng cao');
+      const isHard =
+        text.includes('khó') ||
+        text.includes('vận dụng cao') ||
+        text.includes('nâng cao');
       const bloomRatio = isHard
         ? { NHAN_BIET: 10, THONG_HIEU: 30, VAN_DUNG: 40, VAN_DUNG_CAO: 20 }
         : { NHAN_BIET: 30, THONG_HIEU: 40, VAN_DUNG: 20, VAN_DUNG_CAO: 10 };
       const numMatch = text.match(/(\d+)\s*câu/);
-      const totalQuestions = numMatch ? Math.min(50, Math.max(5, parseInt(numMatch[1], 10))) : 10;
+      const totalQuestions = numMatch
+        ? Math.min(50, Math.max(5, parseInt(numMatch[1], 10)))
+        : 10;
 
       actions.push({
         type: 'CONFIGURE_EXAM_MATRIX',
@@ -425,14 +490,23 @@ Quy tắc giao tiếp & trình bày:
     detectedGrade: number,
   ): string[] {
     const text = (rawMessage || '').toLowerCase();
-    if (text.includes('bậc 2') || text.includes('bậc hai') || text.includes('vi-ét') || text.includes('viet')) {
+    if (
+      text.includes('bậc 2') ||
+      text.includes('bậc hai') ||
+      text.includes('vi-ét') ||
+      text.includes('viet')
+    ) {
       return [
         'Cho ví dụ tìm m để phương trình có 2 nghiệm trái dấu',
         'Cách nhẩm nghiệm nhanh bằng hệ thức Vi-ét',
         `Tạo đề ${detectedSubject} ${detectedGrade} chuyên đề hàm số 10 câu`,
       ];
     }
-    if (text.includes('đạo hàm') || text.includes('cực trị') || text.includes('đồng biến')) {
+    if (
+      text.includes('đạo hàm') ||
+      text.includes('cực trị') ||
+      text.includes('đồng biến')
+    ) {
       return [
         'Các bước tìm cực trị hàm số chứa tham số m',
         'Bảng đạo hàm các hàm số lượng giác cơ bản',
@@ -458,33 +532,60 @@ Quy tắc giao tiếp & trình bày:
 
     // Tự động nhận diện môn học & khối lớp từ câu chat tự nhiên của học sinh
     let detectedSubject = dto.subject || 'Toán học';
-    if (text.includes('vật lý') || text.includes('vat ly') || text.includes('môn lý')) {
+    if (
+      text.includes('vật lý') ||
+      text.includes('vat ly') ||
+      text.includes('môn lý')
+    ) {
       detectedSubject = 'Vật lý';
     } else if (text.includes('hóa') || text.includes('hoa hoc')) {
       detectedSubject = 'Hóa học';
-    } else if (text.includes('sinh') || text.includes('lục lạp') || text.includes('di truyền')) {
+    } else if (
+      text.includes('sinh') ||
+      text.includes('lục lạp') ||
+      text.includes('di truyền')
+    ) {
       detectedSubject = 'Sinh học';
-    } else if (text.includes('tin') || text.includes('python') || text.includes('c++') || text.includes('sql')) {
+    } else if (
+      text.includes('tin') ||
+      text.includes('python') ||
+      text.includes('c++') ||
+      text.includes('sql')
+    ) {
       detectedSubject = 'Tin học';
-    } else if (text.includes('anh') || text.includes('english') || text.includes('ielts')) {
+    } else if (
+      text.includes('anh') ||
+      text.includes('english') ||
+      text.includes('ielts')
+    ) {
       detectedSubject = 'Tiếng Anh';
     } else if (text.includes('sử') || text.includes('lịch sử')) {
       detectedSubject = 'Lịch sử';
     } else if (text.includes('địa')) {
       detectedSubject = 'Địa lý';
-    } else if (text.includes('toán') || text.includes('đạo hàm') || text.includes('tích phân')) {
+    } else if (
+      text.includes('toán') ||
+      text.includes('đạo hàm') ||
+      text.includes('tích phân')
+    ) {
       detectedSubject = 'Toán học';
     }
 
     let detectedGrade = dto.grade || 12;
     if (text.includes('lớp 10') || text.includes('khối 10')) detectedGrade = 10;
-    else if (text.includes('lớp 11') || text.includes('khối 11')) detectedGrade = 11;
-    else if (text.includes('lớp 12') || text.includes('khối 12')) detectedGrade = 12;
+    else if (text.includes('lớp 11') || text.includes('khối 11'))
+      detectedGrade = 11;
+    else if (text.includes('lớp 12') || text.includes('khối 12'))
+      detectedGrade = 12;
 
     // 1. Ưu tiên gọi Google Gemini 2.5 Flash thật (Multi-Key Rotation từ GEMINI_API_KEY)
     //    Khách chưa đăng nhập (allowRealAi = false) chỉ nhận câu trả lời kịch bản có sẵn bên dưới.
     if (options.allowRealAi !== false) {
-      const geminiResult = await this.callRealGeminiApi(dto, detectedSubject, detectedGrade);
+      const geminiResult = await this.callRealGeminiApi(
+        dto,
+        detectedSubject,
+        detectedGrade,
+      );
       if (geminiResult) {
         return geminiResult;
       }
@@ -543,7 +644,8 @@ Quy tắc giao tiếp & trình bày:
         text.includes('vận dụng cao') ||
         text.includes('nâng cao') ||
         text.includes('9+');
-      const isMedium = text.includes('vừa') || text.includes('khá') || text.includes('cơ bản');
+      const isMedium =
+        text.includes('vừa') || text.includes('khá') || text.includes('cơ bản');
 
       let bloomRatio = {
         NHAN_BIET: 40,
@@ -553,13 +655,25 @@ Quy tắc giao tiếp & trình bày:
       };
 
       if (isHard) {
-        bloomRatio = { NHAN_BIET: 10, THONG_HIEU: 30, VAN_DUNG: 40, VAN_DUNG_CAO: 20 };
+        bloomRatio = {
+          NHAN_BIET: 10,
+          THONG_HIEU: 30,
+          VAN_DUNG: 40,
+          VAN_DUNG_CAO: 20,
+        };
       } else if (isMedium) {
-        bloomRatio = { NHAN_BIET: 30, THONG_HIEU: 40, VAN_DUNG: 20, VAN_DUNG_CAO: 10 };
+        bloomRatio = {
+          NHAN_BIET: 30,
+          THONG_HIEU: 40,
+          VAN_DUNG: 20,
+          VAN_DUNG_CAO: 10,
+        };
       }
 
       const numMatch = text.match(/(\d+)\s*câu/);
-      const totalQuestions = numMatch ? Math.min(50, Math.max(5, parseInt(numMatch[1], 10))) : 10;
+      const totalQuestions = numMatch
+        ? Math.min(50, Math.max(5, parseInt(numMatch[1], 10)))
+        : 10;
 
       message = `Tớ đã phân tích yêu cầu của bạn và thiết lập sẵn **Bộ Ma Trận Đề Thi ${detectedSubject} - Khối ${detectedGrade}** (${totalQuestions} câu chuẩn cấu trúc GDPT 2018: Nhận biết ${bloomRatio.NHAN_BIET}%, Thông hiểu ${bloomRatio.THONG_HIEU}%, Vận dụng ${bloomRatio.VAN_DUNG}%, Vận dụng cao ${bloomRatio.VAN_DUNG_CAO}%).\n\nBạn có thể bấm nút bên dưới để hệ thống tự động cấu hình ma trận và đưa bạn vào phòng thi nhé! 🎯`;
 
@@ -670,9 +784,12 @@ Quy tắc giao tiếp & trình bày:
       text.includes('xếp hạng') ||
       text.includes('bảng vàng')
     ) {
-      const isLeaderboard = text.includes('xếp hạng') || text.includes('bảng vàng');
+      const isLeaderboard =
+        text.includes('xếp hạng') || text.includes('bảng vàng');
       emotion = isLeaderboard ? 'celebrate' : 'happy';
-      const targetPath = isLeaderboard ? '/student/leaderboard' : '/student/history';
+      const targetPath = isLeaderboard
+        ? '/student/leaderboard'
+        : '/student/history';
       message = isLeaderboard
         ? `Tớ sẽ đưa bạn tới **Bảng Vàng Xếp Hạng Học Sinh** để xem thứ hạng Chuỗi Ngày Học (Streak) và điểm nỗ lực Token nhé! 🏆`
         : `Tớ sẽ dẫn bạn đến trang **Lịch Sử Luyện Đề & Phân Tích Năng Lực Bloom** để xem lại chi tiết từng bài thi cùng lời giải nhé! 📊`;
@@ -681,7 +798,9 @@ Quy tắc giao tiếp & trình bày:
         type: 'NAVIGATE_PAGE',
         payload: {
           path: targetPath,
-          label: isLeaderboard ? 'Xem Bảng Vàng Xếp Hạng' : 'Xem Lịch Sử Luyện Đề & Bloom',
+          label: isLeaderboard
+            ? 'Xem Bảng Vàng Xếp Hạng'
+            : 'Xem Lịch Sử Luyện Đề & Bloom',
         },
       });
     }
@@ -713,7 +832,11 @@ Quy tắc giao tiếp & trình bày:
     else {
       emotion = 'happy';
       message = `Tớ đã nắm được ý của bạn! Bạn cần tớ hỗ trợ chi tiết về bài tập, tạo ma trận đề thi phân hóa GDPT 2018, hay hướng dẫn các tính năng trên Schoolify nè? Nhắn cho tớ bất cứ điều gì bạn đang quan tâm nhé! 😊`;
-      suggestions = ['Tạo đề thi thích ứng ngay', 'Gợi ý giải bài tập Socratic', 'Xem các gói học sinh'];
+      suggestions = [
+        'Tạo đề thi thích ứng ngay',
+        'Gợi ý giải bài tập Socratic',
+        'Xem các gói học sinh',
+      ];
     }
 
     return {

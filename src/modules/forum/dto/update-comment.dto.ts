@@ -22,7 +22,10 @@ export class UpdateForumCommentDto {
   })
   @IsOptional()
   @IsArray({ message: 'attachments phải là một mảng chuỗi URL' })
-  @IsString({ each: true, message: 'Mỗi đường dẫn đính kèm phải là chuỗi ký tự' })
+  @IsString({
+    each: true,
+    message: 'Mỗi đường dẫn đính kèm phải là chuỗi ký tự',
+  })
   attachments?: string[] | null;
 
   @ApiPropertyOptional({
@@ -34,4 +37,3 @@ export class UpdateForumCommentDto {
   @IsString()
   authorId?: string;
 }
-

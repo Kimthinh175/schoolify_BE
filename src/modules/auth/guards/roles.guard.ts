@@ -1,4 +1,9 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { SystemRole } from '@prisma/client';
@@ -8,10 +13,9 @@ export class RolesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const requiredRoles = this.reflector.getAllAndOverride<(string | SystemRole)[]>(
-      ROLES_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const requiredRoles = this.reflector.getAllAndOverride<
+      (string | SystemRole)[]
+    >(ROLES_KEY, [context.getHandler(), context.getClass()]);
 
     if (!requiredRoles || requiredRoles.length === 0) {
       return true;
@@ -19,7 +23,9 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
     if (!user) {
-      throw new ForbiddenException('Bạn không có quyền truy cập tài nguyên này');
+      throw new ForbiddenException(
+        'Bạn không có quyền truy cập tài nguyên này',
+      );
     }
 
     // Kiểm tra SystemRole
@@ -44,6 +50,8 @@ export class RolesGuard implements CanActivate {
       }
     }
 
-    throw new ForbiddenException('Bạn không có quyền hạn cần thiết để thực hiện thao tác này');
+    throw new ForbiddenException(
+      'Bạn không có quyền hạn cần thiết để thực hiện thao tác này',
+    );
   }
 }

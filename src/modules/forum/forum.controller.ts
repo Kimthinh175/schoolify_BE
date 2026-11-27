@@ -71,7 +71,8 @@ export class ForumController {
   @ApiParam({
     name: 'postId',
     description: 'ID hoặc Slug của bài viết/câu hỏi trên diễn đàn',
-    example: 'toan-12-tim-m-de-ham-so-bac-ba-dong-bien-tren-khoang-0-duong-vo-cung',
+    example:
+      'toan-12-tim-m-de-ham-so-bac-ba-dong-bien-tren-khoang-0-duong-vo-cung',
   })
   @ApiBody({ type: CreateForumCommentDto })
   @ApiResponse({
@@ -81,11 +82,13 @@ export class ForumController {
   })
   @ApiResponse({
     status: 400,
-    description: 'Dữ liệu không hợp lệ hoặc cố gắng lồng bình luận vượt quá 2 cấp',
+    description:
+      'Dữ liệu không hợp lệ hoặc cố gắng lồng bình luận vượt quá 2 cấp',
   })
   @ApiResponse({
     status: 403,
-    description: 'Bài viết đã bị Admin khóa (is_locked = true), không thể bình luận',
+    description:
+      'Bài viết đã bị Admin khóa (is_locked = true), không thể bình luận',
   })
   @ApiResponse({
     status: 404,
@@ -123,7 +126,8 @@ export class ForumController {
   })
   @ApiResponse({
     status: 403,
-    description: 'Bài viết đã bị Admin khóa hoặc bạn không có quyền sửa bình luận này',
+    description:
+      'Bài viết đã bị Admin khóa hoặc bạn không có quyền sửa bình luận này',
   })
   @ApiResponse({
     status: 404,
@@ -157,7 +161,8 @@ export class ForumController {
   @ApiQuery({
     name: 'userId',
     required: false,
-    description: 'ID người thực hiện xóa (dùng khi test trên Swagger không kèm Bearer token)',
+    description:
+      'ID người thực hiện xóa (dùng khi test trên Swagger không kèm Bearer token)',
     example: 'seed-student-01',
   })
   @ApiResponse({

@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, ExtractJwt } from 'passport-jwt';
 import { Request } from 'express';
 import { UsersService } from '../../users/users.service';
+import { extractTokenFromRequest, isTokenRevoked } from '../token-blacklist';
 
 export interface JwtPayload {
   sub: string;
@@ -27,14 +28,24 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         ExtractJwt.fromAuthHeaderAsBearerToken(),
       ]),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'schoolify_super_secret_key_2026_local',
+      passReqToCallback: true,
+      secretOrKey:
+        process.env.JWT_SECRET || 'schoolify_super_secret_key_2026_local',
     });
   }
 
-  async validate(payload: JwtPayload) {
+  async validate(req: Request, payload: JwtPayload) {
+    const token = extractTokenFromRequest(req as any);
+    if (isTokenRevoked(token)) {
+      throw new UnauthorizedException(
+        'Phiên đăng nhập đã đăng xuất, vui lòng đăng nhập lại',
+      );
+    }
     const user = await this.usersService.findById(payload.sub);
     if (!user || !user.status) {
-      throw new UnauthorizedException('Tài khoản không tồn tại hoặc đã bị khóa');
+      throw new UnauthorizedException(
+        'Tài khoản không tồn tại hoặc đã bị khóa',
+      );
     }
     return user;
   }

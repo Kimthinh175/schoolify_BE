@@ -3,12 +3,13 @@ import {
   Post,
   Get,
   Body,
+  Req,
   Res,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -18,21 +19,30 @@ import {
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { GoogleLoginDto, SendOtpDto, VerifyOtpDto } from './dto/google-login.dto';
+import {
+  GoogleLoginDto,
+  SendOtpDto,
+  VerifyOtpDto,
+} from './dto/google-login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { extractTokenFromRequest, revokeToken } from './token-blacklist';
 
 @ApiTags('Authentication')
-@Controller('auth')
+@Controller(['auth', 'api/v1/auth'])
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
   @ApiOperation({
     summary: 'Đăng ký tài khoản mới',
-    description: 'Đăng ký tài khoản User và tự động gán HTTP-Only Cookie chứa access_token',
+    description:
+      'Đăng ký tài khoản User và tự động gán HTTP-Only Cookie chứa access_token',
   })
-  @ApiResponse({ status: 201, description: 'Đăng ký thành công, trả về thông tin user và set cookie' })
+  @ApiResponse({
+    status: 201,
+    description: 'Đăng ký thành công, trả về thông tin user và set cookie',
+  })
   @ApiResponse({ status: 400, description: 'Dữ liệu đầu vào không hợp lệ' })
   @ApiResponse({ status: 409, description: 'Email đã tồn tại' })
   async register(
@@ -44,6 +54,7 @@ export class AuthController {
     this.setTokenCookie(res, accessToken);
 
     return {
+      success: true,
       message: 'Đăng ký tài khoản thành công',
       user,
       accessToken,
@@ -54,9 +65,13 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Đăng nhập hệ thống',
-    description: 'Xác thực Email & Password, gán JWT token vào HTTP-Only Cookie "access_token"',
+    description:
+      'Xác thực Email & Password, gán JWT token vào HTTP-Only Cookie "access_token"',
   })
-  @ApiResponse({ status: 200, description: 'Đăng nhập thành công, trả về user và set cookie' })
+  @ApiResponse({
+    status: 200,
+    description: 'Đăng nhập thành công, trả về user và set cookie',
+  })
   @ApiResponse({ status: 401, description: 'Sai email hoặc mật khẩu' })
   async login(
     @Body() loginDto: LoginDto,
@@ -67,6 +82,7 @@ export class AuthController {
     this.setTokenCookie(res, accessToken);
 
     return {
+      success: true,
       message: 'Đăng nhập thành công',
       user,
       accessToken,
@@ -77,18 +93,21 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Đăng nhập / Đăng ký bằng Google OAuth2 (Ported từ src)',
-    description: 'Xác thực Google ID Token / OAuth2, tự động tạo hoặc liên kết User + Profile và cấp JWT cookie',
+    description:
+      'Xác thực Google ID Token / OAuth2, tự động tạo hoặc liên kết User + Profile và cấp JWT cookie',
   })
   @ApiResponse({ status: 200, description: 'Đăng nhập Google thành công' })
   async googleLogin(
     @Body() googleDto: GoogleLoginDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { user, accessToken, googleClientId } = await this.authService.googleLogin(googleDto);
+    const { user, accessToken, googleClientId } =
+      await this.authService.googleLogin(googleDto);
 
     this.setTokenCookie(res, accessToken);
 
     return {
+      success: true,
       message: 'Đăng nhập bằng Google thành công',
       user,
       accessToken,
@@ -119,6 +138,7 @@ export class AuthController {
     this.setTokenCookie(res, accessToken);
 
     return {
+      success: true,
       message: 'Xác thực OTP và đăng nhập thành công',
       user,
       accessToken,
@@ -131,8 +151,19 @@ export class AuthController {
     summary: 'Đăng xuất khỏi hệ thống',
     description: 'Xoá HTTP-Only Cookie "access_token" trên trình duyệt',
   })
-  @ApiResponse({ status: 200, description: 'Đăng xuất thành công, cookie đã được clear' })
-  async logout(@Res({ passthrough: true }) res: Response) {
+  @ApiResponse({
+    status: 200,
+    description: 'Đăng xuất thành công, cookie đã được clear',
+  })
+  async logout(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const token = extractTokenFromRequest(req as any);
+    if (token) {
+      revokeToken(token);
+    }
+
     res.clearCookie('access_token', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -141,6 +172,7 @@ export class AuthController {
     });
 
     return {
+      success: true,
       message: 'Đăng xuất thành công',
     };
   }
@@ -150,12 +182,17 @@ export class AuthController {
   @ApiCookieAuth('access_token')
   @ApiOperation({
     summary: 'Lấy thông tin tài khoản hiện tại (Profile)',
-    description: 'Đọc access_token từ HTTP-Only Cookie và trả về thông tin người dùng hiện tại',
+    description:
+      'Đọc access_token từ HTTP-Only Cookie và trả về thông tin người dùng hiện tại',
   })
   @ApiResponse({ status: 200, description: 'Trả về profile người dùng' })
-  @ApiResponse({ status: 401, description: 'Chưa đăng nhập hoặc token không hợp lệ' })
+  @ApiResponse({
+    status: 401,
+    description: 'Chưa đăng nhập hoặc token không hợp lệ',
+  })
   async getProfile(@CurrentUser() user: any) {
     return {
+      success: true,
       user: this.authService.sanitizeUser(user),
     };
   }
@@ -171,7 +208,11 @@ export class AuthController {
     @CurrentUser() user: any,
     @Body() body: { currentPassword?: string; newPassword?: string },
   ) {
-    return this.authService.changePassword(user.id, body?.currentPassword, body?.newPassword);
+    return this.authService.changePassword(
+      user.id,
+      body?.currentPassword,
+      body?.newPassword,
+    );
   }
 
   private setTokenCookie(res: Response, token: string) {
@@ -185,4 +226,3 @@ export class AuthController {
     });
   }
 }
-

@@ -221,7 +221,6 @@ model User {
   student_profile            StudentProfile?
   parent_profile             ParentProfile?
   custom_feature_requests    CustomFeatureRequest[]
-  notifications              Notification[]
   orders_purchased           Order[]                @relation("OrderBuyer")
   orders_sold                Order[]                @relation("OrderSeller")
   schools_owned              School[]               @relation("SchoolOwner")
@@ -284,6 +283,10 @@ model StudentProfile {
   user_id               String    @unique
   date_of_birth         DateTime?
   grade_level           String?
+  school_name           String?   @db.VarChar(255)
+  province              String?   @db.VarChar(120)
+  bio                   String?   @db.Text
+  equipped_frame        String?   @db.VarChar(120)
   points                Float     @default(0)
   exam_points           Int       @default(9)
   last_daily_grant_date String?   @db.VarChar(20)
@@ -870,13 +873,14 @@ model Transaction {
 
 model Notification {
   id         String   @id @default(uuid())
-  user_id    String
+  user_id    String   @db.VarChar(64)
+  type       String   @default("INFO") @db.VarChar(32)
+  category   String   @default("SYSTEM") @db.VarChar(64)
   title      String
-  message    String
+  message    String   @db.Text
+  link       String?  @db.VarChar(500)
   is_read    Boolean  @default(false)
   created_at DateTime @default(now())
-
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([is_read])

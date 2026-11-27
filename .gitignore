@@ -45,5 +45,6 @@ Thumbs.db
 # Ignore all markdown files per user rule
 *.md
 /docs/
+/uploads/
 /ipc/inbox/*.json
 /ipc/outbox/*.json
