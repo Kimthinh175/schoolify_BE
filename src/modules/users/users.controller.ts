@@ -10,10 +10,12 @@ import {
   UseGuards,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiCookieAuth, ApiBearerAuth } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
 import { UsersService } from './users.service';
+import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -22,7 +24,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 @ApiTags('Users')
 @ApiCookieAuth('access_token')
 @ApiBearerAuth()
-@Controller('users')
+@Controller(['users', 'api/v1/users'])
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
@@ -31,17 +33,20 @@ export class UsersController {
   @Roles(SystemRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Danh sách người dùng (Chỉ SUPER_ADMIN)' })
   @ApiQuery({ name: 'role', required: false })
+  @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   async findAll(
     @Query('role') role?: string,
+    @Query('status') status?: string,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     const result = await this.usersService.findAll({
       role,
+      status,
       search,
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 100,
@@ -86,7 +91,7 @@ export class UsersController {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
     const { password_hash, ...sanitized } = user;
-    return sanitized;
+    return this.usersService.formatUserItem(sanitized);
   }
 
   @Patch(':id')
@@ -95,30 +100,35 @@ export class UsersController {
   async update(
     @Param('id') id: string,
     @CurrentUser() currentUser: any,
-    @Body()
-    body: {
-      fullname?: string;
-      phone?: string;
-      avatar_url?: string;
-      status?: boolean;
-      points?: number;
-      grade_level?: string;
-      role?: 'SUPER_ADMIN' | 'STUDENT';
-    },
+    @Body() body: UpdateUserDto,
   ) {
     const isAdmin = currentUser?.role === SystemRole.SUPER_ADMIN;
     if (!isAdmin && currentUser?.id !== id) {
       throw new ForbiddenException('Bạn chỉ có quyền cập nhật thông tin tài khoản của chính mình');
     }
 
-    // Nếu không phải SUPER_ADMIN thì không được phép tự sửa role, status hoặc points
+    if (isAdmin && currentUser?.id === id && body.status === false) {
+      throw new BadRequestException('Không thể tự khóa tài khoản của chính mình');
+    }
+
+    // Nếu không phải SUPER_ADMIN thì không được phép tự sửa role, status hoặc points/exam_points/active_package
     const safeBody = isAdmin
       ? body
       : {
           fullname: body.fullname,
           phone: body.phone,
           avatar_url: body.avatar_url,
+          avatarUrl: body.avatarUrl,
+          date_of_birth: body.date_of_birth,
+          dateOfBirth: body.dateOfBirth,
           grade_level: body.grade_level,
+          gradeLevel: body.gradeLevel,
+          school_name: body.school_name,
+          schoolName: body.schoolName,
+          province: body.province,
+          bio: body.bio,
+          equipped_frame: body.equipped_frame,
+          equippedFrame: body.equippedFrame,
         };
 
     const updated = await this.usersService.updateUser(id, safeBody);

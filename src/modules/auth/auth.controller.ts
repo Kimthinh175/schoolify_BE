@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Body,
+  Req,
   Res,
   UseGuards,
   HttpCode,
@@ -21,6 +22,7 @@ import { LoginDto } from './dto/login.dto';
 import { GoogleLoginDto, SendOtpDto, VerifyOtpDto } from './dto/google-login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { extractTokenFromRequest, revokeToken } from './token-blacklist';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -132,7 +134,12 @@ export class AuthController {
     description: 'Xoá HTTP-Only Cookie "access_token" trên trình duyệt',
   })
   @ApiResponse({ status: 200, description: 'Đăng xuất thành công, cookie đã được clear' })
-  async logout(@Res({ passthrough: true }) res: Response) {
+  async logout(@Res({ passthrough: true }) res: Response, @Req() req?: any) {
+    const token = req ? extractTokenFromRequest(req) : null;
+    if (token) {
+      revokeToken(token);
+    }
+
     res.clearCookie('access_token', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

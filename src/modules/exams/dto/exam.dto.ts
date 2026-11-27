@@ -280,6 +280,10 @@ export class StartExamWithPointsDto {
   @IsNumber()
   grade?: number;
 
+  @ApiPropertyOptional({ description: 'ID chương đang mở luyện tập (tùy chọn)' })
+  @IsOptional()
+  chapterId?: number | string;
+
   @ApiPropertyOptional({ description: 'ID người dùng (tùy chọn nếu đã có JWT)' })
   @IsOptional()
   @IsString()

@@ -276,10 +276,31 @@ export class AuthService {
 
   sanitizeUser(user: any) {
     const { password_hash, ...sanitized } = user;
+    const sp = user.student_profile || null;
+    const appRole = user.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'STUDENT';
     return {
       ...sanitized,
+      appRole,
       avatarUrl: user.avatar_url,
       avatar: user.avatar_url,
+      date_of_birth: sp?.date_of_birth ?? null,
+      dateOfBirth: sp?.date_of_birth ?? null,
+      grade_level: sp?.grade_level || null,
+      gradeLevel: sp?.grade_level || null,
+      school_name: sp?.school_name || null,
+      schoolName: sp?.school_name || (appRole === 'SUPER_ADMIN' ? 'Nền Tảng Gốc Schoolify' : 'Học Sinh Toàn Quốc'),
+      province: sp?.province || null,
+      bio: sp?.bio || null,
+      equipped_frame: sp?.equipped_frame || null,
+      equippedFrame: sp?.equipped_frame || null,
+      points: sp?.points ?? 0,
+      exam_points: sp?.exam_points ?? 9,
+      examPoints: sp?.exam_points ?? 9,
+      last_daily_grant_date: sp?.last_daily_grant_date || null,
+      active_package: sp?.active_package || 'FREE',
+      activePackage: sp?.active_package || 'FREE',
+      package_expires_at: sp?.package_expires_at ?? null,
+      packageExpiresAt: sp?.package_expires_at ?? null,
     };
   }
 }
