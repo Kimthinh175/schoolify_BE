@@ -9,67 +9,91 @@ fs.mkdirSync(OUTBOX_DIR, { recursive: true });
 
 console.log('🚀 [Antigravity Live Bridge] Daemon started & listening on:', INBOX_DIR);
 
-function loadGeminiKeys() {
-  const envVal = process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEYS;
-  if (envVal) {
-    return envVal.split(',').map((k) => k.trim()).filter(Boolean);
+function readEnvList(envNames) {
+  for (const name of envNames) {
+    const envVal = process.env[name];
+    if (envVal && envVal.trim()) {
+      return envVal.split(',').map((v) => v.trim()).filter(Boolean);
+    }
   }
-  // Try loading from .env or cho-cong-nghe/.env
   const candidatePaths = [
     path.resolve(__dirname, '../.env'),
     '/home/thinh/ca-nhan/cho-cong-nghe/.env',
   ];
   for (const envPath of candidatePaths) {
-    if (fs.existsSync(envPath)) {
-      const content = fs.readFileSync(envPath, 'utf8');
-      const match = content.match(/GEMINI_API_KEY=["']?([^"'\r\n]+)["']?/);
+    if (!fs.existsSync(envPath)) continue;
+    const content = fs.readFileSync(envPath, 'utf8');
+    for (const name of envNames) {
+      const match = content.match(new RegExp(`^${name}=["']?([^"'\\r\\n]+)["']?`, 'm'));
       if (match && match[1]) {
-        return match[1].split(',').map((k) => k.trim()).filter(Boolean);
+        return match[1].split(',').map((v) => v.trim()).filter(Boolean);
       }
     }
   }
   return [];
 }
 
-const GEMINI_KEYS = loadGeminiKeys();
+function loadGeminiModels() {
+  const primary = readEnvList(['GEMINI_MODEL']);
+  const fallbacks = readEnvList(['GEMINI_FALLBACK_MODELS']);
+  return Array.from(new Set([...primary, ...fallbacks]));
+}
+
+const GEMINI_KEYS = readEnvList(['GEMINI_API_KEY', 'GEMINI_API_KEYS']);
+const GEMINI_MODELS = loadGeminiModels();
 let currentKeyIndex = 0;
 
 async function callGeminiLive(prompt) {
+  if (GEMINI_MODELS.length === 0) {
+    console.warn('[Gemini Config] Missing GEMINI_MODEL in .env');
+    return null;
+  }
   let attempts = GEMINI_KEYS.length;
   while (attempts > 0) {
     const key = GEMINI_KEYS[currentKeyIndex];
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 1024,
-            responseMimeType: 'application/json',
-          },
-        }),
-      });
+    for (const modelName of GEMINI_MODELS) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: modelName.startsWith('gemini-3')
+              ? {
+                  maxOutputTokens: 1024,
+                  responseMimeType: 'application/json',
+                  thinkingConfig: { thinkingLevel: 'LOW' },
+                }
+              : {
+                  temperature: 0.7,
+                  maxOutputTokens: 1024,
+                  responseMimeType: 'application/json',
+                },
+          }),
+        });
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} (${modelName})`);
+        }
 
-      const data = await res.json();
-      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (rawText) {
-        return rawText;
+        const data = await res.json();
+        const rawText = data?.candidates?.[0]?.content?.parts
+          ?.filter((p) => !p?.thought && typeof p?.text === 'string')
+          ?.map((p) => p.text)
+          .join('');
+        if (rawText) {
+          return rawText;
+        }
+        throw new Error(`Empty response from Gemini (${modelName})`);
+      } catch (err) {
+        console.warn(`[Gemini Rotation] Key ${currentKeyIndex + 1} (${modelName}) error: ${err.message}`);
       }
-      throw new Error('Empty response from Gemini');
-    } catch (err) {
-      console.warn(`[Gemini Rotation] Key ${currentKeyIndex + 1} error: ${err.message}. Rotating...`);
-      currentKeyIndex = (currentKeyIndex + 1) % GEMINI_KEYS.length;
-      attempts--;
-      if (attempts > 0) {
-        await new Promise((r) => setTimeout(r, 600));
-      }
+    }
+    currentKeyIndex = (currentKeyIndex + 1) % GEMINI_KEYS.length;
+    attempts--;
+    if (attempts > 0) {
+      await new Promise((r) => setTimeout(r, 600));
     }
   }
   return null;

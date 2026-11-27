@@ -57,17 +57,8 @@ export class ExamsController {
   })
   async generateMatrixExam(@Req() req: any, @Body() dto: GenerateMatrixExamDto) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId =
-      authUser?.id ||
-      req.user?.id ||
-      dto.userId ||
-      (req?.headers?.['x-user-id'] as string) ||
-      null;
-    const userRole =
-      authUser?.role ||
-      req.user?.role ||
-      (req?.headers?.['x-user-role'] as string) ||
-      undefined;
+    const userId = authUser?.id || null;
+    const userRole = authUser?.role;
     const data = await this.examsService.generateMatrixExam(userId, dto, userRole);
     return {
       success: true,
@@ -104,7 +95,7 @@ export class ExamsController {
   @ApiResponse({ status: 401, description: 'Chưa đăng nhập hoặc token hết hạn' })
   async createExamSubmission(@Req() req: any, @Body() dto: SubmitExamDto) {
     const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
-    const data = await this.examsService.submitExam(currentUser!.id, dto);
+    const data = await this.examsService.submitExam(currentUser!.id, dto, currentUser!.role);
     return {
       success: true,
       message: 'Nộp bài thi và chấm điểm thành công',
@@ -173,12 +164,12 @@ export class ExamsController {
 
   @Post('submit')
   @HttpCode(HttpStatus.CREATED)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Nộp bài thi, chấm điểm, lưu kết quả và tự động tính thưởng/phạt điểm làm đề' })
   @ApiResponse({ status: 201, description: 'Chấm điểm và nộp bài thành công' })
   async submitExam(@Req() req: any, @Body() dto: SubmitExamDto) {
-    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || dto.userId || null;
-    const data = await this.examsService.submitExam(userId, dto);
+    const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.submitExam(currentUser!.id, dto, currentUser!.role);
     return {
       success: true,
       message: 'Nộp bài thi và chấm điểm thành công',
@@ -216,10 +207,9 @@ export class ExamsController {
   @ApiOperation({
     summary: 'Lấy số dư điểm làm đề hôm nay (tự động cấp 9 điểm nếu sang ngày mới) & số bài có thể làm theo từng cấp độ',
   })
-  @ApiQuery({ name: 'userId', required: false })
-  async getExamPointBalance(@Req() req: any, @Query('userId') queryUserId?: string) {
+  async getExamPointBalance(@Req() req: any) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || queryUserId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.getExamPointBalance(userId);
     return {
       success: true,
@@ -234,7 +224,7 @@ export class ExamsController {
   })
   async claimDailyExamPoints(@Req() req: any, @Body() dto: DailyClaimPointsDto) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || dto?.userId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.claimDailyExamPoints(userId, dto || {});
     return {
       success: true,
@@ -249,7 +239,7 @@ export class ExamsController {
   })
   async startExamWithPoints(@Req() req: any, @Body() dto: StartExamWithPointsDto) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || dto.userId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.startExamWithPoints(userId, dto);
     return {
       success: true,
@@ -264,7 +254,7 @@ export class ExamsController {
   })
   async settleExamSubmissionPoints(@Req() req: any, @Body() dto: SettleExamPointsDto) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || dto.userId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.settleExamSubmissionPoints(userId, dto);
     return {
       success: true,
@@ -283,17 +273,9 @@ export class ExamsController {
       'Dành riêng cho ADMIN: Điều chỉnh trực tiếp số điểm Tia Sáng và Ngọc Tri Thức của bản thân hoặc học sinh',
   })
   async adminAdjustPoints(@Req() req: any, @Body() dto: AdminAdjustPointsDto) {
-    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userRole =
-      authUser?.role ||
-      req.user?.role ||
-      (req?.headers?.['x-user-role'] as string) ||
-      undefined;
-    const userId =
-      authUser?.id ||
-      req.user?.id ||
-      (req?.headers?.['x-user-id'] as string) ||
-      null;
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const userRole = authUser!.role;
+    const userId = authUser!.id;
 
     const data = await this.examsService.adminAdjustPoints(userId, userRole, dto);
     return {
@@ -308,16 +290,14 @@ export class ExamsController {
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
   @ApiQuery({ name: 'actionType', required: false })
-  @ApiQuery({ name: 'userId', required: false })
   async getExamPointHistory(
     @Req() req: any,
     @Query('page') page = '1',
     @Query('limit') limit = '20',
     @Query('actionType') actionType?: string,
-    @Query('userId') queryUserId?: string,
   ) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || queryUserId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.getExamPointHistory(
       userId,
       parseInt(page, 10),
@@ -332,10 +312,14 @@ export class ExamsController {
   }
 
   @Get('snapshots/:id')
-  @ApiOperation({ summary: 'Lấy chi tiết bài thi đã làm (Snapshot) để xem lại bài' })
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy chi tiết bài thi đã làm (Snapshot) để xem lại bài (Chống IDOR)' })
   @ApiResponse({ status: 200, description: 'Chi tiết bài thi snapshot' })
-  async getSnapshotById(@Param('id') id: string) {
-    const data = await this.examsService.getSnapshotById(id);
+  @ApiResponse({ status: 401, description: 'Chưa đăng nhập' })
+  @ApiResponse({ status: 403, description: 'Không phải chủ sở hữu bài thi' })
+  async getSnapshotById(@Req() req: any, @Param('id') id: string) {
+    const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.getSnapshotById(id, currentUser!);
     return {
       success: true,
       message: 'Lấy snapshot bài thi thành công',
@@ -344,7 +328,7 @@ export class ExamsController {
   }
 
   @Get('history')
-  @ApiOperation({ summary: 'Lấy danh sách lịch sử luyện đề' })
+  @ApiOperation({ summary: 'Lấy danh sách lịch sử luyện đề của người dùng đang đăng nhập' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 10 })
   @ApiResponse({ status: 200, description: 'Danh sách bài thi đã làm' })
@@ -354,7 +338,7 @@ export class ExamsController {
     @Query('limit') limit = '10',
   ) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId = authUser?.id || req.user?.id || req.query?.userId || null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.getPracticeHistory(
       userId,
       parseInt(page, 10),
@@ -367,10 +351,12 @@ export class ExamsController {
   }
 
   @Post('sync-offline')
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Đồng bộ hàng đợi các bài thi làm khi mất mạng (Offline Sync)' })
   @ApiResponse({ status: 200, description: 'Đồng bộ thành công' })
-  async syncOfflineSubmissions(@Body() dto: SyncOfflineSubmissionsDto) {
-    const data = await this.examsService.syncOfflineSubmissions(dto);
+  async syncOfflineSubmissions(@Req() req: any, @Body() dto: SyncOfflineSubmissionsDto) {
+    const currentUser = await this.examsService.resolveAuthenticatedUser(req, true);
+    const data = await this.examsService.syncOfflineSubmissions(currentUser!.id, dto);
     return {
       success: true,
       ...data,
@@ -498,20 +484,13 @@ export class ExamsController {
   })
   @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
   @ApiQuery({ name: 'grade', required: false, example: 12 })
-  @ApiQuery({ name: 'userId', required: false })
   async getKnowledgeProfile(
     @Req() req: any,
     @Query('subject') subject?: string,
     @Query('grade') grade?: string,
-    @Query('userId') queryUserId?: string,
   ) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId =
-      authUser?.id ||
-      req.user?.id ||
-      queryUserId ||
-      (req?.headers?.['x-user-id'] as string) ||
-      null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.getKnowledgeProfile(
       userId,
       subject || 'toan-hoc',
@@ -531,20 +510,13 @@ export class ExamsController {
   })
   @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
   @ApiQuery({ name: 'grade', required: false, example: 12 })
-  @ApiQuery({ name: 'userId', required: false })
   async getPersonalizedRoadmap(
     @Req() req: any,
     @Query('subject') subject?: string,
     @Query('grade') grade?: string,
-    @Query('userId') queryUserId?: string,
   ) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId =
-      authUser?.id ||
-      req.user?.id ||
-      queryUserId ||
-      (req?.headers?.['x-user-id'] as string) ||
-      null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.getPersonalizedRoadmap(
       userId,
       subject || 'toan-hoc',
@@ -565,12 +537,7 @@ export class ExamsController {
   })
   async submitRemediationResult(@Req() req: any, @Body() dto: SubmitRemediationDto) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId =
-      authUser?.id ||
-      req.user?.id ||
-      dto.userId ||
-      (req?.headers?.['x-user-id'] as string) ||
-      null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.submitRemediationResult(userId, dto);
     return {
       success: true,
@@ -590,12 +557,7 @@ export class ExamsController {
     @Body() dto: RecordQuickDrillBehaviorDto,
   ) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId =
-      authUser?.id ||
-      req.user?.id ||
-      dto.userId ||
-      (req?.headers?.['x-user-id'] as string) ||
-      null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.recordQuickDrillBehavior(userId, dto);
     return {
       success: true,
@@ -612,21 +574,14 @@ export class ExamsController {
   @ApiQuery({ name: 'subject', required: false, example: 'toan-hoc' })
   @ApiQuery({ name: 'grade', required: false, example: 12 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
-  @ApiQuery({ name: 'userId', required: false })
   async getBehaviorHistory(
     @Req() req: any,
     @Query('subject') subject?: string,
     @Query('grade') grade?: string,
     @Query('limit') limit?: string,
-    @Query('userId') queryUserId?: string,
   ) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId =
-      authUser?.id ||
-      req.user?.id ||
-      queryUserId ||
-      (req?.headers?.['x-user-id'] as string) ||
-      null;
+    const userId = authUser?.id || null;
     const data = await this.examsService.getBehaviorHistory(
       userId,
       subject,
@@ -656,16 +611,8 @@ export class ExamsController {
     @Query('grade') grade?: string,
   ) {
     const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
-    const userId =
-      authUser?.id ||
-      req.user?.id ||
-      (req?.headers?.['x-user-id'] as string) ||
-      null;
-    const userRole =
-      authUser?.role ||
-      req.user?.role ||
-      (req?.headers?.['x-user-role'] as string) ||
-      undefined;
+    const userId = authUser?.id || null;
+    const userRole = authUser?.role;
     const parsedGrade = grade ? Number(grade) : undefined;
     const data = await this.examsService.getDiagnosticStatus(
       userId,
@@ -760,8 +707,10 @@ export class ExamsController {
   }
 
   @Get('question-reports')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Danh sách báo cáo sai sót câu hỏi (lọc theo trạng thái & từ khóa)' })
+  @ApiOperation({ summary: 'Danh sách báo cáo sai sót câu hỏi (Admin)' })
   @ApiQuery({ name: 'status', required: false, enum: ['ALL', 'PENDING', 'RESOLVED'] })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'page', required: false, example: 1 })
@@ -843,9 +792,9 @@ export class ExamPointsController {
 
   @Get('balance')
   @ApiOperation({ summary: 'Lấy số dư điểm làm đề hôm nay & hạn mức bài thi theo từng cấp độ' })
-  @ApiQuery({ name: 'userId', required: false })
-  async getBalance(@Req() req: any, @Query('userId') queryUserId?: string) {
-    const userId = req.user?.id || queryUserId || null;
+  async getBalance(@Req() req: any) {
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
     const data = await this.examsService.getExamPointBalance(userId);
     return {
       success: true,
@@ -857,7 +806,8 @@ export class ExamPointsController {
   @Post('daily-claim')
   @ApiOperation({ summary: 'Phát / Reset 9 điểm làm đề hàng ngày' })
   async claimDaily(@Req() req: any, @Body() dto: DailyClaimPointsDto) {
-    const userId = req.user?.id || dto?.userId || null;
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
     const data = await this.examsService.claimDailyExamPoints(userId, dto || {});
     return {
       success: true,
@@ -869,7 +819,8 @@ export class ExamPointsController {
   @Post('start-exam')
   @ApiOperation({ summary: 'Kiểm tra và trừ điểm khi bắt đầu làm đề (Cơ bản: -3đ, Trung bình: -4đ, Giỏi: -9đ)' })
   async startExam(@Req() req: any, @Body() dto: StartExamWithPointsDto) {
-    const userId = req.user?.id || dto.userId || null;
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
     const data = await this.examsService.startExamWithPoints(userId, dto);
     return {
       success: true,
@@ -881,7 +832,8 @@ export class ExamPointsController {
   @Post('settle-submission')
   @ApiOperation({ summary: 'Tính thưởng / phạt điểm sau khi hoàn thành đề (< 5đ: -1đ | 5 - 8.5đ: 0đ | 8.5 - 9.9đ: +1đ | 10đ: +2đ)' })
   async settleSubmission(@Req() req: any, @Body() dto: SettleExamPointsDto) {
-    const userId = req.user?.id || dto.userId || null;
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
     const data = await this.examsService.settleExamSubmissionPoints(userId, dto);
     return {
       success: true,
@@ -895,15 +847,14 @@ export class ExamPointsController {
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
   @ApiQuery({ name: 'actionType', required: false })
-  @ApiQuery({ name: 'userId', required: false })
   async getHistory(
     @Req() req: any,
     @Query('page') page = '1',
     @Query('limit') limit = '20',
     @Query('actionType') actionType?: string,
-    @Query('userId') queryUserId?: string,
   ) {
-    const userId = req.user?.id || queryUserId || null;
+    const authUser = await this.examsService.resolveAuthenticatedUser(req, false);
+    const userId = authUser?.id || null;
     const data = await this.examsService.getExamPointHistory(
       userId,
       parseInt(page, 10),

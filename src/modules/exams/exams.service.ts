@@ -499,45 +499,40 @@ export class ExamsService {
       return null;
     }
 
-    const headerUserId =
-      (req?.headers?.['x-user-id'] as string | undefined)?.trim() || undefined;
-    const headerUserRole =
-      (req?.headers?.['x-user-role'] as string | undefined)?.trim()?.toUpperCase() || undefined;
-
-    // 1. Hỗ trợ các token phiên đăng nhập trên Frontend (mock-*-token) kèm định danh người dùng
-    const mockTokenRoleMap: Record<string, { defaultId: string; role: string }> = {
-      'mock-student-token': { defaultId: 'usr-student-01', role: 'STUDENT' },
-      'mock-google-student-token': { defaultId: 'usr-student-01', role: 'STUDENT' },
-      'mock-jwt-token': { defaultId: 'usr-student-01', role: 'STUDENT' },
-      'mock-teacher-token': { defaultId: 'usr-teacher-01', role: 'TEACHER' },
-      'mock-google-token': { defaultId: 'usr-teacher-01', role: 'TEACHER' },
-      'mock-parent-token': { defaultId: 'usr-parent-01', role: 'PARENT' },
-      'mock-school-token': { defaultId: 'usr-principal-01', role: 'PRINCIPAL' },
-      'mock-google-school-token': { defaultId: 'usr-principal-01', role: 'PRINCIPAL' },
-      'mock-super-admin-token-2026': { defaultId: 'usr-admin-01', role: 'SUPER_ADMIN' },
-    };
+    // 1. Chỉ hỗ trợ mock token trong môi trường Automated Test (tuyệt đối khóa trên dev/production)
+    const mockTokenRoleMap: Record<string, { defaultId: string; role: string }> =
+      process.env.NODE_ENV === 'test'
+        ? {
+            'mock-student-token': { defaultId: 'usr-student-01', role: 'STUDENT' },
+            'mock-super-admin-token-2026': { defaultId: 'usr-admin-01', role: 'SUPER_ADMIN' },
+          }
+        : {};
 
     if (mockTokenRoleMap[token]) {
       const mapped = mockTokenRoleMap[token];
-      const uid = headerUserId || mapped.defaultId;
-      const urole = headerUserRole || mapped.role;
-      return this.enrichAuthenticatedUser(uid, urole);
+      return this.enrichAuthenticatedUser(mapped.defaultId, mapped.role);
     }
 
     // 2. Xác thực chuẩn JWT (HS256)
     const payload = this.verifyJwtToken(token);
     if (!payload) {
-      throw new UnauthorizedException(
-        'Access token không hợp lệ hoặc phiên đăng nhập đã hết hạn (401 Unauthorized).',
-      );
+      if (requireStrictAuth) {
+        throw new UnauthorizedException(
+          'Access token không hợp lệ hoặc phiên đăng nhập đã hết hạn (401 Unauthorized).',
+        );
+      }
+      return null;
     }
 
-    const userId = String(payload.sub || payload.id || payload.userId || headerUserId || '');
+    const userId = String(payload.sub || payload.id || '');
     if (!userId) {
-      throw new UnauthorizedException('Token không chứa định danh người dùng hợp lệ (401 Unauthorized).');
+      if (requireStrictAuth) {
+        throw new UnauthorizedException('Token không chứa định danh người dùng hợp lệ (401 Unauthorized).');
+      }
+      return null;
     }
 
-    const roleFromJwt = String(payload.role || headerUserRole || 'STUDENT').toUpperCase();
+    const roleFromJwt = String(payload.role || 'USER').toUpperCase();
     return this.enrichAuthenticatedUser(userId, roleFromJwt, payload.linkedStudentIds);
   }
 
@@ -600,14 +595,7 @@ export class ExamsService {
       };
     }
 
-    const isTeacher = fallbackRole.toUpperCase() === 'TEACHER';
-    const isParent = fallbackRole.toUpperCase() === 'PARENT';
-    const linkedStudentIds = Array.isArray(jwtLinkedStudentIds) ? jwtLinkedStudentIds : [];
-
-    let resolvedRole = String(dbUser.role || fallbackRole).toUpperCase();
-    if (resolvedRole === 'USER' && fallbackRole && fallbackRole.toUpperCase() !== 'USER') {
-      resolvedRole = fallbackRole.toUpperCase();
-    }
+    const resolvedRole = String(dbUser.role || 'USER').toUpperCase();
 
     return {
       id: dbUser.id,
@@ -615,9 +603,9 @@ export class ExamsService {
       fullname: dbUser.fullname,
       role: resolvedRole,
       schoolRoles: [resolvedRole],
-      isTeacher,
-      isParent,
-      linkedStudentIds,
+      isTeacher: false,
+      isParent: false,
+      linkedStudentIds: Array.isArray(jwtLinkedStudentIds) ? jwtLinkedStudentIds : [],
     };
   }
 
@@ -729,17 +717,12 @@ export class ExamsService {
     } = dto;
 
     // 0. BẢO MẬT & KIỂM TRA ĐIỂM NĂNG LƯỢNG TẠI BACKEND (SERVER-SIDE POINT ENFORCEMENT)
-    // - Giáo viên (TEACHER), Quản trị viên (ADMIN / SUPER_ADMIN) hoặc cờ skipPointCheck được miễn phí kiểm tra điểm
-    // - Học sinh (STUDENT, USER) hoặc Khách (GUEST) bắt buộc phải có đủ điểm làm đề (Cơ bản: 3đ, Trung bình: 4đ, Giỏi: 9đ)
+    // Chỉ SUPER_ADMIN / ADMIN từ JWT đã xác thực mới được miễn kiểm tra điểm; không tin dto.skipPointCheck từ client.
     const normRole = String(userRole || '').trim().toUpperCase();
-    const isPrivileged =
-      normRole === 'ADMIN' ||
-      normRole === 'SUPER_ADMIN' ||
-      normRole === 'TEACHER' ||
-      dto.skipPointCheck === true;
+    const isPrivileged = normRole === 'ADMIN' || normRole === 'SUPER_ADMIN';
 
     if (!isPrivileged) {
-      const effectiveUserId = userId || dto.userId || null;
+      const effectiveUserId = userId || null;
       const profile = await this.getOrInitStudentProfile(
         effectiveUserId,
         grade ? Number(grade) : 12,
@@ -1512,7 +1495,7 @@ export class ExamsService {
    * lưu ExamSubmission và tự động cộng/trừ điểm làm đề
    * (< 5đ: -1đ | 5 - 8.5đ: 0đ | 8.5 - 9.9đ: +1đ | 10đ: +2đ)
    */
-  async submitExam(userId: string | null, dto: SubmitExamDto) {
+  async submitExam(userId: string | null, dto: SubmitExamDto, callerRole?: string) {
     const {
       sessionId,
       attemptToken: clientAttemptToken,
@@ -1530,7 +1513,7 @@ export class ExamsService {
 
     const resolvedSessionId = sessionId || `SES-${Date.now()}`;
     const safeTimeSpent = Math.max(0, Number(timeSpentSeconds ?? 0));
-    const effectiveUserId = userId || dto.userId || snapshotData?.userId || null;
+    const effectiveUserId = userId || null;
     const studentProfile = await this.getOrInitStudentProfile(effectiveUserId, grade);
     const studentProfileId = studentProfile.id;
     const ownerUserId = studentProfile.user_id;
@@ -1575,7 +1558,7 @@ export class ExamsService {
     let wrongCount = 0;
     const details: any[] = [];
 
-    // 1. Chấm trắc nghiệm Multiple Choice (4 chọn 1)
+    // 1. Chấm trắc nghiệm 1 đáp án (SINGLE_CHOICE) & Nhiều đáp án (MULTIPLE_CHOICE)
     for (const [qId, ansId] of Object.entries(normalizedAnswers.multipleChoices)) {
       const question = await this.prisma.question.findUnique({
         where: { id: qId },
@@ -1583,13 +1566,29 @@ export class ExamsService {
       });
 
       if (question) {
-        const correctAns = question.answers.find((a) => a.is_answer);
-        const isCorrect = Boolean(
-          correctAns && (correctAns.id === ansId || correctAns.sub_label === ansId),
-        );
+        const correctChoices = question.answers.filter((a) => a.is_answer);
+        let isCorrect = false;
+        if (question.question_format === QuestionFormat.MULTI_CHOICE && correctChoices.length > 1) {
+          const selectedTokens = String(ansId || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          const expectedIds = new Set(correctChoices.map((a) => a.id));
+          const expectedLabels = new Set(correctChoices.map((a) => a.sub_label).filter(Boolean));
+          isCorrect =
+            selectedTokens.length === correctChoices.length &&
+            (selectedTokens.every((t) => expectedIds.has(t)) ||
+              selectedTokens.every((t) => expectedLabels.has(t)));
+        } else {
+          const correctAns = correctChoices[0];
+          isCorrect = Boolean(
+            correctAns && (correctAns.id === ansId || correctAns.sub_label === ansId),
+          );
+        }
         if (isCorrect) correctCount++;
         else wrongCount++;
 
+        const maxWeight = Number(question.default_points || 0.25);
         details.push({
           questionId: qId,
           questionFormat: question.question_format || 'SINGLE_CHOICE',
@@ -1602,9 +1601,10 @@ export class ExamsService {
             question.trap_tag ||
             this.getTrapTagByContext(question.bloom_level, question.subject),
           isCorrect,
-          pointsEarned: isCorrect ? Number(question.default_points || 0.25) : 0,
+          pointsEarned: isCorrect ? maxWeight : 0,
+          maxPoints: maxWeight,
           selectedAnswerId: ansId,
-          correctAnswerId: correctAns?.id || null,
+          correctAnswerId: correctChoices.map((a) => a.id).join(',') || null,
           explanation: question.explanation,
         });
       }
@@ -1630,6 +1630,7 @@ export class ExamsService {
         else wrongCount++;
 
         const tfPointsMap: Record<number, number> = { 0: 0, 1: 0.1, 2: 0.25, 3: 0.5, 4: 1.0 };
+        const earned = tfPointsMap[matchedSubCount] ?? 0;
         details.push({
           questionId: qId,
           questionFormat: 'TRUE_FALSE',
@@ -1643,7 +1644,8 @@ export class ExamsService {
             this.getTrapTagByContext(question.bloom_level, question.subject),
           isCorrect: isAllCorrect,
           matchedSubCount,
-          pointsEarned: tfPointsMap[matchedSubCount] ?? 0,
+          pointsEarned: earned,
+          maxPoints: 1.0,
           subAnswers: subMap,
           explanation: question.explanation,
         });
@@ -1673,6 +1675,7 @@ export class ExamsService {
         if (isCorrect) correctCount++;
         else wrongCount++;
 
+        const maxWeight = Number(question.default_points || 0.5);
         details.push({
           questionId: qId,
           questionFormat: question.question_format || 'SHORT_ANSWER',
@@ -1685,7 +1688,8 @@ export class ExamsService {
             question.trap_tag ||
             this.getTrapTagByContext(question.bloom_level, question.subject),
           isCorrect,
-          pointsEarned: isCorrect ? Number(question.default_points || 0.5) : 0,
+          pointsEarned: isCorrect ? maxWeight : 0,
+          maxPoints: maxWeight,
           studentTextAnswer: studentText,
           expectedAnswer: question.answer || null,
           explanation: question.explanation,
@@ -1693,24 +1697,20 @@ export class ExamsService {
       }
     }
 
-    // Nếu câu hỏi đến từ đề trên Frontend (chưa lưu từng questionId trong bảng questions),
-    // vẫn tính số câu đúng/sai từ snapshotData hoặc số câu trả lời gửi lên
+    // Nếu câu hỏi đến từ đề cục bộ chưa đồng bộ vào bảng questions, KHÔNG tự gán đúng 100% đáp án
     if (correctCount === 0 && wrongCount === 0) {
       const snapOrig = snapshotData?.originalExam || snapshotData;
       if (snapOrig && typeof snapOrig.correctCount === 'number') {
-        correctCount = Number(snapOrig.correctCount);
-        wrongCount = Number(
-          snapOrig.wrongCount ?? Math.max(0, Number(snapOrig.totalQuestions || 0) - correctCount),
-        );
+        const declaredTotal = Math.max(1, Number(snapOrig.totalQuestions || 1));
+        correctCount = Math.max(0, Math.min(declaredTotal, Number(snapOrig.correctCount)));
+        wrongCount = Math.max(0, declaredTotal - correctCount);
       } else {
         const totalSubmittedCount =
           Object.keys(normalizedAnswers.multipleChoices).length +
           Object.keys(normalizedAnswers.trueFalseAnswers).length +
           Object.keys(normalizedAnswers.shortAnswers).length;
-        if (totalSubmittedCount > 0) {
-          correctCount = totalSubmittedCount;
-          wrongCount = 0;
-        }
+        correctCount = 0;
+        wrongCount = totalSubmittedCount;
       }
     }
 
@@ -1720,21 +1720,31 @@ export class ExamsService {
         correctCount + wrongCount,
     );
 
-    const userRole = (studentProfile as any)?.role || '';
-    const isTeacherOrAdmin = userRole === 'TEACHER' || userRole === 'SUPER_ADMIN';
+    const normalizedCallerRole = String(callerRole || (studentProfile as any)?.role || '').toUpperCase();
+    const isAdminCaller = normalizedCallerRole === 'SUPER_ADMIN' || normalizedCallerRole === 'ADMIN';
 
-    // Anti-Cheat: Chấm điểm thực tế từ cơ sở dữ liệu nếu có câu hỏi được tìm thấy
+    // Anti-Cheat: Chấm điểm thực tế từ cơ sở dữ liệu (hỗ trợ cộng điểm thành phần câu Đúng/Sai GDPT 2018)
     const gradedFromDb = details.length > 0;
-    let score = Number(((correctCount / totalQuestions) * 10).toFixed(2));
+    let score = 0;
 
     if (gradedFromDb) {
-      // Khi đã chấm được trực tiếp từ DB: chỉ cho phép giáo viên/admin can thiệp điểm số thủ công
-      if (isTeacherOrAdmin && scoreOverride !== undefined && scoreOverride !== null && !Number.isNaN(Number(scoreOverride))) {
+      const hasTrueFalse = details.some((d) => d.questionFormat === 'TRUE_FALSE');
+      if (hasTrueFalse) {
+        const totalEarned = details.reduce((s, d) => s + Number(d.pointsEarned || 0), 0);
+        const avgMax =
+          details.reduce((s, d) => s + Number(d.maxPoints || 1), 0) / Math.max(1, details.length);
+        const totalMax = details.reduce((s, d) => s + Number(d.maxPoints || 1), 0) +
+          Math.max(0, totalQuestions - details.length) * avgMax;
+        score = totalMax > 0 ? Number(Math.min(10, (totalEarned / totalMax) * 10).toFixed(2)) : 0;
+      } else {
+        score = Number(((correctCount / totalQuestions) * 10).toFixed(2));
+      }
+      if (isAdminCaller && scoreOverride !== undefined && scoreOverride !== null && !Number.isNaN(Number(scoreOverride))) {
         score = Math.max(0, Math.min(10, Number(Number(scoreOverride).toFixed(2))));
       }
     } else {
-      // Nếu là đề local/offline chưa đồng bộ câu hỏi vào DB
-      if (scoreOverride !== undefined && scoreOverride !== null && !Number.isNaN(Number(scoreOverride))) {
+      // Đề cục bộ chưa có câu hỏi trong DB: chỉ Admin mới được override; student dùng điểm snapshot hợp lệ nhưng KHÔNG thưởng Ngọc
+      if (isAdminCaller && scoreOverride !== undefined && scoreOverride !== null && !Number.isNaN(Number(scoreOverride))) {
         score = Math.max(0, Math.min(10, Number(Number(scoreOverride).toFixed(2))));
       } else if (
         snapshotData?.originalExam &&
@@ -1910,15 +1920,17 @@ export class ExamsService {
       } catch {}
     }
 
-    // Tự động tính toán thưởng/phạt điểm làm đề sau khi nộp bài
-    const pointSettlement = await this.settleExamSubmissionPoints(ownerUserId, {
-      score,
-      level: resolvedLevelCode,
-      examTitle: resolvedTitle,
-      submissionId: submission.id,
-      sessionId: resolvedSessionId,
-      deductEntryCost: Boolean(deductEntryCost),
-    });
+    // Tự động tính toán thưởng/phạt điểm làm đề sau khi nộp bài (chỉ tính thưởng Ngọc khi chấm xác thực từ DB)
+    const pointSettlement = gradedFromDb
+      ? await this.settleExamSubmissionPoints(ownerUserId, {
+          score,
+          level: resolvedLevelCode,
+          examTitle: resolvedTitle,
+          submissionId: submission.id,
+          sessionId: resolvedSessionId,
+          deductEntryCost: Boolean(deductEntryCost),
+        })
+      : null;
 
     return {
       attemptToken,
@@ -2086,9 +2098,9 @@ export class ExamsService {
   }
 
   /**
-   * Lấy chi tiết bài thi đã làm (Snapshot theo ID hoặc attemptToken)
+   * Lấy chi tiết bài thi đã làm (Snapshot theo ID hoặc attemptToken) kèm bảo vệ chống IDOR
    */
-  async getSnapshotById(idOrToken: string) {
+  async getSnapshotById(idOrToken: string, currentUser?: AuthenticatedExamUser) {
     const submission = await this.prisma.examSubmission.findFirst({
       where: {
         OR: [{ attempt_token: idOrToken }, { id: idOrToken }],
@@ -2104,10 +2116,25 @@ export class ExamsService {
       throw new NotFoundException(`Không tìm thấy bài thi với mã: ${idOrToken}`);
     }
 
+    const snap = (submission.snapshot_data || {}) as Record<string, any>;
+    const submissionOwnerUserId = submission.student?.user_id || snap.userId || null;
+    const isAdmin =
+      currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN';
+    const isOwner =
+      Boolean(currentUser?.id) &&
+      Boolean(submissionOwnerUserId) &&
+      currentUser!.id === submissionOwnerUserId;
+
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException(
+        'Truy cập bị từ chối (403 Forbidden): Bạn không phải chủ sở hữu bài thi này.',
+      );
+    }
+
     return {
       id: submission.id,
       attemptToken: submission.attempt_token,
-      userId: submission.student?.user_id,
+      userId: submissionOwnerUserId,
       examTitle: submission.exam_title,
       score: Number(submission.score),
       totalPoints: Number(submission.total_points),
@@ -2124,15 +2151,34 @@ export class ExamsService {
   async getPracticeHistory(userId: string | null, page = 1, limit = 10) {
     const skip = (page - 1) * limit;
 
-    let studentProfileId: string | undefined;
-    if (userId) {
-      const student = await this.prisma.studentProfile.findUnique({
-        where: { user_id: userId },
-      });
-      studentProfileId = student?.id;
+    if (!userId) {
+      return {
+        items: [],
+        pagination: {
+          totalItems: 0,
+          page,
+          limit,
+          totalPages: 0,
+        },
+      };
     }
 
-    const where = studentProfileId ? { student_id: studentProfileId } : {};
+    const student = await this.prisma.studentProfile.findUnique({
+      where: { user_id: userId },
+    });
+    if (!student?.id) {
+      return {
+        items: [],
+        pagination: {
+          totalItems: 0,
+          page,
+          limit,
+          totalPages: 0,
+        },
+      };
+    }
+
+    const where = { student_id: student.id };
 
     const [total, submissions] = await Promise.all([
       this.prisma.examSubmission.count({ where }),
@@ -2166,14 +2212,14 @@ export class ExamsService {
   }
 
   /**
-   * Đồng bộ bài thi offline lên server
+   * Đồng bộ bài thi offline lên server (gắn chặt userId đã xác thực)
    */
-  async syncOfflineSubmissions(dto: SyncOfflineSubmissionsDto) {
+  async syncOfflineSubmissions(userId: string, dto: SyncOfflineSubmissionsDto) {
     const syncedIds: string[] = [];
 
     for (const item of dto.submissions) {
       try {
-        await this.submitExam(null, {
+        await this.submitExam(userId, {
           sessionId: item.sessionId || `SES-OFFLINE-${Date.now()}`,
           examId: item.examId,
           examTitle: item.examTitle,

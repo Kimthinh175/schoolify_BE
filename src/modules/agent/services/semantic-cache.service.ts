@@ -70,9 +70,12 @@ export class SemanticCacheService implements OnModuleInit {
       .trim();
 
     const tokens = normalized.split(' ').filter(Boolean);
-    // Base bias so cosine similarity stays in a realistic [0.65, 1.0] range like multilingual-e5-large
+    if (tokens.length === 0) {
+      return new Array<number>(dim).fill(0);
+    }
+    // Slight baseline bias so unrelated short queries stay well separated while identical phrases hit >= 0.96
     for (let i = 0; i < 64; i++) {
-      vec[i] = 0.25;
+      vec[i] = 0.06;
     }
 
     const addFeature = (feature: string, weight: number) => {
@@ -176,8 +179,16 @@ export class SemanticCacheService implements OnModuleInit {
 
       let bestMatch: (typeof cachedRecords)[0] | null = null;
       let maxSim = -1;
+      const nowMs = Date.now();
 
       for (const record of cachedRecords) {
+        const ttlDays = Number(record.ttl_days ?? 7);
+        if (ttlDays > 0 && record.created_at) {
+          const expiresAtMs = new Date(record.created_at).getTime() + ttlDays * 24 * 60 * 60 * 1000;
+          if (nowMs > expiresAtMs) {
+            continue;
+          }
+        }
         const recordVec = record.query_vector as number[];
         const sim = this.cosineSimilarity(queryVector, recordVec);
         if (sim > maxSim) {

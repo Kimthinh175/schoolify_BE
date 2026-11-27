@@ -33,8 +33,11 @@ import { AntigravityIpcBridgeService } from './services/antigravity-ipc-bridge.s
 import { DocxExamGeneratorService } from './services/docx-exam-generator.service';
 import { ChatMemoryService } from './services/chat-memory.service';
 import { PrismaService } from '../../database/prisma.service';
+import { SystemRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @ApiTags('AI Agent & Semantic Intelligence (Trợ lý Tác nhân & Đối soát Ngữ nghĩa)')
@@ -163,6 +166,7 @@ export class AgentController {
   }
 
   @Post('semantic-checkpoint')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Chấm điểm đối soát ngữ nghĩa bán tự động (Tự luận / Điền từ ngắn)',
     description:
@@ -262,9 +266,18 @@ export class AgentController {
           Array.isArray(dto.history) ? (dto.history as any) : [],
         );
 
-    // Nếu đang có ngữ cảnh dang dở cần nối tiếp, không lấy từ cache tĩnh mà gọi thẳng Gemini để viết nối tiếp
+    // Chỉ dùng Semantic Cache toàn cục cho câu hỏi độc lập (không phụ thuộc ngữ cảnh đề thi / hội thoại trước đó)
+    const hasConversationHistory = Array.isArray(dto.history) && dto.history.length > 0;
+    const hasQuestionContext = Boolean(
+      dto.questionContext && (dto.questionContext.questionId || dto.questionContext.content),
+    );
     const isSubstantiveQuery =
-      !isSocraticTopicHint && !isGuest && !pendingInterruptedContext && dto.message.trim().length >= 14;
+      !isSocraticTopicHint &&
+      !isGuest &&
+      !pendingInterruptedContext &&
+      !hasConversationHistory &&
+      !hasQuestionContext &&
+      dto.message.trim().length >= 14;
     const cacheResult = isSubstantiveQuery
       ? await this.cacheService.findInCache(dto.message, dto.subject, dto.grade)
       : { hit: false };
@@ -631,7 +644,8 @@ export class AgentController {
   }
 
   @Post('docx-scan-generate')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiOperation({
@@ -658,7 +672,8 @@ export class AgentController {
   }
 
   @Post('docx-check-duplicates')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiOperation({
     summary: 'Kiểm tra câu hỏi trùng lặp hoặc xung đột đáp án trong lô nhập và với PostgreSQL',
   })
@@ -672,7 +687,8 @@ export class AgentController {
   }
 
   @Post('docx-save-to-bank')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiOperation({
     summary: 'Lưu các câu hỏi AI đã sinh từ đề .docx vào Ngân hàng câu hỏi PostgreSQL',
   })
@@ -687,6 +703,8 @@ export class AgentController {
   }
 
   @Get('cache-stats')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Xem thống kê hiệu suất của Semantic Cache' })
   async getCacheStats() {
     const data = await this.cacheService.getStats();

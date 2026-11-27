@@ -34,7 +34,7 @@ export class AntigravityIpcBridgeService {
 
   /**
    * Đã ngắt hoàn toàn cổng IPC file bridge nội bộ theo yêu cầu —
-   * Toàn bộ tác vụ AI sử dụng trực tiếp cụm khóa Google Gemini 2.5 Flash API (Multi-Key Rotation).
+   * Toàn bộ tác vụ AI sử dụng trực tiếp cụm khóa Google Gemini API (cấu hình model qua GEMINI_MODEL trong .env).
    */
   async requestLiveAntigravity<T>(
     _jobId: string,
@@ -179,8 +179,17 @@ export class AntigravityIpcBridgeService {
     return (process.env.GEMINI_API_KEY || '').trim();
   }
 
+  private getConfiguredGeminiModels(): string[] {
+    const primaryModel = (process.env.GEMINI_MODEL || '').trim();
+    const fallbackModels = (process.env.GEMINI_FALLBACK_MODELS || '')
+      .split(',')
+      .map((m) => m.trim())
+      .filter(Boolean);
+    return Array.from(new Set([primaryModel, ...fallbackModels].filter(Boolean)));
+  }
+
   /**
-   * Gọi trực tiếp Google Gemini Flash API qua GEMINI_API_KEY từ biến môi trường
+   * Gọi trực tiếp Google Gemini Flash API qua GEMINI_API_KEY & GEMINI_MODEL từ biến môi trường
    * và truyền ngữ cảnh hội thoại đã nén Vector
    */
   private async callRealGeminiApi(
@@ -190,6 +199,14 @@ export class AntigravityIpcBridgeService {
   ): Promise<AgentResponseResult | null> {
     const apiKey = this.getVipGeminiKey();
     if (!apiKey) return null;
+
+    const modelsToTry = this.getConfiguredGeminiModels();
+    if (modelsToTry.length === 0) {
+      this.logger.warn(
+        '[Gemini VIP API] Chưa cấu hình GEMINI_MODEL hoặc GEMINI_FALLBACK_MODELS trong .env',
+      );
+      return null;
+    }
 
     const isSocraticTopicHint = dto.questionContext?.mode === 'SOCRATIC_TOPIC_HINT';
     const qCtx = dto.questionContext || {};
@@ -282,9 +299,20 @@ Quy tắc giao tiếp & trình bày:
       }
     }
 
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest'];
     for (const modelName of modelsToTry) {
       try {
+        const isGemini3Family = modelName.startsWith('gemini-3');
+        const generationConfig = isGemini3Family
+          ? {
+              maxOutputTokens: 1600,
+              thinkingConfig: { thinkingLevel: 'LOW' },
+            }
+          : {
+              temperature: 0.65,
+              maxOutputTokens: 1600,
+              thinkingConfig: { thinkingBudget: 0 },
+            };
+
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
           {
@@ -295,13 +323,9 @@ Quy tắc giao tiếp & trình bày:
                 parts: [{ text: systemInstructionText }],
               },
               contents,
-              generationConfig: {
-                temperature: 0.65,
-                maxOutputTokens: 1600,
-                thinkingConfig: { thinkingBudget: 0 },
-              },
+              generationConfig,
             }),
-            signal: AbortSignal.timeout(15000),
+            signal: AbortSignal.timeout(18000),
           },
         );
 
@@ -316,7 +340,8 @@ Quy tắc giao tiếp & trình bày:
         const data: any = await res.json();
         const replyText: string | undefined =
           data?.candidates?.[0]?.content?.parts
-            ?.map((p: any) => p?.text || '')
+            ?.filter((p: any) => !p?.thought && typeof p?.text === 'string')
+            ?.map((p: any) => p.text)
             .join('')
             .trim();
 
@@ -481,7 +506,7 @@ Quy tắc giao tiếp & trình bày:
     else if (text.includes('lớp 11') || text.includes('khối 11')) detectedGrade = 11;
     else if (text.includes('lớp 12') || text.includes('khối 12')) detectedGrade = 12;
 
-    // 1. Ưu tiên gọi Google Gemini 2.5 Flash thật (Multi-Key Rotation từ GEMINI_API_KEY)
+    // 1. Ưu tiên gọi Google Gemini API thật (cấu hình model qua GEMINI_MODEL / GEMINI_FALLBACK_MODELS)
     //    Khách chưa đăng nhập (allowRealAi = false) chỉ nhận câu trả lời kịch bản có sẵn bên dưới.
     if (options.allowRealAi !== false) {
       const geminiResult = await this.callRealGeminiApi(dto, detectedSubject, detectedGrade);
@@ -509,7 +534,7 @@ Quy tắc giao tiếp & trình bày:
       text.includes('ở đây có gì') ||
       text.includes('làm được gì')
     ) {
-      message = `Chào bạn! 👋 **Schoolify** là nền tảng **Giáo dục & Khảo thí K-12 thông minh**, bám sát 100% Chương trình GDPT 2018 của Bộ GD&ĐT.\n\nSchoolify kết nối trọn vẹn 4 phân hệ người dùng:\n\n1. 🎓 **Dành cho Học sinh (K-12)**:\n   - **Luyện thi thích ứng 4 cấp độ**: Cơ bản (SGK), Trung bình (thi học kỳ & tốt nghiệp), Nâng cao (vận dụng cao 9-10đ) và Học sinh Giỏi (HSG Tỉnh & Quốc gia).\n   - **Đa dạng dạng câu hỏi trắc nghiệm**: Trắc nghiệm 4 lựa chọn, Nhiều đáp án, Đúng/Sai 4 ý, Điền số / Trả lời ngắn, Chùm ngữ liệu, Nối cặp, Sắp xếp, Đục lỗ và Lập trình trực tiếp trong phòng thi IDE.\n   - **Khảo thí chẩn đoán năng lực**: Tự động phát hiện lỗ hổng kiến thức và gợi ý lộ trình bù đắp.\n   - **Đổi quà Kim Cương 💎**: Tích lũy điểm thưởng từ bài thi để đổi quà độc quyền.\n\n2. 👨‍👩‍👧 **Dành cho Phụ huynh**: Theo dõi tiến độ học tập, biểu đồ năng lực Bloom theo tuần/tháng, và đóng học phí trực tuyến minh bạch qua VietQR.\n\n3. 👨‍🏫 **Dành cho Giáo viên & Quản trị**: Công cụ AI Quét đề thi Word (.docx) sang Ngân hàng câu hỏi, thiết kế ma trận đề thi phân hóa Bloom và quản lý lớp học.\n\nBạn có thể bấm các nút bên dưới để bắt đầu trải nghiệm ngay nhé! 🚀`;
+      message = `Chào bạn! 👋 **Schoolify** là nền tảng **Giáo dục & Khảo thí K-12 thông minh**, bám sát 100% Chương trình GDPT 2018 của Bộ GD&ĐT.\n\nSchoolify tập trung phục vụ 2 nhóm người dùng chính:\n\n1. 🎓 **Dành cho Học sinh (K-12)**:\n   - **Luyện thi thích ứng 3 cấp độ & Đấu trường**: Cơ bản (SGK), Trung bình (thi học kỳ & tốt nghiệp THPT), Nâng cao (vận dụng cao 9-10đ & HSG).\n   - **Đa dạng dạng câu hỏi trắc nghiệm**: Trắc nghiệm 4 lựa chọn, Nhiều đáp án, Đúng/Sai 4 ý, Trả lời ngắn và Lập trình trực tiếp trong phòng thi.\n   - **Khảo thí chẩn đoán năng lực**: Tự động phát hiện lỗ hổng kiến thức theo chuyên đề/Bloom và tạo bài luyện lại 3 lượt.\n   - **Điểm Tia Sáng & Ngọc Tri Thức 💎**: Tích lũy điểm thưởng từ bài thi để mở khóa đề và đổi quà tại Cửa hàng.\n\n2. 🛠️ **Dành cho Quản trị viên (Admin)**: Công cụ AI Quét đề thi Word (.docx) chống trùng đáp án vào Ngân hàng câu hỏi, sinh đề ma trận phân hóa Bloom và quản trị hệ thống.\n\nBạn có thể bấm các nút bên dưới để bắt đầu trải nghiệm ngay nhé! 🚀`;
 
       actions.push({
         type: 'NAVIGATE_PAGE',
