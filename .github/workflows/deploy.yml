@@ -1,4 +1,4 @@
-name: Deploy Schoolify BE to s68
+name: Deploy Schoolify BE to EC2
 
 on:
   push:
@@ -13,10 +13,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 24
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies & Build NestJS
@@ -52,16 +52,18 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" '
             set -e
-            export PATH="/opt/plesk/node/24/bin:$PATH"
             cd /opt/apps/schoolify/be
             npm ci --omit=dev
             npx prisma generate
+            set -a
+            [ -f .env ] && . ./.env
+            set +a
             if [ -d prisma/migrations ] && [ -n "$(ls -A prisma/migrations 2>/dev/null)" ]; then
               npx prisma migrate deploy
             else
               npx prisma db push
             fi
-            pm2 reload schoolify-be --update-env || pm2 start /opt/apps/schoolify/ecosystem.config.cjs --only schoolify-be
+            pm2 startOrReload /opt/apps/schoolify/ecosystem.config.cjs --only schoolify-be --update-env
             pm2 save
             for i in 1 2 3 4 5; do
               curl -sf http://127.0.0.1:3005/ >/dev/null && exit 0
