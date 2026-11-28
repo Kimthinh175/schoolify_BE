@@ -21,12 +21,132 @@ function slugify(text: string): string {
     .replace(/^-|-$/g, '');
 }
 
+const DEFAULT_NEWS_CATEGORIES = [
+  {
+    id: 'cat-thpt',
+    name: 'Thi Tốt Nghiệp THPT',
+    slug: 'thi-tot-nghiep-thpt',
+    description:
+      'Thông tin quy chế, cấu trúc đề minh họa và phân tích chuyên sâu kỳ thi Tốt nghiệp THPT theo Chương trình GDPT 2018.',
+    icon: 'GraduationCap',
+    color: '#00B8DD',
+    order_index: 1,
+    is_active: true,
+    is_featured: true,
+    meta_title: 'Tin Tức Thi Tốt Nghiệp THPT 2026 | Schoolify',
+    meta_description:
+      'Cập nhật cấu trúc đề thi, lịch thi và phân tích ma trận đề Tốt nghiệp THPT mới nhất từ Bộ GD&ĐT.',
+    meta_keywords: ['thi tốt nghiệp thpt 2026', 'đề minh họa 2026', 'chương trình gdpt 2018'],
+    is_indexable: true,
+  },
+  {
+    id: 'cat-edtech',
+    name: 'Công Nghệ Giáo Dục',
+    slug: 'cong-nghe-giao-duc',
+    description:
+      'Xu hướng ứng dụng AI, Adaptive Learning và chuyển đổi số trong dạy và học phổ thông.',
+    icon: 'Sparkles',
+    color: '#6366F1',
+    order_index: 2,
+    is_active: true,
+    is_featured: true,
+    meta_title: 'Công Nghệ Giáo Dục & AI Học Tập | Schoolify',
+    meta_description:
+      'Khám phá công nghệ AI tạo đề thích ứng, chấm bài tự luận tự động và cá nhân hóa lộ trình học tập.',
+    meta_keywords: ['công nghệ giáo dục', 'edtech', 'ai giáo dục', 'adaptive learning'],
+    is_indexable: true,
+  },
+  {
+    id: 'cat-bi-quyet',
+    name: 'Bí Quyết Ôn Thi',
+    slug: 'bi-quyet-on-thi',
+    description:
+      'Phương pháp giải nhanh, sơ đồ tư duy, công thức Toán - Tin và kinh nghiệm đạt điểm 9+ từ giáo viên chuyên.',
+    icon: 'BookOpen',
+    color: '#10B981',
+    order_index: 3,
+    is_active: true,
+    is_featured: true,
+    meta_title: 'Bí Quyết Ôn Thi & Phương Pháp Giải Nhanh | Schoolify',
+    meta_description:
+      'Tổng hợp mẹo giải nhanh Toán, Tin và chiến thuật phân bổ thời gian làm bài thi THPT.',
+    meta_keywords: ['bí quyết ôn thi', 'giải nhanh toán 12', 'công thức oxyz'],
+    is_indexable: true,
+  },
+  {
+    id: 'cat-su-kien',
+    name: 'Sự Kiện Schoolify',
+    slug: 'su-kien-schoolify',
+    description:
+      'Các cuộc thi học thuật trực tuyến, giải đấu Bảng Vàng và hoạt động ngoại khóa sôi động trên nền tảng Schoolify.',
+    icon: 'Trophy',
+    color: '#F59E0B',
+    order_index: 4,
+    is_active: true,
+    is_featured: true,
+    meta_title: 'Sự Kiện & Giải Đấu Học Thuật | Schoolify',
+    meta_description:
+      'Tham gia đua top Bảng Vàng, thi thử toàn quốc và nhận học bổng Ngọc Tri Thức cùng Schoolify.',
+    meta_keywords: ['sự kiện schoolify', 'đua top bảng vàng', 'thi thử thpt online'],
+    is_indexable: true,
+  },
+  {
+    id: 'cat-huong-dan',
+    name: 'Hướng Dẫn Nền Tảng',
+    slug: 'huong-dan-nen-tang',
+    description:
+      'Cẩm nang sử dụng các công cụ học tập, phòng thi ảo, máy tính Casio tích hợp và bộ gõ LaTeX trên Schoolify.',
+    icon: 'Compass',
+    color: '#EC4899',
+    order_index: 5,
+    is_active: true,
+    is_featured: true,
+    meta_title: 'Hướng Dẫn Sử Dụng Nền Tảng Schoolify',
+    meta_description:
+      'Hướng dẫn chi tiết cho học sinh và giáo viên khai thác tối đa hệ sinh thái Schoolify.',
+    meta_keywords: ['hướng dẫn schoolify', 'gõ công thức latex', 'phòng thi ảo'],
+    is_indexable: true,
+  },
+  {
+    id: 'cat-nha-truong',
+    name: 'Nhà Trường Số',
+    slug: 'nha-truong-so',
+    description:
+      'Giải pháp quản trị trường học thông minh, ngân hàng đề kiểm tra chuẩn hóa và kết nối học tập.',
+    icon: 'Building2',
+    color: '#0EA5E9',
+    order_index: 6,
+    is_active: true,
+    is_featured: true,
+    meta_title: 'Nhà Trường Số & Quản Trị Giáo Dục | Schoolify',
+    meta_description:
+      'Chia sẻ kinh nghiệm chuyển đổi số trường THPT, quản lý ma trận đề và đánh giá năng lực học sinh.',
+    meta_keywords: ['nhà trường số', 'chuyển đổi số giáo dục', 'quản lý trường học'],
+    is_indexable: true,
+  },
+];
+
 @Injectable()
 export class NewsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async ensureDefaultCategoriesIfEmpty() {
+    const countFn = (this.prisma.newsCategory as any).count;
+    if (typeof countFn !== 'function') return;
+    const total = await countFn.call(this.prisma.newsCategory);
+    if (total > 0) return;
+
+    for (const preset of DEFAULT_NEWS_CATEGORIES) {
+      try {
+        await this.prisma.newsCategory.create({ data: preset });
+      } catch {
+        // Bỏ qua nếu đã tồn tại do race condition khi nhiều request cùng gọi
+      }
+    }
+  }
+
   async listCategories(onlyActive = false) {
-    const categories = await this.prisma.newsCategory.findMany({
+    let categories = await this.prisma.newsCategory.findMany({
       where: onlyActive ? { is_active: true } : undefined,
       orderBy: [{ order_index: 'asc' }, { created_at: 'desc' }],
       include: {
@@ -35,6 +155,19 @@ export class NewsService {
         },
       },
     });
+
+    if (categories.length === 0) {
+      await this.ensureDefaultCategoriesIfEmpty();
+      categories = await this.prisma.newsCategory.findMany({
+        where: onlyActive ? { is_active: true } : undefined,
+        orderBy: [{ order_index: 'asc' }, { created_at: 'desc' }],
+        include: {
+          _count: {
+            select: { articles: true },
+          },
+        },
+      });
+    }
 
     return categories.map(({ _count, ...rest }) => ({
       ...rest,
@@ -184,13 +317,36 @@ export class NewsService {
       throw new BadRequestException('Tiêu đề bài viết không được để trống');
     }
 
-    let categoryId = body?.category_id || existing?.category_id;
+    let categoryId: string | undefined = body?.category_id || existing?.category_id;
+    if (categoryId) {
+      const matchedCat = await this.prisma.newsCategory.findUnique({
+        where: { id: categoryId },
+      });
+      if (!matchedCat) {
+        const preset = DEFAULT_NEWS_CATEGORIES.find((c) => c.id === categoryId);
+        if (preset) {
+          const bySlug = await this.prisma.newsCategory.findUnique({
+            where: { slug: preset.slug },
+          });
+          if (bySlug) {
+            categoryId = bySlug.id;
+          } else {
+            const createdPreset = await this.prisma.newsCategory.create({ data: preset });
+            categoryId = createdPreset.id;
+          }
+        } else {
+          categoryId = undefined;
+        }
+      }
+    }
+
     if (!categoryId) {
+      await this.ensureDefaultCategoriesIfEmpty();
       const firstCat = await this.prisma.newsCategory.findFirst({
         orderBy: { order_index: 'asc' },
       });
       if (!firstCat) {
-        const createdCat = await this.saveCategory({ name: 'Tin tức chung', slug: 'tin-tuc-chung' });
+        const createdCat = await this.saveCategory(DEFAULT_NEWS_CATEGORIES[0]);
         categoryId = createdCat.id;
       } else {
         categoryId = firstCat.id;
@@ -259,6 +415,10 @@ export class NewsService {
         body?.author_name || authorUser?.fullname || existing?.author_name || 'Ban Biên Tập Schoolify',
       author_avatar: body?.author_avatar ?? authorUser?.avatar_url ?? existing?.author_avatar ?? null,
       author_role: body?.author_role ?? existing?.author_role ?? 'Biên tập viên',
+      author_bio: body?.author_bio ?? existing?.author_bio ?? null,
+      source_name: body?.source_name ?? existing?.source_name ?? null,
+      source_url: body?.source_url ?? existing?.source_url ?? null,
+      structured_data: body?.structured_data ?? existing?.structured_data ?? undefined,
       status,
       is_featured: body?.is_featured !== undefined ? Boolean(body.is_featured) : existing?.is_featured ?? false,
       is_pinned: body?.is_pinned !== undefined ? Boolean(body.is_pinned) : existing?.is_pinned ?? false,

@@ -65,4 +65,41 @@ describe('NewsModule (Unit Tests)', () => {
       NotFoundException,
     );
   });
+
+  it('auto-creates default category when saving article with unseeded preset category_id', async () => {
+    prisma.newsArticle.findUnique.mockResolvedValue(null);
+    prisma.newsCategory.findUnique.mockResolvedValue(null);
+    prisma.newsCategory.create.mockResolvedValue({
+      id: 'cat-thpt',
+      name: 'Thi Tốt Nghiệp THPT',
+      slug: 'thi-tot-nghiep-thpt',
+    });
+    prisma.newsArticle.findFirst.mockResolvedValue(null);
+    prisma.newsArticle.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: data.id || 'art-new', ...data }),
+    );
+
+    const res = await controller.createArticle(
+      {
+        title: 'Bài viết test mới',
+        category_id: 'cat-thpt',
+        excerpt: 'Tóm tắt ngắn',
+        content: '## Mở đầu\nNội dung bài viết',
+        status: 'PUBLISHED',
+      },
+      { id: 'admin-1', fullname: 'Admin' },
+    );
+
+    expect(res.success).toBe(true);
+    expect(prisma.newsCategory.create).toHaveBeenCalledTimes(1);
+    expect(prisma.newsArticle.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          category_id: 'cat-thpt',
+          title: 'Bài viết test mới',
+          status: 'PUBLISHED',
+        }),
+      }),
+    );
+  });
 });
