@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: 'npm'
@@ -30,9 +30,11 @@ jobs:
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -T 15 -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts
 
       - name: Rsync build artifacts to server
         run: |
@@ -40,6 +42,7 @@ jobs:
             --filter='P .env' \
             --filter='P .env.*' \
             --filter='P node_modules/' \
+            --filter='P uploads/' \
             --exclude='.env*' \
             --exclude='node_modules' \
             --exclude='*.md' \
