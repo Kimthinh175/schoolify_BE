@@ -38,6 +38,10 @@ jobs:
 
       - name: Rsync build artifacts to server
         run: |
+          DEPLOY_USER="${{ secrets.SSH_USER }}"
+          if [ -z "$DEPLOY_USER" ] || [ "$DEPLOY_USER" = "root" ]; then
+            DEPLOY_USER="ubuntu"
+          fi
           rsync -az --delete \
             --filter='P .env' \
             --filter='P .env.*' \
@@ -49,11 +53,15 @@ jobs:
             --exclude='.git' \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
             dist prisma package.json package-lock.json prisma.config.ts \
-            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/opt/apps/schoolify/be/"
+            "${DEPLOY_USER}@${{ secrets.SSH_HOST }}:/opt/apps/schoolify/be/"
 
       - name: Install prod deps, migrate & reload PM2
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" '
+          DEPLOY_USER="${{ secrets.SSH_USER }}"
+          if [ -z "$DEPLOY_USER" ] || [ "$DEPLOY_USER" = "root" ]; then
+            DEPLOY_USER="ubuntu"
+          fi
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "${DEPLOY_USER}@${{ secrets.SSH_HOST }}" '
             set -e
             cd /opt/apps/schoolify/be
             npm ci --omit=dev
